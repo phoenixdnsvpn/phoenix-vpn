@@ -76,8 +76,15 @@ gomobile init
 ## 4. Building the Project
 ### Generate the Android Library (.aar)
 ```
-cd android
-./gradlew assembleRelease
+# Build for ARM64
+gomobile bind -v \
+    -target=android/arm64 \
+    -androidapi 24 \
+    -ldflags="-s -w" \
+    -o vaydns-arm64.aar \
+    ./mobile
+# Move the library to the Android project libs folder
+cp vaydns-arm64.aar android/app/libs/
 ```
 ### Build the Final APK (CLI Method)
 ```
