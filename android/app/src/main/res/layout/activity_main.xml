@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="VayDNS Settings"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tunnel Domain:"/>
+        <EditText
+            android:id="@+id/et_domain"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="t.example.com" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Server Public Key:"
+            android:layout_marginTop="8dp"/>
+        <EditText
+            android:id="@+id/et_pubkey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Your Server Key" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="DNS Server (UDP):"
+            android:layout_marginTop="8dp"/>
+        <EditText
+            android:id="@+id/et_udp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="8.8.8.8:53" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tunnel Mode:"
+            android:layout_marginTop="16dp"
+            android:textStyle="bold"/>
+
+        <RadioGroup
+            android:id="@+id/rg_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_udp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="UDP"
+                android:checked="true" />
+
+            <RadioButton
+                android:id="@+id/rb_tls"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DoT" />
+
+            <RadioButton
+                android:id="@+id/rb_https"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DoH" />
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Status: Disconnected"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/btn_start"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="START TUNNEL"
+            android:layout_marginTop="16dp" />
+
+        <Button
+            android:id="@+id/btn_stop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="STOP"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+    </LinearLayout>
+</ScrollView>

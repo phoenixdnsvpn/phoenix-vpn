@@ -1,0 +1,19 @@
+# Android
+.gradle/
+build/
+captures/
+*.apk
+*.aar
+local.properties
+.navigation/
+
+# Go
+bin/
+*.exe
+*.so
+vendor/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
