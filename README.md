@@ -11,7 +11,7 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 |----------------|-------------------------------|-----------------------------|
 |Go|`1.25.8+`            |Core logic and cross-compilation            |
 |Android SDK          |`API 24+`            |Android system integration           |
-|Android NDK          |r26b (26.1.10909125)|Compiling Go for ARM64|
+|Android NDK          |r27d |Compiling Go for ARM64|
 |Java (JDK)          |`17`|Required for Gradle / Android Studio|
 
 ##  1. Go Installation (Linux/AMD64)
