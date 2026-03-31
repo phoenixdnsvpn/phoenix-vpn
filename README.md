@@ -87,6 +87,7 @@ gomobile bind -v \
 cp vaydns-arm64.aar android/app/libs/
 ```
 ### Build the Final APK (CLI Method)
+You may use Android Studio or gradlew
 ```
 cd android
 ./gradlew assembleRelease
