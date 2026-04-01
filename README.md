@@ -77,12 +77,14 @@ gomobile init
 ### Generate the Android Library (.aar)
 ```
 # Build for ARM64
+cd mobile
 gomobile bind -v \
     -target=android/arm64 \
     -androidapi 24 \
     -ldflags="-s -w" \
-    -o vaydns-arm64.aar \
-    ./mobile
+    -trimpath \
+    -o ../vaydns-arm64.aar \
+    .
 
 # Move the library to the Android project libs folder
 cp vaydns-arm64.aar android/app/libs/

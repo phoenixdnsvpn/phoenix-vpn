@@ -72,6 +72,9 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tv_status)
         // 1. Initialize UI (Added rgMode here)
         rgMode = findViewById(R.id.rg_mode)
+        if (rgMode.checkedRadioButtonId == -1) {
+            rgMode.check(R.id.rb_udp)
+        }
         etUdp = findViewById(R.id.et_udp)
         etDomain = findViewById(R.id.et_domain)
         etPubKey = findViewById(R.id.et_pubkey)
@@ -80,7 +83,7 @@ class MainActivity : AppCompatActivity() {
         val tvStatus = findViewById<TextView>(R.id.tv_status)
 
         // 2. Load saved settings (Added 'udp' and 'mode' loading)
-        val prefs = getSharedPreferences("VayDNSSettings", MODE_PRIVATE)
+        val prefs = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
         etDomain.setText(prefs.getString("domain", "t.example.com"))
         etPubKey.setText(prefs.getString("pubkey", ""))
         etUdp.setText(prefs.getString("udp", "8.8.8.8:53"))
@@ -178,7 +181,7 @@ class MainActivity : AppCompatActivity() {
             putExtra("DOMAIN", etDomain.text.toString())
             putExtra("PUBKEY", etPubKey.text.toString())
             putExtra("UDP", etUdp.text.toString())
-            putExtra("UDP", "46.250.246.10:53")
+            putExtra("MODE", mode)
         }
 
         // On Android 8.0+, foreground services must use startForegroundService
