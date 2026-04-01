@@ -2,7 +2,7 @@
 
 VayDNS is a high-performance DNS-based tunneling solution. Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates two powerful Go-based technologies to provide a full-device VPN experience even in highly restrictive network environments
 
-- **VayDNS**: The "Tunnel" layer. It encapsulates data into DNS queries (DoH, DoT, or UDP) to bypass firewalls and deep packet inspection (DPI).
+- **vaydns**: The "Tunnel" layer. It encapsulates data into DNS queries (DoH, DoT, or UDP) to bypass firewalls and deep packet inspection (DPI).
 - **Tun2Socks**: The "VPN" layer. It captures all IP traffic from the Android TUN interface and transparently forwards it through the VayDNS tunnel.
 
 ## Prerequisites
@@ -107,6 +107,7 @@ This project is licensed under the **MIT License**.
 
 This project would not be possible without the incredible work of the following open-source repositories:
 
--   **[VayDNS](https://github.com/net2share/vaydns)**: For the core DNS tunneling engine and sophisticated transport layers.
+-   **[vaydns](https://github.com/net2share/vaydns)**: For the core DNS tunneling engine and sophisticated transport layers.
     
 -   **[tun2socks](https://github.com/xjasonlyu/tun2socks)**: For the high-performance implementation of TUN-to-SOCKS conversion, enabling system-wide VPN functionality.
+
