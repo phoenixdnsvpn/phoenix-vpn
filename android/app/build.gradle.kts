@@ -14,8 +14,8 @@ android {
         applicationId = "com.net2share.vaydns"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -28,7 +28,11 @@ android {
             excludes.add("lib/x86/*")
             excludes.add("lib/x86_64/*")
         }
-
+        jniLibs {
+            // This forces the APK to compress the Go library.
+            // It makes the APK file smaller, but slightly slower to 'install'.
+            useLegacyPackaging = true
+        }
     }
 
     buildTypes {
@@ -50,6 +54,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation(libs.androidx.activity)
+    implementation(libs.androidx.constraintlayout)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

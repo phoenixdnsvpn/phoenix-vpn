@@ -5,19 +5,23 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import androidx.core.app.NotificationCompat
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.ParcelFileDescriptor
-import mobile.Mobile
-import android.util.Log
-import mobile.SocketProtector
-import java.net.InetAddress
 import android.os.Handler
 import android.os.Looper
-import kotlin.concurrent.thread
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import mobile.Mobile
+import mobile.SocketProtector
+import java.net.InetAddress
 
 class VayVpnService : VpnService() {
     private var tunInterface: ParcelFileDescriptor? = null
@@ -149,13 +153,13 @@ class VayVpnService : VpnService() {
             builder.addRoute(resolverIp, 32)
         }
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+        /*if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
                 builder.addDisallowedApplication(packageName)
             } catch (e: Exception) {
                 Log.e("VayVpn", "Could not disallow app: ${e.message}")
             }
-        }
+        }*/
 
 //        val serverIp = udp.split(":")[0] // Get "8.8.8.8"
         if (serverIp != null && isValidIp(serverIp)) {
@@ -164,6 +168,29 @@ class VayVpnService : VpnService() {
                 Log.i("VayDNS", "Bypassing tunnel for: $serverIp")
             } catch (e: Exception) {
                 Log.e("VayDNS", "Failed to add bypass route: ${e.message}")
+            }
+        }
+
+        // List of package names the user selected from the UI
+// 1. Fetch the saved apps from SharedPreferences
+        val sharedPref = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
+        val selectedApps = sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
+
+// Use ONLY Allowed logic. Do not mix with Disallowed.
+        if (selectedApps.isNotEmpty()) {
+            for (appPkg in selectedApps) {
+                try {
+                    builder.addAllowedApplication(appPkg)
+                } catch (e: PackageManager.NameNotFoundException) {
+                    // App uninstalled, skip it
+                }
+            }
+        } else {
+            // Default: Only tunnel this app to prevent slowing down the whole phone
+            try {
+                builder.addAllowedApplication(this.packageName)
+            } catch (e: Exception) {
+                Log.e("VayVpn", "Error adding self: ${e.message}")
             }
         }
 
@@ -232,7 +259,7 @@ class VayVpnService : VpnService() {
     }
 
     private fun updateNotification(status: String) {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -280,17 +307,66 @@ class VayVpnService : VpnService() {
     }
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val name = "VayVpn Service"
+            val descriptionText = "VPN Status Notification"
+            val importance = NotificationManager.IMPORTANCE_LOW
+            val channel = NotificationChannel("VAY_VPN_CHANNEL", name, importance).apply {
+                description = descriptionText
+            }
+            val notificationManager: NotificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+            /*val channel = NotificationChannel(
                 "VAYDNS_CHANNEL",
                 "VPN Service Channel",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+//            val manager = Context.getSystemService(NotificationManager::class.java)
+            val manager = this@VayVpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            manager.createNotificationChannel(channel)*/
         }
     }
-
     private fun cleanupAndStop() {
+        if (isStopping) return
+        isStopping = true
+
+        // 1. Run the shutdown in a thread, BUT move stopSelf inside it
+        Thread {
+            synchronized(goLock) {
+                try {
+                    // Stop the engine first
+                    Mobile.stopVpn()
+                    Log.i("VayDNS", "Go Engine shutdown complete.")
+                } catch (e: Exception) {
+                    Log.e("VayDNS", "Go shutdown error: ${e.message}")
+                }
+            }
+
+            // 2. Now that the engine is dead, close the interface on the main thread
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    tunInterface?.close()
+                    tunInterface = null
+
+                    // 3. Clear Notification and Stop Service
+                    val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                    nm.cancel(1)
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    } else {
+                        stopForeground(true)
+                    }
+
+                    stopSelf() // NOW it is safe to die
+                    Log.i("VayDNS", "Service fully stopped.")
+                } catch (e: Exception) {
+                    Log.e("VayDNS", "Final cleanup error: ${e.message}")
+                }
+            }
+        }.start()
+    }
+    private fun cleanupAndStop2() {
         if (isStopping) return // Prevent double-triggering
         isStopping = true
 
@@ -303,7 +379,7 @@ class VayVpnService : VpnService() {
         }
 
         // 2. Clear the notification
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.cancel(1)
 
         // 3. Stop Go in the background (Non-blocking)

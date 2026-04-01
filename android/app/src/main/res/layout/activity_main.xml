@@ -85,6 +85,23 @@
         </RadioGroup>
 
         <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="App Filtering:"
+            android:layout_marginTop="16dp"
+            android:textStyle="bold"/>
+
+        <Button
+            android:id="@+id/btn_select_apps"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="SELECT APPS (SPLIT TUNNEL)"
+            android:drawableStart="@android:drawable/ic_menu_add"
+            android:layout_marginTop="4dp"
+            android:gravity="start|center_vertical" />
+
+        <TextView
             android:id="@+id/tv_status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

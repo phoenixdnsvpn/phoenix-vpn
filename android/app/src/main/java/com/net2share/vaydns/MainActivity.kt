@@ -1,6 +1,5 @@
 package com.net2share.vaydns
 
-import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,14 +11,12 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.RadioGroup
-import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import android.util.Log
-import android.app.NotificationManager
 import com.net2share.vaydns.R
+import com.net2share.vaydns.VayVpnService
 
 private lateinit var rgMode: RadioGroup
 private var lastUdp = "8.8.8.8:53"
@@ -134,11 +131,18 @@ class MainActivity : AppCompatActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             // Adding the RECEIVER_EXPORTED or RECEIVER_NOT_EXPORTED flag is mandatory now
-            registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"), Context.RECEIVER_EXPORTED)
+            registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"), RECEIVER_EXPORTED)
         } else {
             registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"))
         }
 
+        val btnSelectApps = findViewById<Button>(R.id.btn_select_apps)
+
+        btnSelectApps.setOnClickListener {
+            // This opens the activity where the user picks which apps to tunnel
+            val intent = Intent(this, AppSelectorActivity::class.java)
+            startActivity(intent)
+        }
     }
     private fun saveSettings() {
         val prefs = getSharedPreferences("VayDNSSettings", MODE_PRIVATE)
@@ -187,7 +191,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode == Activity.RESULT_OK) {
+        if (resultCode == RESULT_OK) {
             val intent = Intent(this, VayVpnService::class.java).apply {
                 // This is how the Service gets your UI data
                 putExtra("DOMAIN", etDomain.text.toString())
