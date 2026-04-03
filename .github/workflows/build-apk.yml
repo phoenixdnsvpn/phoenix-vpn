@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Add permissions block to allow the action to create releases
     permissions:
       contents: write
 
@@ -48,7 +47,6 @@ jobs:
         run: ./gradlew clean
 
       - name: Build Core Android Library (.aar)
-        # Pointing to the directory containing go.mod
         working-directory: ./mobile
         run: |
           go mod tidy
@@ -60,18 +58,24 @@ jobs:
             -trimpath \
             -o ../android/app/libs/vaydns-arm64.aar .
 
-      - name: Build APK
+      - name: Build Signed Debug APK
         working-directory: ./android
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleDebug
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx2048m"
+
+      - name: Rename and Prepare APK
+        # This renames the debug APK to your specific requested format
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
 
       - name: Create Release and Upload APK
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/debug/VaydnsVpn-*-arm64-v8a.apk
             android/app/libs/vaydns-arm64.aar
           draft: false
           prerelease: false
