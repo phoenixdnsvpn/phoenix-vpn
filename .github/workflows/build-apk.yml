@@ -48,15 +48,17 @@ jobs:
         run: ./gradlew clean
 
       - name: Build Core Android Library (.aar)
+        # Pointing to the directory containing go.mod
+        working-directory: ./mobile
         run: |
           go mod tidy
-          mkdir -p android/app/libs
+          mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
             -ldflags="-s -w" \
             -trimpath \
-            -o android/app/libs/vaydns-arm64.aar ./mobile
+            -o ../android/app/libs/vaydns-arm64.aar .
 
       - name: Build APK
         working-directory: ./android
