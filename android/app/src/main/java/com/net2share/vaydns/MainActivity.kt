@@ -4,49 +4,43 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.graphics.Color
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.widget.Button
-import android.widget.EditText
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.net2share.vaydns.R
-import com.net2share.vaydns.VayVpnService
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.net2share.vaydns.ConfigEditorActivity.Companion.loadAllConfigs
+import com.net2share.vaydns.ConfigEditorActivity.Companion.saveAllConfigs
 
-private lateinit var rgMode: RadioGroup
-private var lastUdp = "8.8.8.8:53"
-private var lastDot = "8.8.8.8:853"
-private var lastDoh = "https://dns.google/dns-query"
-private var currentModeId: Int = R.id.rb_udp
+private lateinit var rgMode: RadioGroup   // kept only for editor (we don't use it here anymore)
+private lateinit var tvStatus: TextView
+private lateinit var btnStart: Button
+private lateinit var btnStop: Button
+private lateinit var recyclerConfigs: RecyclerView
+
+private var selectedConfigId: String? = null   // which config is active for START
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var etUdp: EditText
-    private val VPN_REQUEST_CODE = 100
-
-    // UI Elements
-    private lateinit var etDomain: EditText
-    private lateinit var etPubKey: EditText
-    private lateinit var btnStart: Button
-    private lateinit var btnStop: Button
-    private lateinit var tvStatus: TextView // Move this here so it's accessible
-
-    // 1. Create the Receiver
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val status = intent?.getStringExtra("status")
             if (status == "CONNECTED") {
-                // Use runOnUiThread to make sure the screen actually repaints
                 runOnUiThread {
                     tvStatus.text = "Status: Connected"
-//                    tvStatus.setTextColor(Color.GREEN)
-                    tvStatus.setTextColor(Color.parseColor("#006400")) // Dark Green (Forest Green)
-//                    tvStatus.setTextColor(Color.rgb(0, 100, 0))
+                    tvStatus.setTextColor(Color.parseColor("#006400"))
                     Toast.makeText(this@MainActivity, "VPN Live!", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -56,135 +50,187 @@ class MainActivity : AppCompatActivity() {
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            // Permission granted! Start the service
-            startVpnService()
-        } else {
-            Toast.makeText(this, "Permission denied. VPN cannot start.", Toast.LENGTH_SHORT).show()
+        if (result.resultCode == RESULT_OK) startVpnService() else {
+            Toast.makeText(this, "VPN permission denied", Toast.LENGTH_SHORT).show()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // supportActionBar?.hide() // Uncomment this if the blue bar is still there
+
+        window.statusBarColor = Color.TRANSPARENT
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val isDarkMode = (resources.configuration.uiMode and
+                    android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+            val decor = window.decorView
+            if (!isDarkMode) {
+                // Light Mode: Black Icons
+                decor.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            } else {
+                // Dark Mode: White Icons (Clear the flag)
+                decor.systemUiVisibility = 0
+            }
+        }
+
         setContentView(R.layout.activity_main)
 
+        // Toolbar + menu
+        val toolbar = findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)
+        setSupportActionBar(toolbar)
+        supportActionBar?.title = "VayDNS"
+
         tvStatus = findViewById(R.id.tv_status)
-        // 1. Initialize UI (Added rgMode here)
-        rgMode = findViewById(R.id.rg_mode)
-        if (rgMode.checkedRadioButtonId == -1) {
-            rgMode.check(R.id.rb_udp)
-        }
-        etUdp = findViewById(R.id.et_udp)
-        etDomain = findViewById(R.id.et_domain)
-        etPubKey = findViewById(R.id.et_pubkey)
         btnStart = findViewById(R.id.btn_start)
         btnStop = findViewById(R.id.btn_stop)
-        val tvStatus = findViewById<TextView>(R.id.tv_status)
+        recyclerConfigs = findViewById(R.id.recycler_configs)
 
-        // 2. Load saved settings (Added 'udp' and 'mode' loading)
-        val prefs = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
-        etDomain.setText(prefs.getString("domain", "t.example.com"))
-        etPubKey.setText(prefs.getString("pubkey", ""))
-        etUdp.setText(prefs.getString("udp", "8.8.8.8:53"))
+        // Load saved configs and selected ID
+        loadSelectedConfig()
 
-        // Load the last selected Radio Button
-        val lastModeId = prefs.getInt("last_mode_id", R.id.rb_udp)
-        rgMode.check(lastModeId)
-        currentModeId = lastModeId // Update our tracker variable
-
-        // 3. The "Memory" Listener: Swap text when Radio Button changes
-        rgMode.setOnCheckedChangeListener { _, checkedId ->
-            // Save current text to the variable of the OLD mode before switching
-            when (currentModeId) {
-                R.id.rb_udp -> lastUdp = etUdp.text.toString()
-                R.id.rb_tls -> lastDot = etUdp.text.toString()
-                R.id.rb_https -> lastDoh = etUdp.text.toString()
-            }
-
-            currentModeId = checkedId
-
-            // Load the text for the NEW mode
-            when (checkedId) {
-                R.id.rb_udp -> etUdp.setText(lastUdp)
-                R.id.rb_tls -> etUdp.setText(lastDot)
-                R.id.rb_https -> etUdp.setText(lastDoh)
-            }
-        }
+        // RecyclerView for configs
+        recyclerConfigs.layoutManager = LinearLayoutManager(this)
+        refreshConfigList()
 
         btnStart.setOnClickListener {
-            if (etDomain.text.isBlank() || etPubKey.text.isBlank()) {
-                Toast.makeText(this, "Domain and Public Key are required", Toast.LENGTH_SHORT).show()
+            if (selectedConfigId == null) {
+                Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             tvStatus.text = "Status: Connecting..."
             tvStatus.setTextColor(Color.BLUE)
-            saveSettings()
             prepareAndStartVpn()
         }
 
-        btnStop.setOnClickListener {
-            stopVpnService()
-            tvStatus.text = "Status: Disconnected"
-            tvStatus.setTextColor(Color.GRAY)
-            Toast.makeText(this, "Stopping VPN...", Toast.LENGTH_SHORT).show()
-//            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-//            notificationManager.cancel(1)
+        btnStop.setOnClickListener { stopVpnService() }
+
+        // App selector button stays the same
+        findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
+            startActivity(Intent(this, AppSelectorActivity::class.java))
         }
 
+        // Register receiver
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Adding the RECEIVER_EXPORTED or RECEIVER_NOT_EXPORTED flag is mandatory now
             registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"), RECEIVER_EXPORTED)
         } else {
             registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"))
         }
-
-        val btnSelectApps = findViewById<Button>(R.id.btn_select_apps)
-
-        btnSelectApps.setOnClickListener {
-            // This opens the activity where the user picks which apps to tunnel
-            val intent = Intent(this, AppSelectorActivity::class.java)
-            startActivity(intent)
-        }
     }
-    private fun saveSettings() {
-        val prefs = getSharedPreferences("VayDNSSettings", MODE_PRIVATE)
-        prefs.edit().apply {
-            putString("domain", etDomain.text.toString())
-            putString("pubkey", etPubKey.text.toString())
-            putString("udp", etUdp.text.toString())
-            putInt("last_mode_id", rgMode.checkedRadioButtonId) // Save which radio was picked
-            apply()
+
+    private fun loadSelectedConfig() {
+        val prefs = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
+        selectedConfigId = prefs.getString("selected_config_id", null)
+    }
+
+    private fun saveSelectedConfigId(id: String?) {
+        val prefs = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
+        prefs.edit().putString("selected_config_id", id).apply()
+        selectedConfigId = id
+    }
+
+    private fun refreshConfigList() {
+        val configs = loadAllConfigs(this)
+        val adapter = ConfigAdapter(configs, selectedConfigId,
+            onConfigSelected = { config ->
+                saveSelectedConfigId(config.id)
+                refreshConfigList()   // refresh highlight
+            },
+            onEditClicked = { config ->
+                val intent = Intent(this, ConfigEditorActivity::class.java).apply {
+                    putExtra("CONFIG_ID", config.id)
+                }
+                startActivity(intent)
+            },
+            onDeleteClicked = { config ->
+                showDeleteConfirmation(config)
+            }
+        )
+        recyclerConfigs.adapter = adapter
+    }
+
+    private fun showDeleteConfirmation(config: Config) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete Config")
+            .setMessage("Delete \"${config.name}\"?")
+            .setPositiveButton("Delete") { _, _ ->
+                val configs = loadAllConfigs(this).toMutableList()
+                configs.removeAll { it.id == config.id }
+                saveAllConfigs(this, configs)
+
+                // If we deleted the currently selected one, clear selection
+                if (selectedConfigId == config.id) saveSelectedConfigId(null)
+
+                refreshConfigList()
+                Toast.makeText(this, "Config deleted", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.main_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_add_config -> {
+                startActivity(Intent(this, ConfigEditorActivity::class.java))
+                true
+            }
+            R.id.action_about -> {
+                val version = try {
+                    packageManager.getPackageInfo(packageName, 0).versionName
+                } catch (e: Exception) {
+                    "1.0"
+                }
+
+                AlertDialog.Builder(this)
+                    .setTitle("VayDNS")
+                    .setMessage("""
+            Version: $version
+            
+            DNS Tunneling app designed for heavily censored environments.
+            
+            Made with ❤️
+        """.trimIndent())
+                    .setPositiveButton("Close", null)
+                    .setIcon(R.mipmap.ic_launcher_round)
+                    .show()
+
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
         }
     }
 
     private fun prepareAndStartVpn() {
         val intent = VpnService.prepare(this)
-        if (intent != null) {
-            // This triggers the popup using the new API
-            vpnPermissionLauncher.launch(intent)
-        } else {
-            // Permission already exists, go straight to starting
-            startVpnService()
-        }
+        if (intent != null) vpnPermissionLauncher.launch(intent) else startVpnService()
     }
 
     private fun startVpnService() {
-
-        val mode = when (rgMode.checkedRadioButtonId) {
-            R.id.rb_tls -> "dot"   // Changed from 'tls' to 'dot'
-            R.id.rb_https -> "doh" // Changed from 'https' to 'doh'
-            else -> "udp"
-        }
+        val configs = loadAllConfigs(this)
+        val config = configs.find { it.id == selectedConfigId } ?: return
 
         val intent = Intent(this, VayVpnService::class.java).apply {
-            putExtra("DOMAIN", etDomain.text.toString())
-            putExtra("PUBKEY", etPubKey.text.toString())
-            putExtra("UDP", etUdp.text.toString())
-            putExtra("MODE", mode)
+            putExtra("DOMAIN", config.domain)
+            putExtra("PUBKEY", config.pubkey)
+            putExtra("UDP", config.dnsAddress)
+            putExtra("MODE", config.mode)
         }
-
-        // On Android 8.0+, foreground services must use startForegroundService
+/*
+        val snackbar = com.google.android.material.snackbar.Snackbar.make(
+            findViewById(R.id.bottom_controls), // Anchor to the button container
+            "VPN Live!",
+            com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
+        )
+        // This pushes it ABOVE the button container
+        snackbar.anchorView = findViewById(R.id.btn_start)
+        snackbar.show()
+*/
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -192,32 +238,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode == RESULT_OK) {
-            val intent = Intent(this, VayVpnService::class.java).apply {
-                // This is how the Service gets your UI data
-                putExtra("DOMAIN", etDomain.text.toString())
-                putExtra("PUBKEY", etPubKey.text.toString())
-                putExtra("UDP", etUdp.text.toString())
-            }
-            startService(intent)
-        }
-    }
-
     private fun stopVpnService() {
         val stopIntent = Intent(this, VayVpnService::class.java).apply {
-            action = "ACTION_STOP_VPN" // We add a specific "Kill" action
+            action = "ACTION_STOP_VPN"
         }
-        startService(stopIntent) // We "start" it with a STOP command
+        startService(stopIntent)
         tvStatus.text = "Status: Disconnected"
         tvStatus.setTextColor(Color.parseColor("#424242"))
-        Toast.makeText(this, "VPN Stopped", Toast.LENGTH_SHORT).show()
+/*
+        com.google.android.material.snackbar.Snackbar.make(
+            findViewById(R.id.bottom_controls),
+            "VPN Stopped",
+            com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
+        ).setAnchorView(R.id.btn_stop).show()
+*/
+        tvStatus.text = "Status: Disconnected"
+        tvStatus.setTextColor(Color.parseColor("#424242"))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshConfigList()   // refresh after returning from editor
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // 3. Clean up to prevent memory leaks
         unregisterReceiver(vpnStateReceiver)
     }
 }

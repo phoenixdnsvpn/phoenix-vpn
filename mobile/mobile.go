@@ -84,7 +84,7 @@ func StartVpn(fd int, udp, doh, dot, domain, pubkey string, protector SocketProt
 	}()
 
 	// 3. Give the SOCKS5 server a tiny bit of time to bind
-	time.Sleep(1800 * time.Millisecond)
+	time.Sleep(2000 * time.Millisecond)
 
 	// 4. Configure and start tun2socks (global engine)
 	key := &engine.Key{

@@ -15,11 +15,14 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 |Java (JDK)          |`17`|Required for Gradle / Android Studio|
 
 ##  1. Go Installation (Linux/AMD64)
+
 ```
-# Download the official binary 
+# Download and install the official Go binary:
 wget https://go.dev/dl/go1.25.8.linux-amd64.tar.gz 
 # Remove old versions and extract (requires sudo) 
-sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.25.8.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+rm -rf ~/go
+sudo tar -C /usr/local -xzf go1.25.8.linux-amd64.tar.gz
 ```
 To ensure compatibility with the mobile binding tools, install the latest Go binary distribution.
 
@@ -27,49 +30,66 @@ To ensure compatibility with the mobile binding tools, install the latest Go bin
 
 Add these lines to your `~/.bashrc`:
 ```
-export GOROOT=/usr/local/go
+export PATH=$PATH:/usr/local/go/bin
 export GOPATH=$HOME/go
-export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
+export PATH=$PATH:$GOPATH/bin
 ```
 Apply changes: `source ~/.bashrc`
 
 ## 2. Android Environment Setup
 ### Step 1: Install SDK & NDK
-If you are on a headless server, use the `sdkmanager`.
+If you are on a headless server, use the `sdkmanager`. Otherwise I recommend to use Android Studio
 ```
 # Install specific platform and NDK version 
-sdkmanager "platforms;android-24" "build-tools;34.0.0" "ndk;26.1.10909125"
+sdkmanager "platforms;android-24" "build-tools;34.0.0" "ndk;27.2.12479018"
 ```
+### Android Studio Setup
+* In Android Studio:
+
+- Go to **Settings > Languages & Frameworks > Android SDK**.
+
+- Select the **SDK Tools** tab.
+
+- Check **Show Package Details** (bottom right).
+
+- Under **NDK (Side by side)**, ensure you have a version installed (e.g., 27.2.x for LTS or the latest available).
+
+- Under **SDK Platforms**, ensure **Android 7.0 (API 24)** or higher is installed.
+
 ### Step 2: Set Android Variables
 Add these to your `~/.bashrc`:
 ```
-export ANDROID_HOME=$HOME/Android/Sdk 
-export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125 
-export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+export ANDROID_HOME=$HOME/Android/Sdk
+export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH
 ```
 ## 3. Dependency & Toolchain Initialization
 
 To prevent "package not found" errors during the build, we "pin" the mobile tools using a `tools.go` file.
 ### Step 1: Create `tools.go`
-Create a file named `tools.go` in your project root:
+Navigate to the mobile directory and ensure the toolchain is pinned.
+Create a file named 'mobile/tools.go' to ensure the Go compiler caches the mobile binding tools:
 ```
 // +build tools 
-package tools 
-import ( 
-_ "golang.org/x/mobile/bind" 
-_ "golang.org/x/mobile/cmd/gobind" 
-_ "golang.org/x/mobile/cmd/gomobile" 
+package mobile
+
+import (
+        _ "golang.org/x/mobile/bind"
+        _ "golang.org/x/mobile/cmd/gobind"
+        _ "golang.org/x/mobile/cmd/gomobile"
 )
 ```
 ```
-# Fetch core libraries 
-go get github.com/net2share/vaydns@v0.2.6 
-go get github.com/xjasonlyu/tun2socks/v2@v2.6.0 
-go get golang.org/x/mobile/bind 
+# Fetch core libraries
+cd vaydns-vpn/mobile
+# Sync dependencies
+go mod tidy
 
-# Build binaries to your GOPATH 
-go build -o $(go env GOPATH)/bin/gobind golang.org/x/mobile/cmd/gobind 
-go build -o $(go env GOPATH)/bin/gomobile golang.org/x/mobile/cmd/gomobile 
+# Install tools to $GOPATH/bin
+go install golang.org/x/mobile/cmd/gomobile@latest
+go install golang.org/x/mobile/cmd/gobind@latest
+
 # Initialize the cross-compilation environment 
 gomobile init
 ```
@@ -96,14 +116,9 @@ cd android
 ./gradlew assembleRelease
 ```
 
-## Disclaimer & License
-
-### Disclaimer
-
-This software is provided "as is", without warranty of any kind. The authors are not responsible for any misuse, data loss, or legal consequences resulting from the use of this software. Users are responsible for complying with local laws and regulations regarding VPN and tunneling usage.
-### License
-
-This project is licensed under the **MIT License**.
+## Troubleshooting
+* Missing Bind Package: If you get an error saying golang.org/x/mobile/bind is not found, ensure you have run go mod tidy inside the mobile/ folder after creating tools.go.
+* NDK Not Found: Ensure ANDROID_NDK_HOME points to the specific version folder (e.g., ndk/android-ndk-r27d) rather than just the root ndk folder.
 
 ## Acknowledgments
 
@@ -112,4 +127,13 @@ This project would not be possible without the incredible work of the following 
 -   **[vaydns](https://github.com/net2share/vaydns)**: For the core DNS tunneling engine and sophisticated transport layers.
     
 -   **[tun2socks](https://github.com/xjasonlyu/tun2socks)**: For the high-performance implementation of TUN-to-SOCKS conversion, enabling system-wide VPN functionality.
+
+## Disclaimer & License
+
+### Disclaimer
+
+This software is provided "as is", without warranty of any kind. The authors are not responsible for any misuse, data loss, or legal consequences resulting from the use of this software. Users are responsible for complying with local laws and regulations regarding VPN and tunneling usage.
+### License
+
+This project is licensed under the **MIT License**.
 

@@ -53,11 +53,11 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	}
 
 	// 2. Parse Durations
-	idleTimeout := parseDur(c.IdleTimeout, 60*time.Second)
-	keepAlive := parseDur(c.KeepAlive, 20*time.Second)
+	idleTimeout := parseDur(c.IdleTimeout, 10*time.Second)
+	keepAlive := parseDur(c.KeepAlive, 2*time.Second)
 	reconnectMin := parseDur(c.ReconnectMin, 2*time.Second)
 	reconnectMax := parseDur(c.ReconnectMax, 10*time.Second)
-	sessionCheck := parseDur(c.SessionCheck, 30*time.Second)
+	sessionCheck := parseDur(c.SessionCheck, 500*time.Millisecond)
 	openStreamTimeout := parseDur(c.OpenStreamTimeout, 10*time.Second)
 	udpTimeout := parseDur(c.UDPTimeout, 30*time.Second)
 
