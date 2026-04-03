@@ -4,6 +4,7 @@ go 1.25.8
 
 require (
 	github.com/net2share/vaydns v0.2.7
+	github.com/net2share/dnst-scanner@main
 	github.com/sirupsen/logrus v1.9.4
 	github.com/xjasonlyu/tun2socks/v2 v2.6.0
 	golang.org/x/mobile v0.0.0-20260312152759-81488f6aeb60
