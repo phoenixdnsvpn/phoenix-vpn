@@ -40,12 +40,15 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
           $(go env GOPATH)/bin/gomobile init
 
+      - name: Clean Previous Builds
+        # This ensures we don't upload stale artifacts
+        working-directory: ./android
+        run: ./gradlew clean
+
       - name: Build Core Android Library (.aar)
-        # This builds the mobile bridge WITHOUT the scanner package
         working-directory: ./mobile
         run: |
           go mod tidy
-          # Create the libs directory inside the android app module
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
@@ -55,7 +58,6 @@ jobs:
             -o ../android/app/libs/vaydns-arm64.aar .
 
       - name: Build APK
-        # Points to the directory containing gradlew and build.gradle.kts
         working-directory: ./android
         run: ./gradlew assembleRelease
         env:
