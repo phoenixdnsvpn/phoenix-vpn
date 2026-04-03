@@ -3,11 +3,14 @@ name: Build VayDNS Android APK (Core)
 on:
   push:
     tags:
-      - 'v*' # Trigger on version tags like v0.2.7
+      - 'v*'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Add permissions block to allow the action to create releases
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Code
@@ -41,21 +44,19 @@ jobs:
           $(go env GOPATH)/bin/gomobile init
 
       - name: Clean Previous Builds
-        # This ensures we don't upload stale artifacts
         working-directory: ./android
         run: ./gradlew clean
 
       - name: Build Core Android Library (.aar)
-        working-directory: ./mobile
         run: |
           go mod tidy
-          mkdir -p ../android/app/libs
+          mkdir -p android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
             -ldflags="-s -w" \
             -trimpath \
-            -o ../android/app/libs/vaydns-arm64.aar .
+            -o android/app/libs/vaydns-arm64.aar ./mobile
 
       - name: Build APK
         working-directory: ./android
