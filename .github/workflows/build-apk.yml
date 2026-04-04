@@ -46,56 +46,49 @@ jobs:
         working-directory: ./android
         run: chmod +x gradlew && ./gradlew clean
 
-      - name: Build Core Android Libraries (.aar)
-        working-directory: ./mobile
+      - name: Build ARM64 Architecture
         run: |
+          # 1. Build ARM64 AAR
+          cd mobile
           go mod tidy
           mkdir -p ../android/app/libs
-          
-          # Build ARM64 (64-bit)
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
             -ldflags="-s -w" \
             -trimpath \
-            -o ../android/app/libs/vaydns-arm64.aar .
-            
-          # Build ARM (32-bit / armeabi-v7a)
+            -o ../android/app/libs/vaydns-current.aar .
+          
+          # 2. Build ARM64 APK
+          cd ../android
+          ./gradlew assembleDebug -Pandroid.injected.abi=arm64-v8a
+          
+          # 3. Save APK to a safe place before cleaning for next arch
+          mkdir -p ../release-artifacts
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          cp app/build/outputs/apk/debug/app-debug.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
+          cp app/libs/vaydns-current.aar ../release-artifacts/vaydns-arm64.aar
+
+      - name: Build ARMv7 Architecture
+        run: |
+          # 1. Build ARMv7 AAR (Overwrite the previous one so gradle picks this up)
+          cd mobile
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
             -androidapi 24 \
             -ldflags="-s -w" \
             -trimpath \
-            -o ../android/app/libs/vaydns-armeabi.aar .
-
-      - name: Build Signed Debug APKs
-        working-directory: ./android
-        run: ./gradlew assembleDebug
-        env:
-          GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx2048m"
-
-      - name: Rename and Prepare APKs
-        run: |
+            -o ../android/app/libs/vaydns-current.aar .
+          
+          # 2. Build ARMv7 APK
+          cd ../android
+          ./gradlew clean
+          ./gradlew assembleDebug -Pandroid.injected.abi=armeabi-v7a
+          
+          # 3. Save APK
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          mkdir -p release-artifacts
-          
-          # Find generated APKs and move to artifact folder with new names
-          # Note: If your gradle isn't configured for splits, app-debug.apk is the default.
-          # If splits are enabled, they are usually in subfolders by arch.
-          
-          find android/app/build/outputs/apk/debug/ -name "*.apk" -exec cp {} release-artifacts/ \;
-          
-          # Handle potential multi-apk splits or single app-debug.apk
-          if [ -f release-artifacts/app-arm64-v8a-debug.apk ]; then
-            mv release-artifacts/app-arm64-v8a-debug.apk release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
-          elif [ -f release-artifacts/app-debug.apk ]; then
-             # Fallback if splits aren't enabled, though this APK would contain only the last built AAR
-             mv release-artifacts/app-debug.apk release-artifacts/VaydnsVpn-${TAG_NAME}-universal.apk
-          fi
-          
-          if [ -f release-artifacts/app-armeabi-v7a-debug.apk ]; then
-            mv release-artifacts/app-armeabi-v7a-debug.apk release-artifacts/VaydnsVpn-${TAG_NAME}-armeabi-v7a.apk
-          fi
+          cp app/build/outputs/apk/debug/app-debug.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-armeabi-v7a.apk
+          cp app/libs/vaydns-current.aar ../release-artifacts/vaydns-armeabi.aar
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
@@ -103,8 +96,8 @@ jobs:
         with:
           files: |
             release-artifacts/VaydnsVpn-*.apk
-            android/app/libs/vaydns-arm64.aar
-            android/app/libs/vaydns-armeabi.aar
+            release-artifacts/vaydns-arm64.aar
+            release-artifacts/vaydns-armeabi.aar
           draft: false
           prerelease: false
         env:
