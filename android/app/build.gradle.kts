@@ -68,5 +68,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    implementation(files("libs/vaydns-arm64.aar"))
+    // Dynamic AAR selection based on the architecture being built
+    val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-arm64.aar"
+    implementation(files("libs/$targetAar"))
 }
