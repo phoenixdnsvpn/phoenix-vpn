@@ -1,4 +1,4 @@
-name: Build Vaydns VPN (Multi-Arch)
+name: Build VayDNS Android APK (Multi-Arch)
 
 on:
   push:
@@ -8,14 +8,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -23,62 +23,89 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # The Android SDK is pre-installed on ubuntu-latest, but this ensures specific versions
-      - name: Set up Android SDK
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.8'
+
+      - name: Set up Android SDK & NDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Gomobile
+      - name: Install NDK
+        run: |
+          echo "y" | sdkmanager "ndk;27.0.12077973" 
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/27.0.12077973" >> $GITHUB_ENV
+
+      - name: Install Go Mobile Tools
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-          gomobile init
+          $(go env GOPATH)/bin/gomobile init
 
-      # --- STEP 1: Build AARs for specific architectures ---
-      # Note: Ensure android/app/libs exists in your repository structure
-      
-      - name: Build ARM64 AAR
+      - name: Clean Previous Builds
+        working-directory: ./android
+        run: chmod +x gradlew && ./gradlew clean
+
+      - name: Build Core Android Libraries (.aar)
+        working-directory: ./mobile
         run: |
-          mkdir -p android/app/libs
-          gomobile bind -v -target=android/arm64 -o android/app/libs/vaydns-arm64.aar ./mobile
+          go mod tidy
+          mkdir -p ../android/app/libs
+          
+          # Build ARM64 (64-bit)
+          $(go env GOPATH)/bin/gomobile bind -v \
+            -target=android/arm64 \
+            -androidapi 24 \
+            -ldflags="-s -w" \
+            -trimpath \
+            -o ../android/app/libs/vaydns-arm64.aar .
+            
+          # Build ARM (32-bit / armeabi-v7a)
+          $(go env GOPATH)/bin/gomobile bind -v \
+            -target=android/arm \
+            -androidapi 24 \
+            -ldflags="-s -w" \
+            -trimpath \
+            -o ../android/app/libs/vaydns-armeabi.aar .
 
-      - name: Build ARMv7 AAR
+      - name: Build Signed Debug APKs
+        working-directory: ./android
+        run: ./gradlew assembleDebug
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx2048m"
+
+      - name: Rename and Prepare APKs
         run: |
-          mkdir -p android/app/libs
-          gomobile bind -v -target=android/arm -o android/app/libs/vaydns-armeabi.aar ./mobile
-
-      # --- STEP 2: Build Android APKs ---
-      
-      - name: Grant execute permission for gradlew
-        run: chmod +x android/gradlew
-
-      - name: Build Android APKs
-        run: |
-          cd android
-          ./gradlew assembleRelease
-
-      # --- STEP 3: Rename and Release ---
-
-      - name: Prepare Release Files
-        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
           mkdir -p release-artifacts
-          # Copy AARs for release attachment
-          cp android/app/libs/vaydns-arm64.aar release-artifacts/
-          cp android/app/libs/vaydns-armeabi.aar release-artifacts/
-          # Copy and rename APKs (Note: Adjust these paths if your Gradle output structure differs)
-          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk release-artifacts/VaydnsVpn-${{ github.ref_name }}-arm64-v8a.apk || true
-          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk release-artifacts/VaydnsVpn-${{ github.ref_name }}-armeabi-v7a.apk || true
+          
+          # Find generated APKs and move to artifact folder with new names
+          # Note: If your gradle isn't configured for splits, app-debug.apk is the default.
+          # If splits are enabled, they are usually in subfolders by arch.
+          
+          find android/app/build/outputs/apk/debug/ -name "*.apk" -exec cp {} release-artifacts/ \;
+          
+          # Handle potential multi-apk splits or single app-debug.apk
+          if [ -f release-artifacts/app-arm64-v8a-debug.apk ]; then
+            mv release-artifacts/app-arm64-v8a-debug.apk release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
+          elif [ -f release-artifacts/app-debug.apk ]; then
+             # Fallback if splits aren't enabled, though this APK would contain only the last built AAR
+             mv release-artifacts/app-debug.apk release-artifacts/VaydnsVpn-${TAG_NAME}-universal.apk
+          fi
+          
+          if [ -f release-artifacts/app-armeabi-v7a-debug.apk ]; then
+            mv release-artifacts/app-armeabi-v7a-debug.apk release-artifacts/VaydnsVpn-${TAG_NAME}-armeabi-v7a.apk
+          fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            release-artifacts/*.aar
-            release-artifacts/*.apk
+            release-artifacts/VaydnsVpn-*.apk
+            android/app/libs/vaydns-arm64.aar
+            android/app/libs/vaydns-armeabi.aar
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-# --- IMPLEMENTATION NOTES ---
-# 1. Ensure your android/app/build.gradle contains:
-#    dependencies { implementation fileTree(dir: 'libs', include: ['*.aar']) }
-# 2. If the APK paths in Step 3 fail, check your local build output path for Release APKs.
