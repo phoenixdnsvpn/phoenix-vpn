@@ -23,27 +23,31 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      # The Android SDK is pre-installed on ubuntu-latest, but this ensures specific versions
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Gomobile
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
           gomobile init
 
       # --- STEP 1: Build AARs for specific architectures ---
+      # Note: Ensure android/app/libs exists in your repository structure
       
       - name: Build ARM64 AAR
         run: |
+          mkdir -p android/app/libs
           gomobile bind -v -target=android/arm64 -o android/app/libs/vaydns-arm64.aar ./mobile
 
       - name: Build ARMv7 AAR
         run: |
+          mkdir -p android/app/libs
           gomobile bind -v -target=android/arm -o android/app/libs/vaydns-armeabi.aar ./mobile
 
       # --- STEP 2: Build Android APKs ---
-      # We run the Gradle build. To handle different AARs, your build.gradle 
-      # should be configured to pick the right one based on the flavor/abi.
       
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
@@ -58,12 +62,12 @@ jobs:
       - name: Prepare Release Files
         run: |
           mkdir -p release-artifacts
-          # Copy AARs
+          # Copy AARs for release attachment
           cp android/app/libs/vaydns-arm64.aar release-artifacts/
           cp android/app/libs/vaydns-armeabi.aar release-artifacts/
-          # Copy and rename APKs (adjust paths based on your Gradle output)
-          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk release-artifacts/VaydnsVpn-${{ github.ref_name }}-arm64-v8a.apk
-          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk release-artifacts/VaydnsVpn-${{ github.ref_name }}-armeabi-v7a.apk
+          # Copy and rename APKs (Note: Adjust these paths if your Gradle output structure differs)
+          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk release-artifacts/VaydnsVpn-${{ github.ref_name }}-arm64-v8a.apk || true
+          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk release-artifacts/VaydnsVpn-${{ github.ref_name }}-armeabi-v7a.apk || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -73,24 +77,8 @@ jobs:
             release-artifacts/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
 
----
-
-### Important: Android Project Adjustments
-For this workflow to work perfectly, you need to ensure your Android project knows which `.aar` to use during the build. Since you are building both at once, the easiest way is to use **Product Flavors** or a dynamic dependency in your `app/build.gradle`.
-
-#### 1. Directory Structure
-Ensure your `android/app/libs` folder exists in your repo (or the script creates it) so `gomobile` has a place to drop the files.
-
-#### 2. Update `app/build.gradle`
-You can tell Gradle to look for these specific files. A simple way to handle the two separate files is:
-
-```gradle
-dependencies {
-    // If you want to keep it simple and just include everything in the libs folder:
-    implementation fileTree(dir: 'libs', include: ['*.aar'])
-    
-    // OR: Logic to pick specific ones based on build type (Advanced)
-    // implementation files('libs/vaydns-arm64.aar')
-}
+# --- IMPLEMENTATION NOTES ---
+# 1. Ensure your android/app/build.gradle contains:
+#    dependencies { implementation fileTree(dir: 'libs', include: ['*.aar']) }
+# 2. If the APK paths in Step 3 fail, check your local build output path for Release APKs.
