@@ -23,10 +23,19 @@ android {
 
     packaging {
         resources {
-            // Exclude everything that ISN'T arm64 to be 100% sure
-            excludes.add("lib/armeabi-v7a/*")
-            excludes.add("lib/x86/*")
-            excludes.add("lib/x86_64/*")
+            val targetAbi = project.findProperty("android.injected.abi") as String?
+
+            if (targetAbi == "arm64-v8a") {
+                // If building for 64-bit, remove 32-bit junk
+                excludes.add("lib/armeabi-v7a/*")
+                excludes.add("lib/x86/*")
+                excludes.add("lib/x86_64/*")
+            } else if (targetAbi == "armeabi-v7a") {
+                // If building for 32-bit, remove 64-bit junk
+                excludes.add("lib/arm64-v8a/*")
+                excludes.add("lib/x86/*")
+                excludes.add("lib/x86_64/*")
+            }
         }
         jniLibs {
             // This forces the APK to compress the Go library.
