@@ -46,6 +46,8 @@ jobs:
         run: |
           # 1. Build ARM64 AAR
           cd mobile
+          # Ensure go.mod is tidy before gomobile bind
+          go mod tidy
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
@@ -70,6 +72,8 @@ jobs:
         run: |
           # 1. Build ARMv7 AAR
           cd mobile
+          # Ensure go.mod is tidy before gomobile bind
+          go mod tidy
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
