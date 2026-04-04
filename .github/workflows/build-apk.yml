@@ -42,15 +42,10 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
           $(go env GOPATH)/bin/gomobile init
 
-      - name: Clean Previous Builds
-        working-directory: ./android
-        run: chmod +x gradlew && ./gradlew clean
-
-      - name: Build ARM64 Architecture
+      - name: Build ARM64 Version
         run: |
-          # 1. Build ARM64 AAR (Using the exact name Gradle expects)
+          # 1. Build ARM64 AAR
           cd mobile
-          go mod tidy
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
@@ -61,20 +56,19 @@ jobs:
           
           # 2. Build ARM64 APK
           cd ../android
-          ./gradlew assembleDebug -Pandroid.injected.abi=arm64-v8a
+          chmod +x gradlew
+          # Pass -PtargetAar to match the logic in build.gradle.kts
+          ./gradlew assembleDebug -Pandroid.injected.abi=arm64-v8a -PtargetAar=vaydns-arm64.aar
           
-          # 3. Save artifacts
+          # 3. Save artifacts to a temporary directory
           mkdir -p ../release-artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cp app/build/outputs/apk/debug/app-debug.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
-          cp app/libs/vaydns-arm64.aar ../release-artifacts/vaydns-arm64.aar
-          
-          # Cleanup AAR to prevent conflicts in the next step
-          rm app/libs/vaydns-arm64.aar
+          cp app/libs/vaydns-arm64.aar ../release-artifacts/
 
-      - name: Build ARMv7 Architecture
+      - name: Build ARMv7 Version
         run: |
-          # 1. Build ARMv7 AAR (Using the name Gradle needs for 32-bit pass)
+          # 1. Build ARMv7 AAR
           cd mobile
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
@@ -86,14 +80,14 @@ jobs:
           
           # 2. Build ARMv7 APK
           cd ../android
-          # We run clean to ensure the 64-bit cache doesn't interfere
+          # Clean build outputs but keep the libs folder
           ./gradlew clean
-          ./gradlew assembleDebug -Pandroid.injected.abi=armeabi-v7a
+          ./gradlew assembleDebug -Pandroid.injected.abi=armeabi-v7a -PtargetAar=vaydns-armeabi.aar
           
           # 3. Save artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cp app/build/outputs/apk/debug/app-debug.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-armeabi-v7a.apk
-          cp app/libs/vaydns-armeabi.aar ../release-artifacts/vaydns-armeabi.aar
+          cp app/libs/vaydns-armeabi.aar ../release-artifacts/
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
