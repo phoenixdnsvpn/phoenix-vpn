@@ -436,6 +436,11 @@ import java.net.InetAddress
         // 3. IMMEDIATELY deactivate so late JNI calls don't crash the service
         protector?.deactivate()
 
+        sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+            putExtra("status", "DISCONNECTED")
+            setPackage(packageName)
+        })
+
         Thread {
             synchronized(goLock) {
                 try {

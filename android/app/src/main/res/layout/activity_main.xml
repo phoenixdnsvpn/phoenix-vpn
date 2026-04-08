@@ -90,16 +90,14 @@
                 android:textSize="16sp" />
 
             <Button
-                android:id="@+id/btn_start"
+                android:id="@+id/btn_toggle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="START TUNNEL" />
-
-            <Button
-                android:id="@+id/btn_stop"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="STOP" />
+                android:text="START TUNNEL"
+                android:textAllCaps="true"
+                android:textStyle="bold"
+                android:textColor="@android:color/white"
+                android:backgroundTint="#2F4A6F" />
 
             <Button
                 android:id="@+id/btn_dns_scanner"
