@@ -9,14 +9,16 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@android:color/white">
+        android:background="@android:color/white"
+        android:elevation="4dp">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             app:title="VayDNS"
-            app:titleTextColor="@android:color/black" />
+            app:titleTextColor="@android:color/black"
+            app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -29,7 +31,6 @@
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:padding="8dp"
-            android:paddingBottom="16dp"
             android:clipToPadding="false"
             app:layout_constraintBottom_toTopOf="@+id/bottom_controls"
             app:layout_constraintEnd_toEndOf="parent"
@@ -55,19 +56,17 @@
                 android:layout_height="wrap_content"
                 android:text="SELECT APPS TO TUNNEL"
                 android:drawableStart="@android:drawable/ic_menu_add"
-                android:layout_marginStart="16dp"
-                android:layout_marginEnd="16dp"
-                android:gravity="start|center_vertical" />
+                android:gravity="start|center_vertical"
+                android:textColor="#2F4A6F" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Only selected apps will use the slow DNS tunnel."
-                android:layout_marginStart="16dp"
-                android:layout_marginEnd="16dp"
                 android:layout_marginTop="4dp"
                 android:textSize="12sp"
-                android:textColor="#666666" />
+                android:textColor="#666666"
+                android:paddingStart="4dp"/>
 
             <TextView
                 android:id="@+id/tv_status"
@@ -86,10 +85,20 @@
 
             <Button
                 android:id="@+id/btn_stop"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="STOP" />
+
+            <Button
+                android:id="@+id/btn_dns_scanner"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="DNS Resolver Scanner"
+                android:drawableStart="@android:drawable/ic_menu_search"
+                android:layout_marginTop="8dp"
+                android:textColor="#2F4A6F" />
+
         </LinearLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@android:color/white"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/white"
+        app:elevation="4dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar_scanner"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="Scanner parameters"
+            app:titleTextColor="@android:color/black"
+            app:navigationIcon="@android:drawable/ic_menu_revert"
+            app:navigationIconTint="@android:color/black" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="16dp"
+            android:paddingBottom="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tunnel Domain:"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_domain"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none"
+                android:focusable="false"
+                android:backgroundTint="#2F4A6F"
+                android:textColor="#2F4A6F" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Proxy Type:"
+                android:layout_marginTop="16dp"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/rg_proxy"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rb_socks5h"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="socks5h"
+                    android:checked="true"
+                    android:buttonTint="#2F4A6F" />
+
+                <RadioButton
+                    android:id="@+id/rb_socks5"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="socks5"
+                    android:buttonTint="#2F4A6F" />
+
+                <RadioButton
+                    android:id="@+id/rb_http"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="http"
+                    android:buttonTint="#2F4A6F" />
+            </RadioGroup>
+
+            <Button
+                android:id="@+id/btn_start_scan"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="START SCAN"
+                android:backgroundTint="#2F4A6F"
+                android:textColor="@android:color/white"
+                android:layout_marginTop="16dp" />
+
+            <Switch
+                android:id="@+id/switch_public_dns"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use Public DNS Resolvers"
+                android:checked="true"
+                android:layout_marginTop="20dp"
+                android:thumbTint="@color/switch_thumb_selector"
+                android:trackTint="@color/switch_track_selector" />
+
+            <Switch
+                android:id="@+id/switch_conservative"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use Conservative Scan"
+                android:layout_marginTop="20dp"
+                android:thumbTint="@color/switch_thumb_selector"
+                android:trackTint="@color/switch_track_selector" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Resolvers Source:"
+                android:layout_marginTop="20dp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <Button
+                    android:id="@+id/btn_default_resolvers"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Default"
+                    android:backgroundTint="#2F4A6F"
+                    android:textColor="@android:color/white"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_custom_resolvers"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Custom"
+                    android:backgroundTint="#2F4A6F"
+                    android:textColor="@android:color/white"
+                    android:layout_marginStart="8dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_resolvers_count"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Loaded resolvers: 0"
+                android:layout_marginTop="8dp"
+                android:textColor="#666666" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Number of Resolvers to scan:"
+                android:layout_marginTop="20dp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_num_resolvers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="500" />
+
+            <Switch
+                android:id="@+id/switch_random"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use Random Resolvers"
+                android:checked="true"
+                android:layout_marginTop="20dp"
+                android:thumbTint="@color/switch_thumb_selector"
+                android:trackTint="@color/switch_track_selector" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Workers:"
+                android:layout_marginTop="20dp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_workers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="20" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tunnel Wait (ms):"
+                android:layout_marginTop="20dp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_tunnel_wait"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="2000" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Probe Timeout (seconds):"
+                android:layout_marginTop="20dp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_probe_timeout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="15" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Retry:"
+                android:layout_marginTop="20dp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_retries"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="0" />
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

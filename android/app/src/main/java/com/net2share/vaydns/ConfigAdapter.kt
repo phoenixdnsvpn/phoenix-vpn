@@ -34,13 +34,16 @@ class ConfigAdapter(
         holder.name.text = config.name
         holder.domain.text = config.domain          // ← Just the domain, no label
 
-        holder.name.setOnClickListener { onConfigSelected(config) }
+        holder.itemView.setOnClickListener {
+            onConfigSelected(config)
+        }
 
         // Highlight selected config
+        val cardView = holder.itemView as androidx.cardview.widget.CardView
         if (config.id == selectedId) {
-            holder.itemView.setBackgroundColor(0xFFCCE5FF.toInt())
+            cardView.setCardBackgroundColor(0xFFCCE5FF.toInt())
         } else {
-            holder.itemView.setBackgroundColor(0xFFFFFFFF.toInt())
+            cardView.setCardBackgroundColor(0xFFFFFFFF.toInt())
         }
 
         holder.edit.setOnClickListener { onEditClicked(config) }

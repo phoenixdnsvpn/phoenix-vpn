@@ -1,68 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
 <androidx.cardview.widget.CardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="8dp"
+    android:layout_marginHorizontal="8dp"
+    android:layout_marginVertical="3dp"
     app:cardCornerRadius="8dp"
-    app:cardElevation="4dp">
+    app:cardElevation="2dp">
 
-    <LinearLayout
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="12dp">
+        android:paddingVertical="8dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="6dp">
 
-        <!-- Config Name - Normal (not bold) font -->
         <TextView
             android:id="@+id/tv_config_name"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="18sp"
+            android:textSize="16sp"
             android:textColor="@android:color/black"
             android:ellipsize="end"
-            android:maxLines="1" />
+            android:maxLines="1"
+            android:textStyle="normal"
+            app:layout_constrainedWidth="true"
+            app:layout_constraintHorizontal_bias="0"
+            app:layout_constraintHorizontal_chainStyle="packed"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/tv_separator"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            android:text="Home" />
 
-        <!-- Tunnel Domain - Second line WITHOUT "Tunnel Domain:" label -->
+        <TextView
+            android:id="@+id/tv_separator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" | "
+            android:textColor="#BBBBBB"
+            android:textSize="16sp"
+            app:layout_constraintBottom_toBottomOf="@+id/tv_config_name"
+            app:layout_constraintEnd_toStartOf="@+id/tv_domain"
+            app:layout_constraintStart_toEndOf="@+id/tv_config_name"
+            app:layout_constraintTop_toTopOf="@+id/tv_config_name" />
+
         <TextView
             android:id="@+id/tv_domain"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
+            android:textSize="15sp"
             android:textColor="#666666"
-            android:layout_marginTop="2dp"
             android:ellipsize="end"
-            android:maxLines="1" />
-
-    </LinearLayout>
-
-    <!-- Edit and Delete buttons -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_gravity="end|center_vertical"
-        android:paddingEnd="12dp"
-        android:paddingStart="8dp">
+            android:maxLines="1"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/btn_edit"
+            app:layout_constraintStart_toEndOf="@+id/tv_separator"
+            app:layout_constraintTop_toTopOf="parent"
+            android:text="shiraz.live" />
 
         <ImageView
             android:id="@+id/btn_edit"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
             android:src="@android:drawable/ic_menu_edit"
-            android:contentDescription="Edit config"
-            android:padding="6dp"
-            android:background="?attr/selectableItemBackgroundBorderless" />
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/btn_delete"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="#2F4A6F" />
 
         <ImageView
             android:id="@+id/btn_delete"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
             android:src="@android:drawable/ic_delete"
-            android:contentDescription="Delete config"
-            android:padding="6dp"
-            android:background="?attr/selectableItemBackgroundBorderless" />
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="#D32F2F" />
 
-    </LinearLayout>
-
+    </androidx.constraintlayout.widget.ConstraintLayout>
 </androidx.cardview.widget.CardView>

@@ -23,23 +23,40 @@ import mobile.Mobile
 import mobile.SocketProtector
 import java.net.InetAddress
 
-class VayVpnService : VpnService() {
-    private var tunInterface: ParcelFileDescriptor? = null
-    private var isStopping = false
-    private var builder: Builder = Builder()
-    // The 'Lock' ensures only one thread can talk to Go at a time
-    companion object {
-        private val goLock = Any()
-    }
-
     // The Protector implementation that Go will call for every UDP/TCP socket
-    class AndroidProtector(private val service: VpnService) : SocketProtector {
-        override fun protect(fd: Long): Boolean { // Note: gomobile often uses Long for int/uintptr
-            val success = service.protect(fd.toInt())
-            Log.i("VayDNS", "Protecting FD $fd: $success")
-            return success
+// Change 'val' to 'var' in the constructor and the property
+    class VayVpnService : VpnService() {
+        private var tunInterface: ParcelFileDescriptor? = null
+        private var isStopping = false
+
+        // 1. Move protector to class level
+        private var protector: AndroidProtector? = null
+
+        private var builder: Builder = Builder()
+        // The 'Lock' ensures only one thread can talk to Go at a time
+        companion object {
+            private val goLock = Any()
         }
-    }
+
+        class AndroidProtector(private var service: VpnService?) : SocketProtector {
+            private var active = true
+
+            // This severs the JNI link so Go can't crash the app
+            fun deactivate() {
+                active = false
+                service = null
+            }
+
+            override fun protect(fd: Long): Boolean {
+                val s = service
+                if (!active || s == null) return false
+                return try {
+                    s.protect(fd.toInt())
+                } catch (e: Exception) {
+                    false
+                }
+            }
+        }
 
     override fun onCreate() {
         super.onCreate()
@@ -306,7 +323,7 @@ class VayVpnService : VpnService() {
                     try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
                 }
 
-                val protector = AndroidProtector(this@VayVpnService)
+                protector = AndroidProtector(this@VayVpnService)
                 // It tells Android: "I am using the current default network (WiFi/Cell) as my base."
                 // This usually flips the status from "Connecting" to "Connected" instantly.
 
@@ -349,7 +366,8 @@ class VayVpnService : VpnService() {
                 updateNotification("Error starting tunnel")
             }
         }.start()
-        return START_STICKY
+//        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun updateNotification(status: String) {
@@ -415,39 +433,36 @@ class VayVpnService : VpnService() {
         if (isStopping) return
         isStopping = true
 
-        // 1. Run the shutdown in a thread, BUT move stopSelf inside it
+        // 3. IMMEDIATELY deactivate so late JNI calls don't crash the service
+        protector?.deactivate()
+
         Thread {
             synchronized(goLock) {
                 try {
-                    // Stop the engine first
                     Mobile.stopVpn()
-                    Log.i("VayDNS", "Go Engine shutdown complete.")
-                } catch (e: Exception) {
-                    Log.e("VayDNS", "Go shutdown error: ${e.message}")
-                }
-            }
-
-            // 2. Now that the engine is dead, close the interface on the main thread
-            Handler(Looper.getMainLooper()).post {
-                try {
+                    // 4. CLOSE FD FIRST.
+                    // This is the "Emergency Brake" for the Go engine.
                     tunInterface?.close()
                     tunInterface = null
 
-                    // 3. Clear Notification and Stop Service
-                    val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-                    nm.cancel(1)
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                    } else {
-                        stopForeground(true)
-                    }
-
-                    stopSelf() // NOW it is safe to die
-                    Log.i("VayDNS", "Service fully stopped.")
+                    // 5. Now tell Go to stop
+                    Log.i("VayDNS", "Go engine and TUN interface closed successfully.")
                 } catch (e: Exception) {
-                    Log.e("VayDNS", "Final cleanup error: ${e.message}")
+                    Log.e("VayDNS", "Stop error: ${e.message}")
                 }
+            }
+
+            Handler(Looper.getMainLooper()).post {
+                val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                nm.cancel(1)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    // The modern way (API 24+)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    // The old way for very old devices
+                    stopForeground(true)
+                }
+                stopSelf()
             }
         }.start()
     }

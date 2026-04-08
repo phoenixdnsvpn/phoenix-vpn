@@ -12,11 +12,25 @@ import org.json.JSONObject
 
 class ConfigEditorActivity : AppCompatActivity() {
 
-    private var editingConfigId: String? = null   // null = new config
+    private var editingConfigId: String? = null
+
+    // Remember last values for each mode
+    private var lastUdp = "8.8.8.8:53"
+    private var lastDot = "8.8.8.8:853"
+    private var lastDoh = "https://dns.google/dns-query"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_config_editor)
+
+        val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar_editor)
+
+        toolbar.setNavigationOnClickListener {
+            finish() // Closes this window and returns to the Main Menu
+        }
+
+//        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+//        supportActionBar?.title = "Config parameters"
 
         val etName = findViewById<EditText>(R.id.et_config_name)
         val etDomain = findViewById<EditText>(R.id.et_domain)
@@ -25,13 +39,25 @@ class ConfigEditorActivity : AppCompatActivity() {
         val rgMode = findViewById<RadioGroup>(R.id.rg_mode)
         val btnSave = findViewById<Button>(R.id.btn_save_config)
 
-        // If opened for editing, pre-fill the fields
         editingConfigId = intent.getStringExtra("CONFIG_ID")
+
         if (editingConfigId != null) {
             loadConfigForEditing(editingConfigId!!, etName, etDomain, etPubkey, etDns, rgMode)
             supportActionBar?.title = "Edit Config"
         } else {
             supportActionBar?.title = "Add New Config"
+            // Set default mode and value
+            rgMode.check(R.id.rb_udp)
+            etDns.setText(lastUdp)
+        }
+
+        // Smart mode switching with value memory
+        rgMode.setOnCheckedChangeListener { _, checkedId ->
+            when (checkedId) {
+                R.id.rb_udp -> etDns.setText(lastUdp)
+                R.id.rb_tls -> etDns.setText(lastDot)
+                R.id.rb_https -> etDns.setText(lastDoh)
+            }
         }
 
         btnSave.setOnClickListener {
@@ -44,19 +70,33 @@ class ConfigEditorActivity : AppCompatActivity() {
             val domain = etDomain.text.toString().trim()
             val pubkey = etPubkey.text.toString().trim()
             val dns = etDns.text.toString().trim()
+
             val mode = when (rgMode.checkedRadioButtonId) {
                 R.id.rb_tls -> "dot"
                 R.id.rb_https -> "doh"
                 else -> "udp"
             }
 
+            // Save the current value for future switching
+            when (rgMode.checkedRadioButtonId) {
+                R.id.rb_udp -> lastUdp = dns
+                R.id.rb_tls -> lastDot = dns
+                R.id.rb_https -> lastDoh = dns
+            }
+
             saveOrUpdateConfig(name, domain, pubkey, dns, mode)
-            finish()   // go back to main screen
+            finish()
         }
     }
 
-    private fun loadConfigForEditing(id: String, etName: EditText, etDomain: EditText,
-                                     etPubkey: EditText, etDns: EditText, rgMode: RadioGroup) {
+    private fun loadConfigForEditing(
+        id: String,
+        etName: EditText,
+        etDomain: EditText,
+        etPubkey: EditText,
+        etDns: EditText,
+        rgMode: RadioGroup
+    ) {
         val configs = loadAllConfigs(this)
         val config = configs.find { it.id == id } ?: return
 
@@ -66,19 +106,26 @@ class ConfigEditorActivity : AppCompatActivity() {
         etDns.setText(config.dnsAddress)
 
         when (config.mode) {
-            "dot" -> rgMode.check(R.id.rb_tls)
-            "doh" -> rgMode.check(R.id.rb_https)
-            else -> rgMode.check(R.id.rb_udp)
+            "dot" -> {
+                rgMode.check(R.id.rb_tls)
+                lastDot = config.dnsAddress
+            }
+            "doh" -> {
+                rgMode.check(R.id.rb_https)
+                lastDoh = config.dnsAddress
+            }
+            else -> {
+                rgMode.check(R.id.rb_udp)
+                lastUdp = config.dnsAddress
+            }
         }
     }
 
-    private fun saveOrUpdateConfig(name: String, domain: String, pubkey: String,
-                                   dns: String, mode: String) {
+    private fun saveOrUpdateConfig(name: String, domain: String, pubkey: String, dns: String, mode: String) {
         val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
         val jsonArray = JSONArray(sharedPref.getString("configs", "[]"))
 
         if (editingConfigId != null) {
-            // Update existing
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 if (obj.getString("id") == editingConfigId) {
@@ -91,7 +138,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 }
             }
         } else {
-            // Add new
             val newObj = JSONObject().apply {
                 put("id", java.util.UUID.randomUUID().toString())
                 put("name", name)
@@ -108,7 +154,6 @@ class ConfigEditorActivity : AppCompatActivity() {
     }
 
     companion object {
-        // Helper used by MainActivity too
         fun loadAllConfigs(context: Context): List<Config> {
             val sharedPref = context.getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
             val jsonStr = sharedPref.getString("configs", "[]") ?: "[]"

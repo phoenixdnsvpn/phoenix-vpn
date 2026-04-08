@@ -94,6 +94,7 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 		return err
 	}
 
+/*
 	// NEW: Use DialerControl instead of resolver.Dialer
 	// This provides the "Bypass" logic for the Android VPN in v0.2.6
 	resolver.DialerControl = func(network, address string, rawConn syscall.RawConn) error {
@@ -105,6 +106,19 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 				log.Errorf("VAY_DEBUG: PROTECTOR IS NULL! Bypass will fail.")
 			}
 		})
+	}
+*/
+	resolver.DialerControl = func(network, address string, rawConn syscall.RawConn) error {
+	    // Only intercept the dialer if we actually have a protector to use.
+	    // If Protector is nil, we let Android handle the routing normally.
+	    if c.Protector == nil {
+	        return nil 
+	    }
+
+	    return rawConn.Control(func(fd uintptr) {
+	        log.Infof("VAY_DEBUG: Protecting socket fd: %d", fd)
+	        c.Protector.Protect(int(fd))
+	    })
 	}
 
 	utlsID, _ := client.SampleUTLSDistribution(c.UtlsDistribution)

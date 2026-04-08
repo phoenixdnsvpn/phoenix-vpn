@@ -37,13 +37,58 @@ class MainActivity : AppCompatActivity() {
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val status = intent?.getStringExtra("status")
-            if (status == "CONNECTED") {
-                runOnUiThread {
-                    tvStatus.text = "Status: Connected"
-                    tvStatus.setTextColor(Color.parseColor("#006400"))
-                    Toast.makeText(this@MainActivity, "VPN Live!", Toast.LENGTH_SHORT).show()
+            when (status) {
+                "CONNECTED" -> {
+                    runOnUiThread {
+                        tvStatus.text = "Status: Connected"
+                        tvStatus.setTextColor(Color.parseColor("#006400"))
+                        updateButtonStates(true) // Disable Start, Enable Stop
+//                        Toast.makeText(this@MainActivity, "VPN Live!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                "DISCONNECTED" , "STOPPED" -> {
+                    runOnUiThread {
+                        tvStatus.text = "Status: Disconnected"
+                        tvStatus.setTextColor(Color.parseColor("#2F4A6F"))
+                        updateButtonStates(false) // Enable Start, Disable Stop
+                    }
                 }
             }
+        }
+    }
+
+    private fun updateButtonStates(isConnected: Boolean) {
+        val startActiveColor = Color.parseColor("#2F4A6F")   // Deep Blue
+        val stopActiveColor = Color.parseColor("#2F4A6F")    // Dark Gray/Black
+        val disabledBgColor = Color.parseColor("#EBF5FB")    // Light Blue
+        val disabledTextColor = Color.parseColor("#2F4A6F")  // Gray Text
+        val white = Color.WHITE
+
+        if (isConnected) {
+            // --- CASE: VPN IS CONNECTED ---
+
+            // START: Disable, Light Blue Background, Gray Text
+            btnStart.isEnabled = false
+            btnStart.backgroundTintList = android.content.res.ColorStateList.valueOf(disabledBgColor)
+            btnStart.setTextColor(disabledTextColor)
+
+            // STOP: Enable, Dark Gray Background, White Text
+            btnStop.isEnabled = true
+            btnStop.backgroundTintList = android.content.res.ColorStateList.valueOf(stopActiveColor)
+            btnStop.setTextColor(white)
+
+        } else {
+            // --- CASE: VPN IS DISCONNECTED ---
+
+            // START: Enable, Deep Blue Background, White Text
+            btnStart.isEnabled = true
+            btnStart.backgroundTintList = android.content.res.ColorStateList.valueOf(startActiveColor)
+            btnStart.setTextColor(white)
+
+            // STOP: Disable, Light Blue Background, Gray Text
+            btnStop.isEnabled = false
+            btnStop.backgroundTintList = android.content.res.ColorStateList.valueOf(disabledBgColor)
+            btnStop.setTextColor(disabledTextColor)
         }
     }
 
@@ -94,17 +139,32 @@ class MainActivity : AppCompatActivity() {
         recyclerConfigs.layoutManager = LinearLayoutManager(this)
         refreshConfigList()
 
+        updateButtonStates(false)
+
         btnStart.setOnClickListener {
             if (selectedConfigId == null) {
                 Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+
+            // 1. Update UI immediately
             tvStatus.text = "Status: Connecting..."
             tvStatus.setTextColor(Color.BLUE)
+            updateButtonStates(true) // This flips the colors instantly
+
+            // 2. Start the service
             prepareAndStartVpn()
         }
 
-        btnStop.setOnClickListener { stopVpnService() }
+        btnStop.setOnClickListener {
+            // 1. Tell the service to stop
+            stopVpnService()
+
+            // 2. Immediately flip the UI without waiting for the broadcast
+            updateButtonStates(false)
+            tvStatus.text = "Status: Disconnected"
+            tvStatus.setTextColor(Color.parseColor("#424242"))
+        }
 
         // App selector button stays the same
         findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
@@ -116,6 +176,20 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"), RECEIVER_EXPORTED)
         } else {
             registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"))
+        }
+
+        findViewById<Button>(R.id.btn_dns_scanner).setOnClickListener {
+            val selectedConfig = loadAllConfigs(this).find { it.id == selectedConfigId }
+            if (selectedConfig == null) {
+                Toast.makeText(this, "Please select a config first", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+
+            val intent = Intent(this, DnsScannerActivity::class.java).apply {
+                putExtra("DOMAIN", selectedConfig.domain)
+                putExtra("PUBKEY", selectedConfig.pubkey)
+            }
+            startActivity(intent)
         }
     }
 
@@ -131,6 +205,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshConfigList() {
+        val configs = loadAllConfigs(this)
+        val adapter = ConfigAdapter(
+            configs,
+            selectedConfigId, // This tells the adapter which ID to highlight
+            onConfigSelected = { config ->
+                selectedConfigId = config.id // Update the ID
+                refreshConfigList()          // <--- ADD THIS: Force the UI to redraw
+//                Toast.makeText(this, "Selected: ${config.name}", Toast.LENGTH_SHORT).show()
+            },
+            onEditClicked = { config ->
+                val intent = Intent(this, ConfigEditorActivity::class.java)
+                intent.putExtra("CONFIG_ID", config.id)
+                startActivity(intent)
+            },
+            onDeleteClicked = { config ->
+                showDeleteConfirmation(config)
+            }
+        )
+        recyclerConfigs.adapter = adapter
+    }
+
+    /*private fun refreshConfigList() {
         val configs = loadAllConfigs(this)
         val adapter = ConfigAdapter(configs, selectedConfigId,
             onConfigSelected = { config ->
@@ -148,7 +244,7 @@ class MainActivity : AppCompatActivity() {
             }
         )
         recyclerConfigs.adapter = adapter
-    }
+    }*/
 
     private fun showDeleteConfirmation(config: Config) {
         AlertDialog.Builder(this)
@@ -221,16 +317,16 @@ class MainActivity : AppCompatActivity() {
             putExtra("UDP", config.dnsAddress)
             putExtra("MODE", config.mode)
         }
-/*
-        val snackbar = com.google.android.material.snackbar.Snackbar.make(
-            findViewById(R.id.bottom_controls), // Anchor to the button container
-            "VPN Live!",
-            com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
-        )
-        // This pushes it ABOVE the button container
-        snackbar.anchorView = findViewById(R.id.btn_start)
-        snackbar.show()
-*/
+        /*
+                val snackbar = com.google.android.material.snackbar.Snackbar.make(
+                    findViewById(R.id.bottom_controls), // Anchor to the button container
+                    "VPN Live!",
+                    com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
+                )
+                // This pushes it ABOVE the button container
+                snackbar.anchorView = findViewById(R.id.btn_start)
+                snackbar.show()
+        */
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -245,13 +341,13 @@ class MainActivity : AppCompatActivity() {
         startService(stopIntent)
         tvStatus.text = "Status: Disconnected"
         tvStatus.setTextColor(Color.parseColor("#424242"))
-/*
-        com.google.android.material.snackbar.Snackbar.make(
-            findViewById(R.id.bottom_controls),
-            "VPN Stopped",
-            com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
-        ).setAnchorView(R.id.btn_stop).show()
-*/
+        /*
+                com.google.android.material.snackbar.Snackbar.make(
+                    findViewById(R.id.bottom_controls),
+                    "VPN Stopped",
+                    com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
+                ).setAnchorView(R.id.btn_stop).show()
+        */
         tvStatus.text = "Status: Disconnected"
         tvStatus.setTextColor(Color.parseColor("#424242"))
     }

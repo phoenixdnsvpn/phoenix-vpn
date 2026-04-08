@@ -22,7 +22,21 @@
         <activity
             android:name=".ConfigEditorActivity"
             android:exported="false"
-            android:parentActivityName=".MainActivity" />
+            android:parentActivityName=".MainActivity"
+            android:label="Config parameters"> <meta-data
+            android:name="android.support.PARENT_ACTIVITY"
+            android:value=".MainActivity" />
+        </activity>
+
+        <activity
+            android:name=".DnsScannerActivity"
+            android:label="Scanner parameters"
+            android:parentActivityName=".MainActivity">
+            <meta-data
+                android:name="android.support.PARENT_ACTIVITY"
+                android:value=".MainActivity" />
+        </activity>
+
         <activity
             android:name=".AppSelectorActivity"
             android:exported="false" />
@@ -35,6 +49,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".DnsScannerResultActivity"
+            android:exported="false"
+            android:parentActivityName=".DnsScannerActivity" />
 
         <service
             android:name=".VayVpnService"
