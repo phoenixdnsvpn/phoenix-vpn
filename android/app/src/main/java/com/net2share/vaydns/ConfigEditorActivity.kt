@@ -40,13 +40,41 @@ class ConfigEditorActivity : AppCompatActivity() {
         val btnSave = findViewById<Button>(R.id.btn_save_config)
 
         editingConfigId = intent.getStringExtra("CONFIG_ID")
+        val isDefault = editingConfigId?.startsWith("default_") == true
 
         if (editingConfigId != null) {
-            loadConfigForEditing(editingConfigId!!, etName, etDomain, etPubkey, etDns, rgMode)
-            supportActionBar?.title = "Edit Config"
+//            supportActionBar?.title = "Edit Config"
+            if (isDefault) {
+                val index = editingConfigId!!.removePrefix("default_").toIntOrNull() ?: 0
+                etName.setText(DefaultConfigs.getConfigName(index))
+
+                val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                val savedDns = prefs.getString("${editingConfigId}_dns", "8.8.8.8:53")
+                val savedMode = prefs.getString("${editingConfigId}_mode", "udp")
+
+                etDns.setText(savedDns)
+                when(savedMode) {
+                    "dot" -> rgMode.check(R.id.rb_tls)
+                    "doh" -> rgMode.check(R.id.rb_https)
+                    else -> rgMode.check(R.id.rb_udp)
+                }
+
+                // Visual protection for defaults
+                etName.isEnabled = false
+                etDomain.isEnabled = false
+                etPubkey.isEnabled = false
+                etDomain.setText("----------")
+                etPubkey.setText("----------")
+                toolbar.title = "Edit Default Parameters"
+            } else {
+                loadConfigForEditing(editingConfigId!!, etName, etDomain, etPubkey, etDns, rgMode)
+                toolbar.title = "Edit Config"
+            }
         } else {
-            supportActionBar?.title = "Add New Config"
-            // Set default mode and value
+//            supportActionBar?.title = "Add New Config"
+            // 3. ADD NEW CONFIG MODE
+            toolbar.title = "Add New Config"
+            // Use your "Last Used" memory variables
             rgMode.check(R.id.rb_udp)
             etDns.setText(lastUdp)
         }
@@ -122,8 +150,25 @@ class ConfigEditorActivity : AppCompatActivity() {
     }
 
     private fun saveOrUpdateConfig(name: String, domain: String, pubkey: String, dns: String, mode: String) {
+
+        if (editingConfigId?.startsWith("default_") == true) {
+            // Save only DNS and Mode to a separate preference file
+            val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+            prefs.edit().apply {
+                putString("${editingConfigId}_dns", dns)
+                putString("${editingConfigId}_mode", mode)
+            }.apply()
+
+//            Toast.makeText(this, "Default parameters updated!", Toast.LENGTH_SHORT).show()
+            // IMPORTANT: finish() here so it doesn't run the user-config save logic below
+            finish()
+            return
+        }
+
+// 2. Handle User Configs
         val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
-        val jsonArray = JSONArray(sharedPref.getString("configs", "[]"))
+        val configsString = sharedPref.getString("configs", "[]") ?: "[]"
+        val jsonArray = JSONArray(configsString)
 
         if (editingConfigId != null) {
             for (i in 0 until jsonArray.length()) {
@@ -150,7 +195,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         sharedPref.edit().putString("configs", jsonArray.toString()).apply()
-        Toast.makeText(this, "Config saved!", Toast.LENGTH_SHORT).show()
+//        Toast.makeText(this, "Config saved!", Toast.LENGTH_SHORT).show()
     }
 
     companion object {
@@ -169,7 +214,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                         domain = obj.getString("domain"),
                         pubkey = obj.getString("pubkey"),
                         dnsAddress = obj.getString("dnsAddress"),
-                        mode = obj.getString("mode")
+                        mode = obj.getString("mode"),
+                        isDefault = false // User configs are never default
                     )
                 )
             }

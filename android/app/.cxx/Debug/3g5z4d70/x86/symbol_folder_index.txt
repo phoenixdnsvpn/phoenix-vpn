@@ -1,0 +1,1 @@
+/home/mark/AndroidStudioProjects/vaydns/app/build/intermediates/cxx/Debug/3g5z4d70/obj/x86

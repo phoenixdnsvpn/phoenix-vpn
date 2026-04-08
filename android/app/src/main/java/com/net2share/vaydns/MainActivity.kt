@@ -29,9 +29,9 @@ private lateinit var tvStatus: TextView
 private lateinit var btnStart: Button
 private lateinit var btnStop: Button
 private lateinit var recyclerConfigs: RecyclerView
-
+private lateinit var switchDefault: androidx.appcompat.widget.SwitchCompat
 private var selectedConfigId: String? = null   // which config is active for START
-
+private val configList = mutableListOf<Config>() // Class-level list to hold User + Default configs
 class MainActivity : AppCompatActivity() {
 
     private val vpnStateReceiver = object : BroadcastReceiver() {
@@ -131,9 +131,25 @@ class MainActivity : AppCompatActivity() {
         btnStart = findViewById(R.id.btn_start)
         btnStop = findViewById(R.id.btn_stop)
         recyclerConfigs = findViewById(R.id.recycler_configs)
+        switchDefault = findViewById(R.id.switch_default_configs)
 
+        val defaultConfigs = DefaultConfigProvider.getDefaultConfigs(this)
+
+        if (defaultConfigs.isEmpty()) {
+            switchDefault.isChecked = false
+            switchDefault.isEnabled = false
+            // Optional: Update text to show why it's disabled
+            switchDefault.text = "Use default configs (None found)"
+        }
         // Load saved configs and selected ID
+
+//        Log.i("NativeConfigs", "Loaded $count default configs from JSON")
+
         loadSelectedConfig()
+
+        switchDefault.setOnCheckedChangeListener { _, _ ->
+            refreshConfigList()
+        }
 
         // RecyclerView for configs
         recyclerConfigs.layoutManager = LinearLayoutManager(this)
@@ -171,25 +187,32 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, AppSelectorActivity::class.java))
         }
 
-        // Register receiver
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"), RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(vpnStateReceiver, IntentFilter("VPN_STATE_CHANGED"))
-        }
-
         findViewById<Button>(R.id.btn_dns_scanner).setOnClickListener {
-            val selectedConfig = loadAllConfigs(this).find { it.id == selectedConfigId }
-            if (selectedConfig == null) {
+            val rawConfig = configList.find { it.id == selectedConfigId } // UPDATED: find in class list
+            if (rawConfig == null) {
                 Toast.makeText(this, "Please select a config first", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
 
+            // NEW: Get real data from JNI for the scanner
+            val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
+
             val intent = Intent(this, DnsScannerActivity::class.java).apply {
-                putExtra("DOMAIN", selectedConfig.domain)
-                putExtra("PUBKEY", selectedConfig.pubkey)
+                val index = config.id.removePrefix("default_").toIntOrNull() ?: 0
+                putExtra("DOMAIN", config.domain)
+                putExtra("PUBKEY", config.pubkey)
+                // Pass the flag so the Scanner Activity knows to MASK the UI
+                putExtra("IS_DEFAULT", config.isDefault)
             }
             startActivity(intent)
+        }
+
+        // Register receiver
+        val filter = IntentFilter("VPN_STATE_CHANGED")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(vpnStateReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(vpnStateReceiver, filter)
         }
     }
 
@@ -204,7 +227,7 @@ class MainActivity : AppCompatActivity() {
         selectedConfigId = id
     }
 
-    private fun refreshConfigList() {
+    /*private fun refreshConfigList() {
         val configs = loadAllConfigs(this)
         val adapter = ConfigAdapter(
             configs,
@@ -224,8 +247,38 @@ class MainActivity : AppCompatActivity() {
             }
         )
         recyclerConfigs.adapter = adapter
-    }
+    }*/
 
+    private fun refreshConfigList() {
+        configList.clear() // NEW: clear class list first
+
+        // 1. Add User Configs
+        configList.addAll(loadAllConfigs(this))
+
+        // 2. NEW: Add Native Default Configs if switch is ON
+        if (switchDefault.isChecked) {
+            configList.addAll(DefaultConfigProvider.getDefaultConfigs(this))
+        }
+
+        val adapter = ConfigAdapter(
+            configList, // UPDATED: pass the class list
+            selectedConfigId,
+            onConfigSelected = { config ->
+                saveSelectedConfigId(config.id)
+                refreshConfigList()
+            },
+            onEditClicked = { config ->
+                val intent = Intent(this, ConfigEditorActivity::class.java).apply {
+                    putExtra("CONFIG_ID", config.id)
+                }
+                startActivity(intent)
+            },
+            onDeleteClicked = { config ->
+                showDeleteConfirmation(config)
+            }
+        )
+        recyclerConfigs.adapter = adapter
+    }
     /*private fun refreshConfigList() {
         val configs = loadAllConfigs(this)
         val adapter = ConfigAdapter(configs, selectedConfigId,
@@ -247,6 +300,12 @@ class MainActivity : AppCompatActivity() {
     }*/
 
     private fun showDeleteConfirmation(config: Config) {
+
+        if (config.isDefault) {
+            Toast.makeText(this, "Default configs cannot be deleted", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         AlertDialog.Builder(this)
             .setTitle("Delete Config")
             .setMessage("Delete \"${config.name}\"?")
@@ -307,7 +366,7 @@ class MainActivity : AppCompatActivity() {
         if (intent != null) vpnPermissionLauncher.launch(intent) else startVpnService()
     }
 
-    private fun startVpnService() {
+    /*private fun startVpnService() {
         val configs = loadAllConfigs(this)
         val config = configs.find { it.id == selectedConfigId } ?: return
 
@@ -317,16 +376,37 @@ class MainActivity : AppCompatActivity() {
             putExtra("UDP", config.dnsAddress)
             putExtra("MODE", config.mode)
         }
-        /*
-                val snackbar = com.google.android.material.snackbar.Snackbar.make(
-                    findViewById(R.id.bottom_controls), // Anchor to the button container
-                    "VPN Live!",
-                    com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
-                )
-                // This pushes it ABOVE the button container
-                snackbar.anchorView = findViewById(R.id.btn_start)
-                snackbar.show()
-        */
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }*/
+
+    private fun startVpnService() {
+        // 1. Look for the config in the combined list (User + Default)
+        // We use the 'configList' that is updated by refreshConfigList()
+//        val rawConfig = configList.find { it.id == selectedConfigId }
+        val rawConfig = configList.find { it.id == selectedConfigId } ?: return
+
+        if (rawConfig == null) {
+            Toast.makeText(this, "Please select a configuration", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // 2. UNMASK the config: If it's a default config, this fetches
+        // the real Domain and Pubkey from your .so library via JNI.
+        val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
+
+        val intent = Intent(this, VayVpnService::class.java).apply {
+            // Now 'config.domain' and 'config.pubkey' contain the real data
+            putExtra("DOMAIN", config.domain)
+            putExtra("PUBKEY", config.pubkey)
+            putExtra("UDP", config.dnsAddress)
+            putExtra("MODE", config.mode)
+        }
+
+        // 3. Start the service
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {

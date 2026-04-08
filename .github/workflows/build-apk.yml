@@ -15,7 +15,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-#          submodules: recursive
           submodules: false
 
       - name: Set up JDK 17
@@ -44,10 +43,12 @@ jobs:
           $(go env GOPATH)/bin/gomobile init
 
       - name: Build ARM64 Version
+        env:
+          # ADDED THIS: ARM64 needs the secret too!
+          DEFAULT_CONFIGS_JSON: ${{ secrets.DEFAULT_CONFIGS_JSON }}
         run: |
           # 1. Build ARM64 AAR
           cd mobile
-          # Ensure go.mod is tidy before gomobile bind
           go mod tidy
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
@@ -60,20 +61,20 @@ jobs:
           # 2. Build ARM64 APK
           cd ../android
           chmod +x gradlew
-          # Pass -PtargetAar to match the logic in build.gradle.kts
           ./gradlew assembleDebug -Pandroid.injected.abi=arm64-v8a -PtargetAar=vaydns-arm64.aar
           
-          # 3. Save artifacts to a temporary directory
+          # 3. Save artifacts
           mkdir -p ../release-artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cp app/build/outputs/apk/debug/app-debug.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
           cp app/libs/vaydns-arm64.aar ../release-artifacts/
 
       - name: Build ARMv7 Version
+        env:
+          DEFAULT_CONFIGS_JSON: ${{ secrets.DEFAULT_CONFIGS_JSON }}
         run: |
           # 1. Build ARMv7 AAR
           cd mobile
-          # Ensure go.mod is tidy before gomobile bind
           go mod tidy
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \

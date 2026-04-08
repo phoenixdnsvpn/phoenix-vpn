@@ -18,4 +18,6 @@ vendor/
 *.iml
 .DS_Store
 
-local.properties
+android/app/src/main/assets/default_configs.json
+
+android/local.properties

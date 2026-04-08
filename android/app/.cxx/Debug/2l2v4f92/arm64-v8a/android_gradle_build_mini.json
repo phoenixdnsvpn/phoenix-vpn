@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "/home/mark/AndroidStudioProjects/vaydns/app/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/mark/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/mark/AndroidStudioProjects/vaydns/app/.cxx/Debug/2l2v4f92/arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/mark/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/mark/AndroidStudioProjects/vaydns/app/.cxx/Debug/2l2v4f92/arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "default_configs::@6890427a1f51a3e7e1df": {
+      "artifactName": "default_configs",
+      "abi": "arm64-v8a",
+      "output": "/home/mark/AndroidStudioProjects/vaydns/app/build/intermediates/cxx/Debug/2l2v4f92/obj/arm64-v8a/libdefault_configs.so",
+      "runtimeFiles": []
+    }
+  }
+}

@@ -49,6 +49,18 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent">
 
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_default_configs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use default configs"
+                android:layout_marginHorizontal="16dp"
+                android:layout_marginTop="8dp"
+                android:textSize="14sp"
+                android:theme="@style/ThemeOverlay.AppCompat.Light"
+                app:thumbTint="@color/switch_thumb_selector"
+                app:trackTint="@color/switch_track_selector" />
+
             <Button
                 android:id="@+id/btn_select_apps"
                 style="@style/Widget.MaterialComponents.Button.TextButton"

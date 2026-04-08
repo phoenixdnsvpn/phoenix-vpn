@@ -30,7 +30,9 @@ class DnsScannerActivity : AppCompatActivity() {
 
     private var selectedDomain = ""
     private var selectedPubkey = ""
+    private var configId = ""
     private var resolversList: List<String> = emptyList()
+    private var isDefaultConfig = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,8 +43,12 @@ class DnsScannerActivity : AppCompatActivity() {
             finish()
         }
         // Get data from selected config
+        isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT", false)
         selectedDomain = intent.getStringExtra("DOMAIN") ?: ""
         selectedPubkey = intent.getStringExtra("PUBKEY") ?: ""
+
+        toolbar.title = "DNS Resolver Scanner"
+//        toolbar.subtitle = if (selectedDomain.contains("-")) "Protected Config" else selectedDomain
 
         if (selectedDomain.isEmpty() || selectedPubkey.isEmpty()) {
             Toast.makeText(this, "No config selected. Please go back and select a config.", Toast.LENGTH_LONG).show()
@@ -51,7 +57,7 @@ class DnsScannerActivity : AppCompatActivity() {
         }
 
         supportActionBar?.title = "DNS Resolver Scanner"
-        supportActionBar?.subtitle = selectedDomain
+//        supportActionBar?.subtitle = selectedDomain
 
         initViews()
         setupListeners()
@@ -77,7 +83,16 @@ class DnsScannerActivity : AppCompatActivity() {
         btnStartScan = findViewById(R.id.btn_start_scan)
 
         // Set domain from config
-        etDomain.setText(selectedDomain)
+        etDomain = findViewById(R.id.et_domain)
+        if (isDefaultConfig) {
+            // HIDE the real domain from the User Interface
+            etDomain.setText("----------")
+            etDomain.isEnabled = false
+            // Note: selectedDomain still holds the REAL "t.emrooz.store" in memory
+        } else {
+            // Show real domain for custom user configs
+            etDomain.setText(selectedDomain)
+        }
     }
 
     private fun setupListeners() {

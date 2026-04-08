@@ -8,5 +8,6 @@ data class Config(
     val domain: String,
     val pubkey: String,
     val dnsAddress: String,
-    val mode: String   // "udp", "dot", or "doh"
+    val mode: String,   // "udp", "dot", or "doh"
+    val isDefault: Boolean = false // Crucial for your toggle logic
 )
