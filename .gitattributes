@@ -1,6 +1,6 @@
-# Treat all C++ and C files as 'documentation' so they don't count in stats
+
 *.cpp linguist-detectable
-*.hpp linguist-detectable
+*.hpp linguist-documentation
 *.c linguist-documentation
 *.h linguist-documentation
 
