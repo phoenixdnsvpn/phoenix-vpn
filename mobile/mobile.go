@@ -7,7 +7,9 @@ import (
 	"math/rand"
 	"sync"
 	"time"
-
+    "net/http"
+    "net/url"
+    
 	"github.com/Starling226/vaydns-vpn/bridge"
 	"github.com/xjasonlyu/tun2socks/v2/engine"
 )
@@ -18,6 +20,7 @@ var (
 	cancel     context.CancelFunc
 	isRunning  bool
 	wg         sync.WaitGroup // Used to ensure threads fully exit before StopVpn returns
+	activeSocksPort int
 )
 
 // SocketProtector allows the Go code to call Android's VpnService.protect()
@@ -46,6 +49,7 @@ func StartVpn(fd int, udp, doh, dot, domain, pubkey string, protector SocketProt
 
 	// 2. Port Randomization: Avoids "address already in use" on rapid restarts
 	randomPort := 10000 + rand.Intn(40000)
+	activeSocksPort = randomPort
 	internalSocks := fmt.Sprintf("127.0.0.1:%d", randomPort)
 	log.Printf("VAY_DEBUG: VPN starting on %s with MTU 500", internalSocks)
 
@@ -242,3 +246,42 @@ func StopVpn() string {
 	return "VPN Stopped"
 }
 */
+
+func VerifyTunnel() string {
+	mu.Lock()
+	port := activeSocksPort
+	running := isRunning
+	appCtx := ctx
+	mu.Unlock()
+
+	if !running || port == 0 || appCtx == nil {
+//	if !running || port == 0 {
+		return "Fail: VPN not running"
+	}
+
+	// 1. Build a client that strictly routes through the local vaydns proxy
+	proxyURL, _ := url.Parse(fmt.Sprintf("socks5://127.0.0.1:%d", port))
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		},
+		Timeout: 30 * time.Second, // Give the DNS tunnel 30s to handshake
+	}
+
+	// 2. Do a lightweight HTTPS HEAD request
+	req, err := http.NewRequest("HEAD", "https://1.1.1.1", nil)
+	if err != nil {
+		return "Fail: " + err.Error()
+	}
+
+	// 3. Fire the request. 
+	// If the domain is fake, vaydns will fail to resolve it, and client.Do will return an error.
+	resp, err := client.Do(req)
+	if err != nil {
+		return "Fail: " + err.Error()
+	}
+	defer resp.Body.Close()
+
+	// If we get a response, the tunnel is 100% active end-to-end.
+	return "Success"
+}
