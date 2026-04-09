@@ -17,6 +17,14 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 
 - **Multi-Architecture Support:** Native binaries optimized for both arm64-v8a and armeabi-v7a devices.
 
+### Screenshot of the VayDNS VPN 
+Here are the main window, main window with default configs, config manager, scanner resolver, and scanner resolver results windows:
+
+<p align="center">
+  <img src="screenshots/vaydns.png" alt="Main Window">
+</p>
+*(Screenshot showing VayDNS VPN features)*
+
 ## Prerequisites
 
 |      Tool          |Version                          |Purpose                         |
