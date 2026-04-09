@@ -21,7 +21,7 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 Here are the main window, main window with default configs, config manager, scanner resolver, and scanner resolver results windows:
 
 <p align="center">
-  <img src="screenshots/vaydns.png" alt="Main Window">
+  <img src="screenshots/vaydns.webp" alt="Main Window">
 </p>
 *(Screenshot showing VayDNS VPN features)*
 
