@@ -7,6 +7,7 @@
 <div dir="rtl">
 
 * **vaydns**: 
+
 لایه "تونل". داده‌ها را در قالب کوئری‌های DNS (از نوع DoH، DoT یا UDP) بسته‌بندی می‌کند تا از سد فایروال‌ها و بازرسی عمیق بسته‌ها (DPI) عبور کند.
 
 </div>
@@ -14,6 +15,7 @@
 <div dir="rtl">
 
 - **Tun2Socks**:
+
  لایه "VPN". تمام ترافیک IP را از رابط مجازی TUN اندروید دریافت کرده و به صورت شفاف به تونل VayDNS هدایت می‌کند.
  
 </div>
@@ -21,6 +23,7 @@
 <div dir="rtl">
 
 - **f35**:
+
  اسکنر E2E. برای تست و اندازه‌گیری سریع تاخیر (Latency) و پایداری ریزالورهای DNS در شبکه.
 </div>
 
@@ -150,18 +153,21 @@ cd android
 <div dir="rtl">
 
 -   **[vaydns](https://github.com/net2share/vaydns)**:
+
 برای موتور اصلی تونل‌زنی DNS و لایه‌های انتقال پیشرفته.
 </div>
 
 <div dir="rtl">
 
 -   **[tun2socks](https://github.com/xjasonlyu/tun2socks)**:
+
 برای پیاده‌سازی با کارایی بالای تبدیل TUN به SOCKS که امکان استفاده از VPN برای کل سیستم را فراهم می‌کند.
 </div>
 
 <div dir="rtl">
 
 -   **[f35](https://github.com/nxdp/f35)**:
+
 برای اسکنر سرتاسری (End-to-End) ریزالورهای DNS.
 
 </div>
