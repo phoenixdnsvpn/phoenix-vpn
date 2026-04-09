@@ -1,0 +1,13 @@
+# Treat all C++ and C files as 'documentation' so they don't count in stats
+*.cpp linguist-detectable
+*.hpp linguist-detectable
+*.c linguist-documentation
+*.h linguist-documentation
+
+# Ignore CMake files in statistics
+CMakeLists.txt linguist-vendored
+*.cmake linguist-vendored
+
+# Ensure Go and Kotlin are treated as the primary languages
+*.go linguist-detectable
+*.kt linguist-detectable
