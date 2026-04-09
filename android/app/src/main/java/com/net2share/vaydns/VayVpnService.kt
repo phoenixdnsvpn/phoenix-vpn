@@ -23,40 +23,40 @@ import mobile.Mobile
 import mobile.SocketProtector
 import java.net.InetAddress
 
-    // The Protector implementation that Go will call for every UDP/TCP socket
-// Change 'val' to 'var' in the constructor and the property
-    class VayVpnService : VpnService() {
-        private var tunInterface: ParcelFileDescriptor? = null
-        private var isStopping = false
+// The Protector implementation that Go will call for every UDP/TCP socket
+
+class VayVpnService : VpnService() {
+    private var tunInterface: ParcelFileDescriptor? = null
+    private var isStopping = false
 
         // 1. Move protector to class level
-        private var protector: AndroidProtector? = null
+    private var protector: AndroidProtector? = null
 
-        private var builder: Builder = Builder()
+    private var builder: Builder = Builder()
         // The 'Lock' ensures only one thread can talk to Go at a time
-        companion object {
-            private val goLock = Any()
-        }
+    companion object {
+        private val goLock = Any()
+    }
 
-        class AndroidProtector(private var service: VpnService?) : SocketProtector {
-            private var active = true
+    private class AndroidProtector(private var service: VpnService?) : SocketProtector {
+        private var active = true
 
             // This severs the JNI link so Go can't crash the app
-            fun deactivate() {
-                active = false
-                service = null
-            }
+        fun deactivate() {
+            active = false
+            service = null
+        }
 
-            override fun protect(fd: Long): Boolean {
-                val s = service
-                if (!active || s == null) return false
-                return try {
-                    s.protect(fd.toInt())
-                } catch (e: Exception) {
-                    false
-                }
+        override fun protect(fd: Long): Boolean {
+            val s = service
+            if (!active || s == null) return false
+            return try {
+                s.protect(fd.toInt())
+            } catch (e: Exception) {
+                false
             }
         }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -65,21 +65,14 @@ import java.net.InetAddress
         Log.i("VayDNS", "VpnService Created - isStopping reset to false")
     }
 
-    /*override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 1. Reset state and handle Stop intent
+        isStopping = false
         createNotificationChannel()
 
-        val notification = Notification.Builder(this, "VAYDNS_CHANNEL")
-            .setContentTitle("VayDNS Tunnel Active")
-            .setContentText("Connecting...")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .build()
-
-        startForeground(1, notification)
-
-        // === STOP COMMAND ===
         if (intent?.action == "ACTION_STOP_VPN") {
             cleanupAndStop()
-            return START_NOT_STICKY   // ← This prevents Android from restarting the service
+            return START_NOT_STICKY
         }
 
         if (intent == null) {
@@ -87,150 +80,148 @@ import java.net.InetAddress
             return START_NOT_STICKY
         }
 
-        // === NORMAL START ===
+        // 2. Initial Notification to satisfy Foreground Service requirements
+        val notification = Notification.Builder(this, "VAYDNS_CHANNEL")
+            .setContentTitle("VayDNS Tunnel Active")
+            .setContentText("Connecting to server...")
+            .setSmallIcon(R.drawable.ic_dialog_info)
+            .build()
+        startForeground(1, notification)
+
         Thread {
-            try {
-                synchronized(goLock) {
+            // CRITICAL: Use the lock to ensure onDestroy and onStart don't fight
+            synchronized(goLock) {
+                try {
+                    // 3. SAFE CLEANUP: If there is a "ghost" engine, kill it and wait
+                    Log.i("VayDNS", "Checking for existing native instances...")
                     Mobile.stopVpn()
-                }
-                tunInterface?.close()
-                tunInterface = null
+                    tunInterface?.close()
+                    tunInterface = null
 
-                val domain = intent.getStringExtra("DOMAIN") ?: ""
-                val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
-                val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
-                val mode = intent.getStringExtra("MODE") ?: "udp"
+                    // Give the Linux kernel 500ms to truly release the UDP ports
+                    Thread.sleep(500)
 
-                Log.i("VayDNS", "Starting tunnel → Domain: $domain | Mode: $mode | DNS: $dnsAddress")
+                    // 4. Extract data passed from MainActivity
+                    val domain = intent.getStringExtra("DOMAIN") ?: ""
+                    val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
+                    val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
+                    val mode = intent.getStringExtra("MODE") ?: "udp"
 
-                var udp = ""
-                var doh = ""
-                var dot = ""
-                when (mode.lowercase()) {
-                    "udp" -> udp = dnsAddress
-                    "doh" -> doh = dnsAddress
-                    "dot" -> dot = dnsAddress
-                }
-
-                val serverIp = try { InetAddress.getByName(domain).hostAddress } catch (e: Exception) { null }
-
-                val builder = Builder()
-                    .setSession("VayDNS Tunnel")
-                    .addAddress("10.0.0.2", 24)
-                    .addDnsServer("8.8.8.8")
-                    .setMtu(380)
-                    .setBlocking(false)
-                    .addRoute("0.0.0.0", 0)
-                    .addRoute("8.8.8.8", 32)
-
-                if (dnsAddress.contains(":")) {
-                    val resolver = dnsAddress.substringBefore(":")
-                    if (isValidIp(resolver)) builder.addRoute(resolver, 32)
-                }
-                if (serverIp != null && isValidIp(serverIp)) {
-                    builder.addRoute(serverIp, 32)
-                }
-
-                val sharedPref = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
-                val selectedApps = sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
-
-                if (selectedApps.isNotEmpty()) {
-                    for (pkg in selectedApps) {
-                        try { builder.addAllowedApplication(pkg) } catch (e: Exception) {}
+                    var udp = ""
+                    var doh = ""
+                    var dot = ""
+                    when (mode.lowercase()) {
+                        "udp" -> udp = dnsAddress
+                        "doh" -> doh = dnsAddress
+                        "dot" -> dot = dnsAddress
                     }
-                } else {
-                    try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
+
+                    // Resolve NS domain
+                    val serverIp = try {
+                        InetAddress.getByName(domain).hostAddress
+                    } catch (e: Exception) { null }
+
+                    // 5. Establish the VPN Interface
+                    builder = Builder()
+                    builder.setSession("VayDNS Tunnel Active")
+                        .addAddress("10.0.0.2", 24)
+                        .addDnsServer("8.8.8.8")
+                        .setMtu(500)
+                        .addRoute("0.0.0.0", 0)
+                        .setBlocking(false)
+
+                    // Bypass routing for the server itself and the resolver
+                    if (serverIp != null && isValidIp(serverIp)) builder.addRoute(serverIp, 32)
+                    if (dnsAddress.contains(":")) {
+                        val resolver = dnsAddress.substringBefore(":")
+                        if (isValidIp(resolver)) builder.addRoute(resolver, 32)
+                    }
+
+                    // App Filtering
+                    val sharedPref = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
+                    val selectedApps = sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
+                    if (selectedApps.isNotEmpty()) {
+                        for (pkg in selectedApps) {
+                            try { builder.addAllowedApplication(pkg) } catch (e: Exception) {}
+                        }
+                    } else {
+                        try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
+                    }
+
+                    protector = AndroidProtector(this@VayVpnService)
+                    tunInterface = builder.establish()
+
+                    if (tunInterface == null) {
+                        updateNotification("Failed to create tunnel")
+                        return@synchronized
+                    }
+
+                    val fd = tunInterface!!.detachFd()
+
+                    // 6. Start Native Engine
+                    val result = Mobile.startVpn(fd.toLong(), udp, doh, dot, domain, pubkey, protector)
+
+                    if (result.contains("Success")) {
+                        runVerificationLogic() // Move verification to a helper to keep this clean
+                    } else {
+                        updateNotification("Engine Failed to Start")
+                        sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                            putExtra("status", "DISCONNECTED")
+                            setPackage(packageName)
+                        })
+                    }
+
+                } catch (e: Exception) {
+                    Log.e("VayDNS", "VPN Start Exception: ${e.message}", e)
+                    updateNotification("Error starting tunnel")
                 }
-
-                val protector = AndroidProtector(this@VayVpnService)
-
-                tunInterface = builder.establish()
-
-                if (tunInterface == null) {
-                    Log.e("VayDNS", "Failed to establish VPN interface")
-                    updateNotification("Failed to create tunnel")
-                    return@Thread
-                }
-
-                val fd = tunInterface!!.detachFd()
-                Log.i("VayDNS", "VPN FD established: $fd")
-
-                val result = Mobile.startVpn(fd.toLong(), udp, doh, dot, domain, pubkey, protector)
-                Log.i("VayDNS", "Go Engine Result: $result")
-
-                if (result.contains("Success")) {
-                    sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
-                        putExtra("status", "CONNECTED")
-                        setPackage(packageName)
-                    })
-                    updateNotification("Status: Connected")
-                } else {
-                    updateNotification("Connection Failed")
-                }
-
-            } catch (e: Exception) {
-                Log.e("VayDNS", "VPN Start Exception: ${e.message}", e)
-                updateNotification("Error starting tunnel")
-            }
+            } // End of synchronized block
         }.start()
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
-    private fun cleanupAndStop() {
-        Log.i("VayDNS", "=== STOP COMMAND RECEIVED ===")
+    private fun runVerificationLogic() {
+        updateNotification("Handshaking with server...")
 
-        if (isStopping) {
-            Log.i("VayDNS", "Already stopping - ignoring duplicate")
-            return
-        }
-        isStopping = true
+        Thread {
+            // 1. Give the Go engine 2 seconds to boot up the SOCKS5 listener
+            Thread.sleep(2000)
 
-        // Stop Go engine
-        synchronized(goLock) {
-            try {
-                Mobile.stopVpn()
-                Log.i("VayDNS", "Mobile.stopVpn() completed")
-            } catch (e: Exception) {
-                Log.e("VayDNS", "Mobile.stopVpn() error: ${e.message}")
-            }
-        }
+            // 2. Call our Go-level verification function
+            val verifyResult = Mobile.verifyTunnel()
 
-        // Close tunnel
-        try {
-            tunInterface?.close()
-            Log.i("VayDNS", "tunInterface closed")
-        } catch (e: Exception) {
-            Log.e("VayDNS", "Error closing tunInterface: ${e.message}")
-        } finally {
-            tunInterface = null
-        }
+            // 3. Safety Check: If the user clicked STOP while we were waiting, abort!
+            if (isStopping) return@Thread
 
-        // Final cleanup on main thread
-        Handler(Looper.getMainLooper()).post {
-            try {
-                val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-                nm.cancel(1)
-            } catch (e: Exception) {}
+            if (verifyResult.contains("Success")) {
+                Log.i("VayDNS", "Go-Level verification passed!")
+                sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                    putExtra("status", "CONNECTED")
+                    setPackage(packageName)
+                })
+                updateNotification("Status: Connected")
+            } else {
+                Log.e("VayDNS", "Go-Level verification failed: $verifyResult")
 
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } else {
-                    stopForeground(true)
+                sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                    putExtra("status", "DISCONNECTED")
+                    setPackage(packageName)
+                })
+                updateNotification("Connection Failed")
+
+                // On failure, trigger the cleanup synchronously
+                Handler(Looper.getMainLooper()).post {
+                    cleanupAndStop()
                 }
-            } catch (e: Exception) {}
+            }
+        }.start()
+    }
 
-            stopSelf()
-            Log.i("VayDNS", "stopSelf() called - service should stop now")
-        }
-
-        isStopping = false
-    }*/
-
+    /*
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // 1. Create a Notification Channel (Required for Android 8+)
-
+        isStopping = false
         createNotificationChannel()
 
         // 2. Create the Notification that keeps the service alive
@@ -336,29 +327,57 @@ import java.net.InetAddress
                     return@Thread
                 }
 
-//                if (tunInterface != null) {
-//                    Log.e("VayDNS", "CRITICAL: establish() returned null. Check VPN permissions!")
-//                    return START_NOT_STICKY
-
-//                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-//                       setUnderlyingNetworks(null)
-//                }
-                    // 2. Detach the FD so Go can own it exclusively
-                    // .detachFd() returns an Int that stays open even if tunInterface is cleared
+                // 2. Detach the FD so Go can own it exclusively
+                // .detachFd() returns an Int that stays open even if tunInterface is cleared
                 val fd = tunInterface!!.detachFd()
                 Log.i("VayDNS", "VPN FD established: $fd")
-
                 val result = Mobile.startVpn(fd.toLong(), udp, doh, dot, domain, pubkey, protector)
                 Log.i("VayDNS", "Go Engine Result: $result")
-
                 if (result.contains("Success")) {
+                    updateNotification("Handshaking with server...")
+
+                    Thread {
+                        // 1. Give the Go engine 2 seconds to boot up the SOCKS5 listener
+                        Thread.sleep(2000)
+
+                        // 2. Call our new Go-level verification function!
+                        // This will block until it succeeds, fails, or hits the 45s timeout.
+                        val verifyResult = Mobile.verifyTunnel()
+                        // CRITICAL FIX: If the user clicked STOP while this was verifying,
+                        // do absolutely nothing and kill the thread to prevent a crash.
+                        if (isStopping) return@Thread
+
+                        if (verifyResult.contains("Success")) {
+                            Log.i("VayDNS", "Go-Level verification passed! Tunnel is fully active.")
+                            sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                                putExtra("status", "CONNECTED")
+                                setPackage(packageName)
+                            })
+                            updateNotification("Status: Connected")
+                        } else {
+                            Log.e("VayDNS", "Go-Level verification failed: $verifyResult")
+
+                            sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                                putExtra("status", "DISCONNECTED")
+                                setPackage(packageName)
+                            })
+                            updateNotification("Connection Failed")
+
+                            // Because Go reported a failure, it's safe to cleanly shut down.
+                            Handler(Looper.getMainLooper()).post {
+                                stopSelf()
+                            }
+                        }
+                    }.start()
+
+                }else {
+                    // This block only runs if the Go engine IMMEDIATELY fails to start
+                    // (e.g. port already in use, bad pubkey format)
+                    updateNotification("Engine Failed to Start")
                     sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
-                        putExtra("status", "CONNECTED")
+                        putExtra("status", "DISCONNECTED")
                         setPackage(packageName)
                     })
-                    updateNotification("Status: Connected")
-                } else {
-                    updateNotification("Connection Failed")
                 }
 
             } catch (e: Exception) {
@@ -366,10 +385,10 @@ import java.net.InetAddress
                 updateNotification("Error starting tunnel")
             }
         }.start()
-//        return START_STICKY
+
         return START_NOT_STICKY
     }
-
+    */
     private fun updateNotification(status: String) {
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
@@ -423,12 +442,26 @@ import java.net.InetAddress
         }
     }
 
+        private fun cleanupAndStop() {
+            if (isStopping) return
+            isStopping = true
 
-    /*override fun onDestroy() {
-        Log.i("VayDNS", "onDestroy triggered")
-        super.onDestroy()   // ← Do NOT call cleanupAndStop() here
-    }*/
+            Log.i("VayDNS", "cleanupAndStop: Initiating shutdown")
 
+            // 1. Update UI state
+            sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                putExtra("status", "DISCONNECTED")
+                setPackage(packageName)
+            })
+
+            // 2. Remove notification
+            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            nm.cancel(1)
+
+            // 3. Command the OS to stop the service
+            stopSelf()
+        }
+    /*
     private fun cleanupAndStop() {
         if (isStopping) return
         isStopping = true
@@ -444,11 +477,13 @@ import java.net.InetAddress
         Thread {
             synchronized(goLock) {
                 try {
-                    Mobile.stopVpn()
+//                    Mobile.stopVpn()
                     // 4. CLOSE FD FIRST.
                     // This is the "Emergency Brake" for the Go engine.
                     tunInterface?.close()
                     tunInterface = null
+                    Thread.sleep(100)
+                    Mobile.stopVpn()
 
                     // 5. Now tell Go to stop
                     Log.i("VayDNS", "Go engine and TUN interface closed successfully.")
@@ -471,7 +506,33 @@ import java.net.InetAddress
             }
         }.start()
     }
+    */
+        override fun onDestroy() {
+            Log.i("VayDNS", "onDestroy: Ensuring Go engine is dead before service exit...")
 
+            // Use the lock to ensure we aren't mid-start or mid-verification
+            synchronized(goLock) {
+                try {
+                    // 1. Tell Go to stop.
+                    // Your Go code has a safety timeout, so this will block briefly.
+                    Mobile.stopVpn()
+
+                    // 2. Now that Go is dead, safe to sever JNI and close FD
+                    protector?.deactivate()
+
+                    tunInterface?.close()
+                    tunInterface = null
+
+                    Log.i("VayDNS", "Go engine destroyed. Memory is clean.")
+                } catch (e: Exception) {
+                    Log.e("VayDNS", "Error during onDestroy cleanup: ${e.message}")
+                }
+            }
+
+            // super.onDestroy() must be last
+            super.onDestroy()
+        }
+    /*
     override fun onDestroy() {
         Log.i("VayDNS", "onDestroy triggered")
         // Only call cleanup if not already stopping
@@ -480,5 +541,6 @@ import java.net.InetAddress
         }
         super.onDestroy()
     }
+    */
 
 }
