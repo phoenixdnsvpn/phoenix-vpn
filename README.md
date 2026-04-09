@@ -1,5 +1,7 @@
 # VayDNS VPN for Android
 
+[English] | [**فارسی**](README.fa.md)
+
 VayDNS is a high-performance DNS-based tunneling solution. Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates three powerful Go-based technologies to provide a full-device VPN experience even in highly restrictive network environments.
 
 - **vaydns**: The "Tunnel" layer. It encapsulates data into DNS queries (DoH, DoT, or UDP) to bypass firewalls and deep packet inspection (DPI).
@@ -25,6 +27,7 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 |Java (JDK)          |`17`|Required for Gradle / Android Studio|
 
 ##  1. Go Installation (Linux/AMD64)
+### Step 1: Download and installation
 
 ```
 # Download and install the official Go binary:
@@ -36,7 +39,7 @@ sudo tar -C /usr/local -xzf go1.25.8.linux-amd64.tar.gz
 ```
 To ensure compatibility with the mobile binding tools, install the latest Go binary distribution.
 
-## Step 2: Update Environment
+### Step 2: Update Environment
 
 Add these lines to your `~/.bashrc`:
 ```
