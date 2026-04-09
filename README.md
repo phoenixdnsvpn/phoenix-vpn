@@ -158,5 +158,5 @@ This project would not be possible without the incredible work of the following 
 This software is provided "as is", without warranty of any kind. The authors are not responsible for any misuse, data loss, or legal consequences resulting from the use of this software. Users are responsible for complying with local laws and regulations regarding VPN and tunneling usage.
 ### License
 
-This project is licensed under the **MIT License**.
+This project is licensed under the **GPLv3 License**.
 
