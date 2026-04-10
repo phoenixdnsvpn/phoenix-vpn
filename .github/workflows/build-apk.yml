@@ -91,7 +91,7 @@ jobs:
             -o ../android/app/libs/vaydns-armeabi.aar .
           
           cd ../android
-          ./gradlew clean
+          rm -rf app/build
           ./gradlew assembleRelease \
             -Pandroid.injected.abi=armeabi-v7a \
             -PtargetAar=vaydns-armeabi.aar \
