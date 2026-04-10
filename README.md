@@ -17,13 +17,19 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 
 - **Multi-Architecture Support:** Native binaries optimized for both arm64-v8a and armeabi-v7a devices.
 
+## 🔒 App Verification
+Official builds of VayDNS can be verified using the in-app verification tool. 
+**Official Public Key:** `f7eb9ede225433ff8b9d22a61fe72b6b81b18ec9cb3bc70e7706b57f6e0fed7b`
+
+
 ### Screenshot of the VayDNS VPN 
 Here are the main window, main window with default configs, config manager, scanner resolver, and scanner resolver results windows:
 
 <p align="center">
   <img src="screenshots/vaydns.webp" alt="Main Window">
 </p>
-*(Screenshot showing VayDNS VPN features)*
+
+**Screenshot showing VayDNS VPN features**
 
 ## Prerequisites
 

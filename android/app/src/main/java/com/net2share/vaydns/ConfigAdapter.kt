@@ -12,14 +12,16 @@ class ConfigAdapter(
     private val selectedId: String?,
     private val onConfigSelected: (Config) -> Unit,
     private val onEditClicked: (Config) -> Unit,
-    private val onDeleteClicked: (Config) -> Unit
+    private val onDeleteClicked: (Config) -> Unit,
+    private val onExportClicked: (Config) -> Unit
 ) : RecyclerView.Adapter<ConfigAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val name: TextView = view.findViewById(R.id.tv_config_name)
-        val domain: TextView = view.findViewById(R.id.tv_domain)     // ← Fixed
-        val edit: ImageView = view.findViewById(R.id.btn_edit)       // ← Fixed
-        val delete: ImageView = view.findViewById(R.id.btn_delete)   // ← Fixed
+        val domain: TextView = view.findViewById(R.id.tv_domain)
+        val edit: ImageView = view.findViewById(R.id.btn_edit)
+        val delete: ImageView = view.findViewById(R.id.btn_delete)
+        val export: ImageView = view.findViewById(R.id.btn_export)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -46,6 +48,7 @@ class ConfigAdapter(
             cardView.setCardBackgroundColor(0xFFFFFFFF.toInt())
         }
 
+        holder.export.setOnClickListener { onExportClicked(config) }
         holder.edit.setOnClickListener { onEditClicked(config) }
         holder.delete.setOnClickListener { onDeleteClicked(config) }
     }

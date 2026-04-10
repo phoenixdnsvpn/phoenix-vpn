@@ -1,0 +1,38 @@
+{
+  "buildFiles": [
+    "/home/mark/AndroidStudioProjects/vaydns/app/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/mark/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/mark/AndroidStudioProjects/vaydns/app/.cxx/RelWithDebInfo/3y1b1g6k/x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/mark/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/mark/AndroidStudioProjects/vaydns/app/.cxx/RelWithDebInfo/3y1b1g6k/x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "default_configs::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86",
+      "artifactName": "default_configs",
+      "output": "/home/mark/AndroidStudioProjects/vaydns/app/build/intermediates/cxx/RelWithDebInfo/3y1b1g6k/obj/x86/libdefault_configs.so",
+      "runtimeFiles": []
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/home/mark/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/home/mark/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

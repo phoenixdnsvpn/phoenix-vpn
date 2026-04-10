@@ -1,0 +1,1 @@
+/home/mark/AndroidStudioProjects/vaydns/app/build/intermediates/cxx/RelWithDebInfo/3y1b1g6k/obj/arm64-v8a

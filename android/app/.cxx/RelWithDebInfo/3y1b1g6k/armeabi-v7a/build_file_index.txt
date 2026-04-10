@@ -1,0 +1,1 @@
+/home/mark/AndroidStudioProjects/vaydns/app/src/main/cpp/CMakeLists.txt

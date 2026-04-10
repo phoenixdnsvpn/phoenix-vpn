@@ -73,6 +73,18 @@
             app:tint="#2F4A6F" />
 
         <ImageView
+            android:id="@+id/btn_export"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            android:src="@android:drawable/ic_menu_share"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/btn_edit"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="#2F4A6F" />
+
+        <ImageView
             android:id="@+id/btn_delete"
             android:layout_width="38dp"
             android:layout_height="38dp"

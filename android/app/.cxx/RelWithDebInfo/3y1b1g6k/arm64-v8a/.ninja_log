@@ -1,0 +1,5 @@
+# ninja log v5
+0	957	1775827122008812035	CMakeFiles/default_configs.dir/default_configs.cpp.o	d4bcdfaf305fd7cf
+959	991	1775827122047812289	/home/mark/AndroidStudioProjects/vaydns/app/build/intermediates/cxx/RelWithDebInfo/3y1b1g6k/obj/arm64-v8a/libdefault_configs.so	dacab72340258e00
+0	7	0	clean	b6cc0ecf193de481
+0	8	0	clean	b6cc0ecf193de481

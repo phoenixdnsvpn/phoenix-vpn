@@ -230,8 +230,8 @@ CMAKE_SYSTEM_NAME:UNINITIALIZED=Android
 //No help, variable specified on the command line.
 CMAKE_SYSTEM_VERSION:UNINITIALIZED=24
 
-//No help, variable specified on the command line.
-CMAKE_TOOLCHAIN_FILE:UNINITIALIZED=/home/mark/Android/Sdk/ndk/28.2.13676358/build/cmake/android.toolchain.cmake
+//The CMake toolchain file
+CMAKE_TOOLCHAIN_FILE:FILEPATH=/home/mark/Android/Sdk/ndk/28.2.13676358/build/cmake/android.toolchain.cmake
 
 //If this value is on, makefiles will be generated without the
 // .SILENT directive, and all commands will be echoed to the console
@@ -253,24 +253,6 @@ default_configs_SOURCE_DIR:STATIC=/home/mark/AndroidStudioProjects/vaydns/app/sr
 
 //Path to a library.
 log-lib:FILEPATH=/home/mark/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/i686-linux-android/24/liblog.so
-
-//Value Computed by CMake
-vaydns_configs_BINARY_DIR:STATIC=/home/mark/AndroidStudioProjects/vaydns/app/.cxx/Debug/2m3e6568/x86
-
-//Value Computed by CMake
-vaydns_configs_IS_TOP_LEVEL:STATIC=ON
-
-//Value Computed by CMake
-vaydns_configs_SOURCE_DIR:STATIC=/home/mark/AndroidStudioProjects/vaydns/app/src/main/cpp
-
-//Value Computed by CMake
-vaydns_native_BINARY_DIR:STATIC=/home/mark/AndroidStudioProjects/vaydns/app/.cxx/Debug/2m3e6568/x86
-
-//Value Computed by CMake
-vaydns_native_IS_TOP_LEVEL:STATIC=ON
-
-//Value Computed by CMake
-vaydns_native_SOURCE_DIR:STATIC=/home/mark/AndroidStudioProjects/vaydns/app/src/main/cpp
 
 
 ########################

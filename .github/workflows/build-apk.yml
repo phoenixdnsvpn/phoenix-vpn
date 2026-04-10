@@ -28,71 +28,80 @@ jobs:
         with:
           go-version: '1.25.8'
 
-      - name: Set up Android SDK & NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK
-        run: |
-          echo "y" | sdkmanager "ndk;27.0.12077973" 
-          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/27.0.12077973" >> $GITHUB_ENV
-
       - name: Install Go Mobile Tools
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
           $(go env GOPATH)/bin/gomobile init
 
+      # NEW: Decode the JKS file from your GitHub Secret
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > release.jks
+
       - name: Build ARM64 Version
         env:
-          # ADDED THIS: ARM64 needs the secret too!
           DEFAULT_CONFIGS_JSON: ${{ secrets.DEFAULT_CONFIGS_JSON }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |
-          # 1. Build ARM64 AAR
           cd mobile
           go mod tidy
+          HEX_HASH=$(echo -n "${{ secrets.APP_PRIVATE_KEY }}" | sha256sum | awk '{print $1}')
+          
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
-            -ldflags="-s -w" \
+            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH'" \
             -trimpath \
             -o ../android/app/libs/vaydns-arm64.aar .
           
-          # 2. Build ARM64 APK
           cd ../android
           chmod +x gradlew
-          ./gradlew assembleDebug -Pandroid.injected.abi=arm64-v8a -PtargetAar=vaydns-arm64.aar
+          # Updated to Release and added Signing flags
+          ./gradlew assembleRelease \
+            -Pandroid.injected.abi=arm64-v8a \
+            -PtargetAar=vaydns-arm64.aar \
+            -Pandroid.injected.signing.store.file=$(pwd)/../release.jks \
+            -Pandroid.injected.signing.store.password=${{ secrets.KEY_STORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
           
-          # 3. Save artifacts
           mkdir -p ../release-artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          cp app/build/outputs/apk/debug/app-debug.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
+          # Note: Path changed from 'debug' to 'release'
+          cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
           cp app/libs/vaydns-arm64.aar ../release-artifacts/
 
       - name: Build ARMv7 Version
         env:
           DEFAULT_CONFIGS_JSON: ${{ secrets.DEFAULT_CONFIGS_JSON }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |
-          # 1. Build ARMv7 AAR
           cd mobile
           go mod tidy
+          HEX_HASH=$(echo -n "${{ secrets.APP_PRIVATE_KEY }}" | sha256sum | awk '{print $1}')
+          
           mkdir -p ../android/app/libs
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
             -androidapi 24 \
-            -ldflags="-s -w" \
+            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH'" \
             -trimpath \
             -o ../android/app/libs/vaydns-armeabi.aar .
           
-          # 2. Build ARMv7 APK
           cd ../android
-          # Clean build outputs but keep the libs folder
           ./gradlew clean
-          ./gradlew assembleDebug -Pandroid.injected.abi=armeabi-v7a -PtargetAar=vaydns-armeabi.aar
+          ./gradlew assembleRelease \
+            -Pandroid.injected.abi=armeabi-v7a \
+            -PtargetAar=vaydns-armeabi.aar \
+            -Pandroid.injected.signing.store.file=$(pwd)/../release.jks \
+            -Pandroid.injected.signing.store.password=${{ secrets.KEY_STORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
           
-          # 3. Save artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          cp app/build/outputs/apk/debug/app-debug.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-armeabi-v7a.apk
+          cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-armeabi-v7a.apk
           cp app/libs/vaydns-armeabi.aar ../release-artifacts/
 
       - name: Create Release and Upload Assets
@@ -101,8 +110,7 @@ jobs:
         with:
           files: |
             release-artifacts/VaydnsVpn-*.apk
-            release-artifacts/vaydns-arm64.aar
-            release-artifacts/vaydns-armeabi.aar
+            release-artifacts/vaydns-*.aar
           draft: false
           prerelease: false
         env:
