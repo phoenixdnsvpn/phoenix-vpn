@@ -2,65 +2,60 @@ package com.net2share.vaydns
 
 import android.content.Context
 import android.util.Log
+import mobile.Mobile
+
 object DefaultConfigProvider {
 
     fun getDefaultConfigs(context: Context): List<Config> {
-        DefaultConfigs.loadConfigs(context.assets)
-        Log.d("VayDNS_Native", "Calling loadConfigs...")
-        val count = DefaultConfigs.getConfigCount()
-        Log.d("VayDNS_Native", "Native Count received: $count")
-
-        if (count == 0) {
-            // Display a brief notification to the user
-            /*android.widget.Toast.makeText(
-                context,
-                "No default configurations found.",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()*/
-
-            Log.i("VayDNS_Native", "Returning empty list (CI/Template mode active)")
-            return emptyList()
+        // 1. Try to "Prime" the bridge from assets if it's currently empty
+        // We check the count first to see if CI already injected it
+        if (mobile.Mobile.getDefaultConfigCount() == 0L) {
+            try {
+                val jsonStr = context.assets.open("default_configs.json").bufferedReader().use { it.readText() }
+                mobile.Mobile.setDefaultConfigs(jsonStr)
+                Log.d("VayDNS_Dev", "Bridge primed with local assets.")
+            } catch (e: Exception) {
+                Log.e("VayDNS_Dev", "No local asset found, waiting for CI injection.")
+            }
         }
-        val defaultList = mutableListOf<Config>()
 
-        // Access overrides for DNS and Mode
+        // 2. Now get the count (it should be > 0 now)
+        val count = mobile.Mobile.getDefaultConfigCount()
+        Log.d("VayDNS_Go", "Final count for UI: $count")
+
+        if (count == 0L) {
+            return emptyList() // This triggers "None found"
+        }
+
+        val defaultList = mutableListOf<Config>()
         val prefs = context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
 
-        for (i in 0 until count) {
+        for (i in 0L until count) {
             val id = "default_$i"
-
-            // Check if user has saved a custom DNS or Mode for this specific default config
-            val savedDns = prefs.getString("${id}_dns", "8.8.8.8:53")
-            val savedMode = prefs.getString("${id}_mode", "udp")
-
             val config = Config(
                 id = id,
-                name = DefaultConfigs.getConfigName(i),
-                // These remain masked in the Config objects used by the UI/Adapter
-                domain = "-".repeat(DefaultConfigs.getConfigDomain(i).length),
-                pubkey = "-".repeat(DefaultConfigs.getConfigPubkey(i).length),
-                dnsAddress = savedDns!!,
-                mode = savedMode!!,
-                isDefault = true // Ensure your Config data class has this field
+                name = mobile.Mobile.getDefaultConfigName(i),
+                // Masking logic remains the same
+                domain = "-".repeat(mobile.Mobile.getDefaultConfigDomain(i).length),
+                pubkey = "-".repeat(mobile.Mobile.getDefaultConfigPubkey(i).length),
+                dnsAddress = prefs.getString("${id}_dns", "8.8.8.8:53")!!,
+                mode = prefs.getString("${id}_mode", "udp")!!,
+                isDefault = true
             )
             defaultList.add(config)
         }
-        Log.d("VayDNS_Native", "Returning ${defaultList.size} configs to UI")
         return defaultList
     }
 
-    /**
-     * Helper to get the REAL data only when starting the tunnel or scanner
-     */
     fun getActualConfig(context: Context, maskedConfig: Config): Config {
         if (!maskedConfig.isDefault) return maskedConfig
 
-        val index = maskedConfig.id.removePrefix("default_").toInt()
+        val index = maskedConfig.id.removePrefix("default_").toLongOrNull() ?: 0L
 
-        // Return a copy with the REAL strings from the native library
+        // Swap masked values with real values from Go
         return maskedConfig.copy(
-            domain = DefaultConfigs.getConfigDomain(index),
-            pubkey = DefaultConfigs.getConfigPubkey(index)
+            domain = Mobile.getDefaultConfigDomain(index),
+            pubkey = Mobile.getDefaultConfigPubkey(index)
         )
     }
 }

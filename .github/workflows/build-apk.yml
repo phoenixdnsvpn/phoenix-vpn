@@ -52,7 +52,7 @@ jobs:
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
-            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH'" \
+            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.DEFAULT_CONFIGS_JSON }}'" \
             -trimpath \
             -o ../android/app/libs/vaydns-arm64.aar .
           
@@ -86,7 +86,7 @@ jobs:
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
             -androidapi 24 \
-            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH'" \
+            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.DEFAULT_CONFIGS_JSON }}'" \
             -trimpath \
             -o ../android/app/libs/vaydns-armeabi.aar .
           

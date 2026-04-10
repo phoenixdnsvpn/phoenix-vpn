@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
+import mobile.Mobile
 
 class ConfigEditorActivity : AppCompatActivity() {
 
@@ -23,6 +24,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_config_editor)
 
+//        Mobile.getDefaultConfigCount()
         val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar_editor)
 
         toolbar.setNavigationOnClickListener {
@@ -45,8 +47,12 @@ class ConfigEditorActivity : AppCompatActivity() {
         if (editingConfigId != null) {
 //            supportActionBar?.title = "Edit Config"
             if (isDefault) {
-                val index = editingConfigId!!.removePrefix("default_").toIntOrNull() ?: 0
-                etName.setText(DefaultConfigs.getConfigName(index))
+                val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
+//                etName.setText(DefaultConfigs.getConfigName(index))
+
+                etName.setText(mobile.Mobile.getDefaultConfigName(index))
+                etDomain.setText(mobile.Mobile.getDefaultConfigDomain(index))
+                etPubkey.setText(mobile.Mobile.getDefaultConfigPubkey(index))
 
                 val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 val savedDns = prefs.getString("${editingConfigId}_dns", "8.8.8.8:53")
@@ -226,15 +232,17 @@ class ConfigEditorActivity : AppCompatActivity() {
             val sharedPref = context.getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
             val array = JSONArray()
             configs.forEach { config ->
-                val obj = JSONObject().apply {
-                    put("id", config.id)
-                    put("name", config.name)
-                    put("domain", config.domain)
-                    put("pubkey", config.pubkey)
-                    put("dnsAddress", config.dnsAddress)
-                    put("mode", config.mode)
+                if (!config.isDefault) {
+                    val obj = JSONObject().apply {
+                        put("id", config.id)
+                        put("name", config.name)
+                        put("domain", config.domain)
+                        put("pubkey", config.pubkey)
+                        put("dnsAddress", config.dnsAddress)
+                        put("mode", config.mode)
+                    }
+                    array.put(obj)
                 }
-                array.put(obj)
             }
             sharedPref.edit().putString("configs", array.toString()).apply()
         }
