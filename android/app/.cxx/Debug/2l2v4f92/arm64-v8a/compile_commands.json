@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/home/mark/AndroidStudioProjects/vaydns/app/.cxx/Debug/2l2v4f92/arm64-v8a",
-  "command": "/home/mark/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android24 --sysroot=/home/mark/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Ddefault_configs_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -Os -fvisibility=hidden -fdata-sections -ffunction-sections -fno-limit-debug-info  -fPIC -o CMakeFiles/default_configs.dir/default_configs.cpp.o -c /home/mark/AndroidStudioProjects/vaydns/app/src/main/cpp/default_configs.cpp",
-  "file": "/home/mark/AndroidStudioProjects/vaydns/app/src/main/cpp/default_configs.cpp"
-}
-]

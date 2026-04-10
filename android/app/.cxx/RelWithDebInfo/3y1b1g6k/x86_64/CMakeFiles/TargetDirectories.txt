@@ -1,3 +1,0 @@
-/home/mark/AndroidStudioProjects/vaydns/app/.cxx/RelWithDebInfo/3y1b1g6k/x86_64/CMakeFiles/default_configs.dir
-/home/mark/AndroidStudioProjects/vaydns/app/.cxx/RelWithDebInfo/3y1b1g6k/x86_64/CMakeFiles/edit_cache.dir
-/home/mark/AndroidStudioProjects/vaydns/app/.cxx/RelWithDebInfo/3y1b1g6k/x86_64/CMakeFiles/rebuild_cache.dir
