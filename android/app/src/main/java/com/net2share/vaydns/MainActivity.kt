@@ -305,7 +305,7 @@ class MainActivity : AppCompatActivity() {
                 android.util.Base64.NO_WRAP
             )
 
-            val finalUri = "vaydns://$encodedData"
+            val finalUri = "dnst://$encodedData"
 
             // Copy to Clipboard
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -513,7 +513,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val etInput = EditText(this).apply {
-            hint = "vaydns://..."
+            hint = "dnst://..."
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
