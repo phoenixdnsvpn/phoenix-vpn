@@ -147,6 +147,14 @@ class MainActivity : AppCompatActivity() {
         //updateButtonStates(false)
 
         btnToggle.setOnClickListener {
+            if (isVpnConnected) {
+                stopVpnService()
+            } else {
+                startVpnService() // Let this function handle the UI change safely
+            }
+        }
+
+        /*btnToggle.setOnClickListener {
             if (!isVpnConnected) {
                 // START LOGIC
                 if (selectedConfigId == null) {
@@ -163,7 +171,7 @@ class MainActivity : AppCompatActivity() {
                 stopVpnService()
                 // The receiver will update the UI to "Disconnected"
             }
-        }
+        }*/
 
         // App selector button stays the same
         findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
@@ -887,18 +895,37 @@ private fun processImport(data: String) {
         // 1. Look for the config in the combined list (User + Default)
         // We use the 'configList' that is updated by refreshConfigList()
 //        val rawConfig = configList.find { it.id == selectedConfigId }
-        val rawConfig = configList.find { it.id == selectedConfigId } ?: return
 
-        if (rawConfig == null) {
-            Toast.makeText(this, "Please select a configuration", Toast.LENGTH_SHORT).show()
+        if (selectedConfigId == null) {
+            Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val config = configList.find { it.id == selectedConfigId }
+
+        // 3. Validation Check: Ensure the config exists and has a domain
+        if (config == null || config.domain.isEmpty()) {
+            Toast.makeText(this, "Invalid configuration. Please select another.", Toast.LENGTH_SHORT).show()
             return
         }
 
+        tvStatus.text = "Status: Connecting..."
+        tvStatus.setTextColor(Color.parseColor("#FFA500")) // Optional: Orange for connecting
+        btnToggle.text = "STOP Tunnel"
+
         // 2. UNMASK the config: If it's a default config, this fetches
         // the real Domain and Pubkey from your .so library via JNI.
-        val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
+//        val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
 
         val intent = Intent(this, VayVpnService::class.java).apply {
+
+            action = "ACTION_START_VPN"
+
+            // Use DefaultConfigProvider for masked default configs
+            val finalConfig = if (config.isDefault) {
+                DefaultConfigProvider.getActualConfig(this@MainActivity, config)
+            } else {
+                config
+            }
             // Now 'config.domain' and 'config.pubkey' contain the real data
             putExtra("DOMAIN", config.domain)
             putExtra("PUBKEY", config.pubkey)
@@ -920,12 +947,23 @@ private fun processImport(data: String) {
             putExtra("PASS", finalPass)
         }
 
+        val vpnIntent = VpnService.prepare(this)
+        if (vpnIntent != null) {
+            startActivityForResult(vpnIntent, 0)
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        }
+
         // 3. Start the service
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        /**if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
             startService(intent)
-        }
+        }*/
     }
 
     private fun stopVpnService() {
