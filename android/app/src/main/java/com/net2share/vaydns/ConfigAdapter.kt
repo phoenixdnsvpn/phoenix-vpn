@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
 
 class ConfigAdapter(
@@ -36,8 +37,27 @@ class ConfigAdapter(
         holder.name.text = config.name
         holder.domain.text = config.domain          // ← Just the domain, no label
 
-        holder.itemView.setOnClickListener {
-            onConfigSelected(config)
+        if (config.isDefault) {
+            holder.domain.text = "----------"
+
+            // 2. Hide Export and Delete for official configs
+            // Using GONE so the Edit button can shift or look centered
+            // holder.export.visibility = View.GONE
+            // holder.delete.visibility = View.GONE
+        } else {
+            holder.domain.text = config.domain
+
+            // Ensure they are visible for custom user configs
+            // holder.export.visibility = View.VISIBLE
+            // holder.delete.visibility = View.VISIBLE
+        }
+
+        if (config.isDefault) {
+            holder.export.alpha = 0.5f
+            holder.delete.alpha = 0.5f
+        } else {
+            holder.export.alpha = 1.0f
+            holder.delete.alpha = 1.0f
         }
 
         // Highlight selected config
@@ -48,9 +68,35 @@ class ConfigAdapter(
             cardView.setCardBackgroundColor(0xFFFFFFFF.toInt())
         }
 
-        holder.export.setOnClickListener { onExportClicked(config) }
+        holder.export.setOnClickListener {
+            if (config.isDefault) {
+                Toast.makeText(holder.itemView.context, "Official configurations cannot be exported.", Toast.LENGTH_SHORT).show()
+            } else {
+                onExportClicked(config)
+            }
+        }
+
+        /**holder.itemView.setOnClickListener {
+            onConfigSelected(config)
+        }
+
+        holder.itemView.setOnClickListener {
+            onConfigSelected(config)
+        }*/
+
+
+
+        // holder.export.setOnClickListener { onExportClicked(config) }
         holder.edit.setOnClickListener { onEditClicked(config) }
-        holder.delete.setOnClickListener { onDeleteClicked(config) }
+        // holder.delete.setOnClickListener { onDeleteClicked(config) }
+
+        holder.delete.setOnClickListener {
+            if (config.isDefault) {
+                Toast.makeText(holder.itemView.context, "Built-in servers cannot be deleted.", Toast.LENGTH_SHORT).show()
+            } else {
+                this.onDeleteClicked(config)
+            }
+        }
     }
 
     override fun getItemCount() = configs.size

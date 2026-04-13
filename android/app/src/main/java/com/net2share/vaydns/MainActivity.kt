@@ -457,13 +457,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDeleteConfirmation(config: Config) {
-
         if (config.isDefault) {
             Toast.makeText(this, "Default configs cannot be deleted", Toast.LENGTH_SHORT).show()
             return
         }
 
-        AlertDialog.Builder(this)
+        val builder = AlertDialog.Builder(this)
             .setTitle("Delete Config")
             .setMessage("Delete \"${config.name}\"?")
             .setPositiveButton("Delete") { _, _ ->
@@ -478,7 +477,17 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Config deleted", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
-            .show()
+
+        // 1. Create the dialog object
+        val dialog = builder.create()
+
+        // 2. Display it
+        dialog.show()
+
+        // 3. Set the button colors to #2F4A6F
+        val brandColor = 0xFF2F4A6F.toInt()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(brandColor)
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(brandColor)
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
