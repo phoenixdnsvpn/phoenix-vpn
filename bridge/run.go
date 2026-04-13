@@ -56,6 +56,7 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	idleTimeout := parseDur(c.IdleTimeout, 10*time.Second)
 	keepAlive := parseDur(c.KeepAlive, 2*time.Second)
 	reconnectMin := parseDur(c.ReconnectMin, 2*time.Second)
+//	reconnectMax := parseDur(c.ReconnectMax, 30*time.Second)
 	reconnectMax := parseDur(c.ReconnectMax, 10*time.Second)
 	sessionCheck := parseDur(c.SessionCheck, 500*time.Millisecond)
 	openStreamTimeout := parseDur(c.OpenStreamTimeout, 10*time.Second)
@@ -69,9 +70,13 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 		c.MaxQnameLen = 253
 	}
 
-	if keepAlive >= idleTimeout {
-		keepAlive = idleTimeout / 3
+	if keepAlive > idleTimeout / 5 {
+		idleTimeout = keepAlive * 5
 	}
+	
+//	if keepAlive >= idleTimeout {
+//		keepAlive = idleTimeout / 3
+//	}
 
 	// 4. Build Resolver
 	var rType client.ResolverType
@@ -135,7 +140,9 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	ts.RPS = c.RpsLimit
 	ts.MaxQnameLen = 253
 	ts.MaxNumLabels = 45
-	ts.ClientIDSize = 2
+//	ts.ClientIDSize = 2
+    ts.ClientIDSize = c.ClientIDSize
+
 
 	// 6. Assemble the final Tunnel
 	tunnel, err := client.NewTunnel(resolver, ts)

@@ -34,31 +34,29 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
           $(go env GOPATH)/bin/gomobile init
 
-      # NEW: Decode the JKS file from your GitHub Secret
       - name: Decode Keystore
         run: |
           echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > release.jks
 
       - name: Build ARM64 Version
-        env:
-          DEFAULT_CONFIGS_JSON: ${{ secrets.DEFAULT_CONFIGS_JSON }}
-          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |
           cd mobile
           go mod tidy
+          # Generate hash from the raw private key secret
           HEX_HASH=$(echo -n "${{ secrets.APP_PRIVATE_KEY }}" | sha256sum | awk '{print $1}')
           
           mkdir -p ../android/app/libs
+          
+          # Inject Private Key and Scrambled Configs via LDFLAGS
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
-            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.DEFAULT_CONFIGS_JSON }}'" \
+            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.XORED_B64_JSON }}'" \
             -trimpath \
             -o ../android/app/libs/vaydns-arm64.aar .
           
           cd ../android
           chmod +x gradlew
-          # Updated to Release and added Signing flags
           ./gradlew assembleRelease \
             -Pandroid.injected.abi=arm64-v8a \
             -PtargetAar=vaydns-arm64.aar \
@@ -69,29 +67,27 @@ jobs:
           
           mkdir -p ../release-artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          # Note: Path changed from 'debug' to 'release'
           cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
           cp app/libs/vaydns-arm64.aar ../release-artifacts/
 
       - name: Build ARMv7 Version
-        env:
-          DEFAULT_CONFIGS_JSON: ${{ secrets.DEFAULT_CONFIGS_JSON }}
-          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |
           cd mobile
           go mod tidy
           HEX_HASH=$(echo -n "${{ secrets.APP_PRIVATE_KEY }}" | sha256sum | awk '{print $1}')
           
           mkdir -p ../android/app/libs
+          
+          # Build 32-bit version
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
             -androidapi 24 \
-            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.DEFAULT_CONFIGS_JSON }}'" \
+            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.XORED_B64_JSON }}'" \
             -trimpath \
             -o ../android/app/libs/vaydns-armeabi.aar .
           
           cd ../android
-          rm -rf app/build
+          rm -rf app/build # Clean previous architecture build
           ./gradlew assembleRelease \
             -Pandroid.injected.abi=armeabi-v7a \
             -PtargetAar=vaydns-armeabi.aar \

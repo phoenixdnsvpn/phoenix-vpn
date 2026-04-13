@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 	"fmt"
+//	"log"
 //	"runtime/debug"
 
 	"github.com/Starling226/vaydns-vpn/f35"
@@ -31,7 +32,11 @@ func StartF35Scan(
 	proxyType string,
 	proxyUser string,
 	proxyPass string,
-	isConservative bool,
+	recordType string,
+	workers int,          
+	tunnelWait int,       
+	probeTimeout int,     
+	retries int,          
 	callback ScanResultCallback,
 ) string {
 	scanMu.Lock()
@@ -69,11 +74,11 @@ func StartF35Scan(
 	
 	cfg.Probe = true
 	cfg.ProbeURL = "http://www.google.com/gen_204"
-	cfg.ProbeTimeout = 15 * time.Second
+	cfg.ProbeTimeout = time.Duration(probeTimeout) * time.Second
 	cfg.Proxy = proxyType
-	cfg.Workers = 10
-	cfg.Retries = 0
-	cfg.TunnelWait = 1000 * time.Millisecond
+	cfg.Workers = workers
+	cfg.Retries = retries
+	cfg.TunnelWait = time.Duration(tunnelWait) * time.Millisecond
 	cfg.StartPort = 40000
 	cfg.Whois = false
 	cfg.Download = false
@@ -88,21 +93,24 @@ func StartF35Scan(
 		cfg.ProxyPass = proxyPass
 	}
 
+//	log.Printf("VAY_DEBUG: SCANNER RESOLVER started with record type %s", recordType)
+	
 	// Build ExtraArgs for vaydns
 	cfg.ExtraArgs = []string{
 		"-pubkey", publicKey,
-		"-record-type", "txt",
+		"-record-type", strings.ToLower(recordType),
+//		"-record-type", "txt",
 //		"-clientid-size", "2",
 //		"-udp-timeout", "1000ms",
 	}
 
 	// Apply Conservative mode overrides
-	if isConservative {
+/*	if isConservative {
 		cfg.Workers = 10
 		cfg.TunnelWait = 2000 * time.Millisecond
 		cfg.ProbeTimeout = 8 * time.Second
 		cfg.Retries = 1
-	}
+	}*/
     
 	cfg.Pubkey = publicKey // Ensure this field is set in your bridge DEBUG
 	if err := f35.ValidateConfig(cfg); err != nil {

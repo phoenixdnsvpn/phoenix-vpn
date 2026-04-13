@@ -36,7 +36,21 @@ func init() {
 /**
  * StartVpn: The main entry point for Android System-Wide VPN.
  */
-func StartVpn(fd int, udp, doh, dot, domain, pubkey string, protector SocketProtector) string {
+func StartVpn(fd int,
+    udp string,
+    doh string,
+    dot string,
+    domain string,
+    pubkey string,
+    recordType string,
+    idleTimeout string,
+    KeepAlive string,
+    clientIDSize int,
+	compatDnstt bool,
+	user string, // not used
+	pass string, // not used
+    protector SocketProtector,
+) string {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -51,7 +65,7 @@ func StartVpn(fd int, udp, doh, dot, domain, pubkey string, protector SocketProt
 	randomPort := 10000 + rand.Intn(40000)
 	activeSocksPort = randomPort
 	internalSocks := fmt.Sprintf("127.0.0.1:%d", randomPort)
-	log.Printf("VAY_DEBUG: VPN starting on %s with MTU 500", internalSocks)
+//	log.Printf("VAY_DEBUG: VPN starting on %s with MTU 500 recordType: %s idleTimeout: %s KeepAlive: %s", internalSocks, recordType, idleTimeout, KeepAlive)
 
 	// 3. Initialize Lifecycle
 	ctx, cancel = context.WithCancel(context.Background())
@@ -65,13 +79,21 @@ func StartVpn(fd int, udp, doh, dot, domain, pubkey string, protector SocketProt
 		ListenAddr:       internalSocks,
 		LogLevel:         "info",
 		UtlsDistribution: "chrome",
-		RecordType:       "txt",
-		CompatDnstt:      false,
+//		RecordType:       "txt",
+		RecordType:       recordType,
+//		CompatDnstt:      false,
 		PubkeyHex:        pubkey,
 		Protector:        protector,
 		// Performance Settings
+//		IdleTimeout:      "10s",
+		IdleTimeout:      idleTimeout,
+//		KeepAlive:        "2s",
+		KeepAlive:        KeepAlive,		
 		UDPTimeout:       "2s",
-		KeepAlive:        "5s",
+		ClientIDSize:     clientIDSize,
+		CompatDnstt:      compatDnstt,
+		
+//		UDPTimeout:       "500ms",		
 	}
 
 	// 4. Start Tunnel Goroutine
@@ -121,59 +143,6 @@ func StartVpn(fd int, udp, doh, dot, domain, pubkey string, protector SocketProt
 	}()
 
 	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
-}
-
-
-/**
- * StartTunnel: Standalone SOCKS5 mode (No System VPN).
- */
-func StartTunnel(udp, doh, dot, domain, pubkey string, protector SocketProtector) string {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if isRunning && cancel != nil {
-		cancel()
-		wg.Wait()
-	}
-
-	randomPort := 10000 + rand.Intn(40000)
-	internalSocks := fmt.Sprintf("127.0.0.1:%d", randomPort)
-
-	ctx, cancel = context.WithCancel(context.Background())
-	isRunning = true
-
-	tCfg := bridge.TunnelConfig{
-		UdpAddr:          udp,
-		DohURL:           doh,
-		DotAddr:          dot,
-		Domain:           domain,
-		ListenAddr:       internalSocks,
-		LogLevel:         "info",
-		UtlsDistribution: "chrome",
-		RecordType:       "txt",
-		CompatDnstt:      false,
-		PubkeyHex:        pubkey,
-		Protector:        protector,
-		UDPTimeout:       "2s",
-		KeepAlive:        "5s",
-	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("VAY_DEBUG: Standalone Tunnel Panic: %v", r)
-			}
-		}()
-		
-		log.Printf("VAY_DEBUG: Standalone Tunnel starting on %s", internalSocks)
-		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
-			log.Printf("VAY_DEBUG: Standalone Tunnel Error: %v", err)
-		}
-	}()
-
-	return fmt.Sprintf("Success: Standalone Tunnel started on %s", internalSocks)
 }
 
 /**

@@ -103,6 +103,7 @@
                     android:layout_height="wrap_content"
                     android:text="UDP"
                     android:checked="true"
+                    android:layout_weight="1"
                     android:buttonTint="#2F4A6F" />
 
                 <RadioButton
@@ -110,6 +111,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="DoT"
+                    android:layout_weight="1"
                     android:buttonTint="#2F4A6F" />
 
                 <RadioButton
@@ -117,8 +119,177 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="DoH"
+                    android:layout_weight="1"
                     android:buttonTint="#2F4A6F" />
             </RadioGroup>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Following parameters must be consistent with server"
+                android:textColor="#D32F2F"
+                android:textSize="12sp"
+                android:layout_marginTop="16dp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Record Type:"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold" />
+            <Spinner
+                android:id="@+id/sp_record_type"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="@android:drawable/btn_dropdown" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Idle Timeout:"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_idle_timeout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="e.g. 10s"
+                android:inputType="text" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Keep Alive:"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_keep_alive"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="e.g. 2s"
+                android:inputType="text" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Client ID Size:"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_client_id_size"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="2" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/sw_dnstt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="DNSTT Compatible"
+                android:layout_marginHorizontal="16dp"
+                android:textSize="14sp"
+                android:theme="@style/ThemeOverlay.AppCompat.Light"
+                app:thumbTint="@color/switch_thumb_selector"
+                app:trackTint="@color/switch_track_selector" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/sw_auth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Use Server Authorization"
+                android:checked="false"
+                android:textSize="14sp"
+                android:theme="@style/ThemeOverlay.AppCompat.Light"
+                app:thumbTint="@color/switch_thumb_selector"
+                app:trackTint="@color/switch_track_selector" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Protocol"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/rg_protocol"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="4dp">
+
+                <RadioButton
+                    android:id="@+id/rb_socks"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="socks"
+                    android:checked="true"
+                    android:layout_weight="1"
+                    android:buttonTint="#2F4A6F" />
+
+                <RadioButton
+                    android:id="@+id/rb_ssh"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ssh"
+                    android:layout_weight="1"
+                    android:buttonTint="#2F4A6F" />
+
+                <RadioButton
+                    android:id="@+id/rb_shadowsocks"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="shadowsocks"
+                    android:layout_weight="2"
+                    android:buttonTint="#2F4A6F" />
+            </RadioGroup>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/sw_ssh_key"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Use SSH Key"
+                android:checked="false"
+                android:textSize="14sp"
+                android:theme="@style/ThemeOverlay.AppCompat.Light"
+                app:thumbTint="@color/switch_thumb_selector"
+                app:trackTint="@color/switch_track_selector" />
+
+            <TextView
+                android:id="@+id/tv_user_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="User:"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_user"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Optional"
+                android:textColorHint="#757575"
+                android:inputType="text" />
+
+            <TextView
+                android:id="@+id/tv_pass_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Password:"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_pass"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Optional"
+                android:textColorHint="#757575"
+                android:inputType="textPassword" />
 
             <Button
                 android:id="@+id/btn_save_config"

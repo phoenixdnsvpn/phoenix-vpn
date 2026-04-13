@@ -30,6 +30,7 @@ class DnsScannerActivity : AppCompatActivity() {
 
     private var selectedDomain = ""
     private var selectedPubkey = ""
+    private var selectedRecordType = "TXT"
     private var configId = ""
     private var resolversList: List<String> = emptyList()
     private var isDefaultConfig = false
@@ -46,6 +47,8 @@ class DnsScannerActivity : AppCompatActivity() {
         isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT", false)
         selectedDomain = intent.getStringExtra("DOMAIN") ?: ""
         selectedPubkey = intent.getStringExtra("PUBKEY") ?: ""
+
+        selectedRecordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
 
         toolbar.title = "DNS Resolver Scanner"
 //        toolbar.subtitle = if (selectedDomain.contains("-")) "Protected Config" else selectedDomain
@@ -116,14 +119,14 @@ class DnsScannerActivity : AppCompatActivity() {
         switchConservative.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 // Safer, slower settings for restrictive firewalls
-                etWorkers.setText("5")
-                etTunnelWait.setText("4000")
+                etWorkers.setText("10")
+                etTunnelWait.setText("2000")
                 etProbeTimeout.setText("8")
                 etRetries.setText("1")
             } else {
                 // High-performance settings
-                etWorkers.setText("20")
-                etTunnelWait.setText("2000")
+                etWorkers.setText("10")
+                etTunnelWait.setText("1000")
                 etProbeTimeout.setText("15")
                 etRetries.setText("0")
             }
@@ -171,14 +174,6 @@ class DnsScannerActivity : AppCompatActivity() {
         }
 
         // Hardcoded Public DNS List
-    /*    val publicDnsList = listOf(
-            "1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112",
-            "208.67.222.222", "208.67.220.220", "94.140.14.14", "94.140.15.15",
-            "185.228.168.9", "185.228.169.9", "84.200.69.80", "84.200.70.40",
-            "193.110.81.0", "185.253.5.0", "64.6.64.6", "64.6.65.6", "209.244.0.3",
-            "209.244.0.4", "77.88.8.8", "77.88.8.1", "8.26.56.26", "8.20.247.20"
-        )*/
-
         val publicDnsList = listOf(
             "1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112",
             "208.67.222.222", "208.67.220.220", "94.140.14.14", "94.140.15.15",
@@ -195,6 +190,11 @@ class DnsScannerActivity : AppCompatActivity() {
 
         val isConservative = switchConservative.isChecked
         val useRandom = switchRandom.isChecked
+
+        val workers = etWorkers.text.toString().toLongOrNull() ?: 10L
+        val tunnelWait = etTunnelWait.text.toString().toLongOrNull() ?: 2000L
+        val probeTimeout = etProbeTimeout.text.toString().toLongOrNull() ?: 15L
+        val retries = etRetries.text.toString().toLongOrNull() ?: 0L
 
     /*    val baseResolvers = if (useRandom) {
             resolversList.shuffled().take(numResolvers)
@@ -229,8 +229,13 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("PUBKEY", selectedPubkey)
             putExtra("RESOLVERS", resolversCommaSeparated)
             putExtra("PROXY_TYPE", proxyType)
+            putExtra("RECORD_TYPE", selectedRecordType)
             putExtra("CONSERVATIVE", isConservative)
             putExtra("TOTAL_RESOLVERS", finalResolvers.size)
+            putExtra("WORKERS", workers)
+            putExtra("TUNNEL_WAIT", tunnelWait)
+            putExtra("PROBE_TIMEOUT", probeTimeout)
+            putExtra("RETRIES", retries)
         }
         startActivity(intent)
 

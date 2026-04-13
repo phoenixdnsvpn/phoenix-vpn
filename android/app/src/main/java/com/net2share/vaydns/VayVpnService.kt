@@ -106,6 +106,13 @@ class VayVpnService : VpnService() {
                     val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
                     val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
                     val mode = intent.getStringExtra("MODE") ?: "udp"
+                    val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
+                    val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
+                    val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
+                    val clientIdSize = intent.getIntExtra("CLIENT_ID_SIZE", 2)
+                    val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
+                    val user = intent.getStringExtra("USER") ?: ""
+                    val pass = intent.getStringExtra("PASS") ?: ""
 
                     var udp = ""
                     var doh = ""
@@ -159,8 +166,23 @@ class VayVpnService : VpnService() {
                     val fd = tunInterface!!.detachFd()
 
                     // 6. Start Native Engine
-                    val result = Mobile.startVpn(fd.toLong(), udp, doh, dot, domain, pubkey, protector)
-
+//                    val result = Mobile.startVpn(fd.toLong(), udp, doh, dot, domain, pubkey, protector)
+                    val result = Mobile.startVpn(
+                        fd.toLong(),
+                        udp,
+                        doh,
+                        dot,
+                        domain,
+                        pubkey,
+                        recordType,
+                        idleTimeout,
+                        keepAlive,
+                        clientIdSize.toLong(), // Pass as Long for Go compatibility if needed
+                        dnsttCompatible,
+                        user,
+                        pass,
+                        protector
+                    )
                     if (result.contains("Success")) {
                         runVerificationLogic() // Move verification to a helper to keep this clean
                     } else {

@@ -1,4 +1,4 @@
-# VayDNS VPN for Android
+# VayDNS Android Client
 
 [English] | [**فارسی**](README.fa.md)
 
@@ -9,13 +9,15 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 - **f35**: The E2E resolver scanner. To proble and rapidly measuring the latency and reliability of DNS resolvers across a network.
 
 ## Key Features
-- **Encrypted Configuration:** Supports pre-configured "Default Servers" that are protected by a native C++ security layer, preventing the leakage of private infrastructure details in public builds.
+- **Encrypted Configuration:** Supports pre-configured "Default Servers" that are protected by a native go security layer, preventing the leakage of private infrastructure details in public builds.
 
 - **CI/CD Ready:** Automated build pipeline via GitHub Actions that injects server configurations through encrypted secrets.
 
 - **Real-time Latency Scanning:** Built-in scanner to identify the fastest local DNS resolvers for optimal tunnel performance.
 
 - **Multi-Architecture Support:** Native binaries optimized for both arm64-v8a and armeabi-v7a devices.
+
+- **Standardized DNST URL Support:**  Now fully compliant with the DNST URL Scheme, enabling seamless configuration sharing across compatible applications.
 
 ## 🔒 App Verification
 Official builds of VayDNS can be verified using the in-app verification tool. 
@@ -156,6 +158,9 @@ This project would not be possible without the incredible work of the following 
 -   **[tun2socks](https://github.com/xjasonlyu/tun2socks)**: For the high-performance implementation of TUN-to-SOCKS conversion, enabling system-wide VPN functionality.
 
 -   **[f35](https://github.com/nxdp/f35)**: For the End-to-End DNS Resolver Scanner
+
+-   **[dnst-url-spec](https://github.com/net2share/dnst-url-spec)**: A standard URL format for sharing DNS-tunneled proxy configurations across clients and apps.
+
 
 ## Disclaimer & License
 

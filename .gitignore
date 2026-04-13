@@ -4,6 +4,7 @@ build/
 captures/
 *.apk
 *.aar
+*.jks
 local.properties
 .navigation/
 

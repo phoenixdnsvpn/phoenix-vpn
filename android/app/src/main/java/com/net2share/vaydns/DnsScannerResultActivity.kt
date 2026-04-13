@@ -79,9 +79,29 @@ class DnsScannerResultActivity : AppCompatActivity() {
         val pubkey = intent.getStringExtra("PUBKEY") ?: ""
         val resolversCommaSeparated = intent.getStringExtra("RESOLVERS") ?: ""
         val proxyType = intent.getStringExtra("PROXY_TYPE") ?: "socks5h"
-        val isConservative = intent.getBooleanExtra("CONSERVATIVE", false)
+        val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
+//        val isConservative = intent.getBooleanExtra("CONSERVATIVE", false)
+        val workers = intent.getLongExtra("WORKERS", 10L)
+        val tunnelWait = intent.getLongExtra("TUNNEL_WAIT", 2000L)
+        val probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 15L)
+        val retries = intent.getLongExtra("RETRIES", 0L)
         totalResolvers = intent.getIntExtra("TOTAL_RESOLVERS", 500)
         tvProgress.text = "0 / $totalResolvers"
+
+        val isAuthEnabled = intent.getBooleanExtra("USE_AUTH", false)
+
+        // Set to actual value if ON, otherwise fallback to "none"
+        val user = if (isAuthEnabled) {
+            intent.getStringExtra("USER")?.takeIf { it.isNotEmpty() } ?: "none"
+        } else {
+            "none"
+        }
+
+        val pass = if (isAuthEnabled) {
+            intent.getStringExtra("PASS")?.takeIf { it.isNotEmpty() } ?: "none"
+        } else {
+            "none"
+        }
 //        supportActionBar?.title = "Scan in Progress"
 
         // Back Arrow Action
@@ -106,7 +126,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 // 3. Update UI and restart
                 btnStopResume.text = "STOP"
                 isRunning = true
-                startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative)
+//                startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative, workers, tunnelWait, probeTimeout, retries)
+                startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType, workers, tunnelWait, probeTimeout, retries, user, pass)
             }
         }
 
@@ -136,7 +157,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
         }
 
         // Start initial scan
-        startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative)
+//        startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative, workers, tunnelWait, probeTimeout, retries)
+        startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType, workers, tunnelWait, probeTimeout, retries, user, pass)
     }
 
     private fun stopScanProcess() {
@@ -151,9 +173,19 @@ class DnsScannerResultActivity : AppCompatActivity() {
         }
     }
 
-    private fun startScan(domain: String, pubkey: String, resolvers: String,
-                          proxyType: String, isConservative: Boolean) {
-
+    private fun startScan(
+        domain: String,
+        pubkey: String,
+        resolvers: String,
+        proxyType: String,
+        recordType: String,
+        workers: Long,
+        tunnelWait: Long,
+        probeTimeout: Long,
+        retries: Long,
+        user: String,
+        pass: String
+    ) {
         scanCallback = object : ScanResultCallback {
             override fun onResult(jsonResult: String) {
                 runOnUiThread {
@@ -190,9 +222,13 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 pubkey,
                 resolvers,
                 proxyType,
-                "none",
-                "none",
-                isConservative,
+                user,
+                pass,
+                recordType,
+                workers,
+                tunnelWait,
+                probeTimeout,
+                retries,
                 scanCallback!!
             )
         } catch (e: Exception) {

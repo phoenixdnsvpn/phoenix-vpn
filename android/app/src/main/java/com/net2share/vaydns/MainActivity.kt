@@ -56,28 +56,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    /*private val vpnStateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val status = intent?.getStringExtra("status")
-            when (status) {
-                "CONNECTED" -> {
-                    runOnUiThread {
-                        tvStatus.text = "Status: Connected"
-                        tvStatus.setTextColor(Color.parseColor("#006400"))
-                        updateButtonStates(true) // Disable Start, Enable Stop
-//                        Toast.makeText(this@MainActivity, "VPN Live!", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                "DISCONNECTED" , "STOPPED" -> {
-                    runOnUiThread {
-                        tvStatus.text = "Status: Disconnected"
-                        tvStatus.setTextColor(Color.parseColor("#2F4A6F"))
-                        updateButtonStates(false) // Enable Start, Disable Stop
-                    }
-                }
-            }
-        }
-    }*/
 
     private fun updateUIState(connected: Boolean) {
         runOnUiThread {
@@ -99,41 +77,6 @@ class MainActivity : AppCompatActivity() {
             btnToggle.isEnabled = true
         }
     }
-
-    /*private fun updateButtonStates(isConnected: Boolean) {
-        val startActiveColor = Color.parseColor("#2F4A6F")   // Deep Blue
-        val stopActiveColor = Color.parseColor("#2F4A6F")    // Dark Gray/Black
-        val disabledBgColor = Color.parseColor("#EBF5FB")    // Light Blue
-        val disabledTextColor = Color.parseColor("#2F4A6F")  // Gray Text
-        val white = Color.WHITE
-
-        if (isConnected) {
-            // --- CASE: VPN IS CONNECTED ---
-
-            // START: Disable, Light Blue Background, Gray Text
-            btnStart.isEnabled = false
-            btnStart.backgroundTintList = android.content.res.ColorStateList.valueOf(disabledBgColor)
-            btnStart.setTextColor(disabledTextColor)
-
-            // STOP: Enable, Dark Gray Background, White Text
-            btnStop.isEnabled = true
-            btnStop.backgroundTintList = android.content.res.ColorStateList.valueOf(stopActiveColor)
-            btnStop.setTextColor(white)
-
-        } else {
-            // --- CASE: VPN IS DISCONNECTED ---
-
-            // START: Enable, Deep Blue Background, White Text
-            btnStart.isEnabled = true
-            btnStart.backgroundTintList = android.content.res.ColorStateList.valueOf(startActiveColor)
-            btnStart.setTextColor(white)
-
-            // STOP: Disable, Light Blue Background, Gray Text
-            btnStop.isEnabled = false
-            btnStop.backgroundTintList = android.content.res.ColorStateList.valueOf(disabledBgColor)
-            btnStop.setTextColor(disabledTextColor)
-        }
-    }*/
 
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -221,31 +164,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        /*btnStart.setOnClickListener {
-            if (selectedConfigId == null) {
-                Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            // 1. Update UI immediately
-            tvStatus.text = "Status: Connecting..."
-            tvStatus.setTextColor(Color.BLUE)
-            updateButtonStates(true) // This flips the colors instantly
-
-            // 2. Start the service
-            prepareAndStartVpn()
-        }
-
-        btnStop.setOnClickListener {
-            // 1. Tell the service to stop
-            stopVpnService()
-
-            // 2. Immediately flip the UI without waiting for the broadcast
-            updateButtonStates(false)
-            tvStatus.text = "Status: Disconnected"
-            tvStatus.setTextColor(Color.parseColor("#424242"))
-        }*/
-
         // App selector button stays the same
         findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
             startActivity(Intent(this, AppSelectorActivity::class.java))
@@ -265,6 +183,7 @@ class MainActivity : AppCompatActivity() {
                 val index = config.id.removePrefix("default_").toIntOrNull() ?: 0
                 putExtra("DOMAIN", config.domain)
                 putExtra("PUBKEY", config.pubkey)
+                putExtra("RECORD_TYPE", config.recordType)
                 // Pass the flag so the Scanner Activity knows to MASK the UI
                 putExtra("IS_DEFAULT", config.isDefault)
             }
@@ -398,27 +317,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
-    /*private fun refreshConfigList() {
-        val configs = loadAllConfigs(this)
-        val adapter = ConfigAdapter(
-            configs,
-            selectedConfigId, // This tells the adapter which ID to highlight
-            onConfigSelected = { config ->
-                selectedConfigId = config.id // Update the ID
-                refreshConfigList()          // <--- ADD THIS: Force the UI to redraw
-//                Toast.makeText(this, "Selected: ${config.name}", Toast.LENGTH_SHORT).show()
-            },
-            onEditClicked = { config ->
-                val intent = Intent(this, ConfigEditorActivity::class.java)
-                intent.putExtra("CONFIG_ID", config.id)
-                startActivity(intent)
-            },
-            onDeleteClicked = { config ->
-                showDeleteConfirmation(config)
-            }
-        )
-        recyclerConfigs.adapter = adapter
-    }*/
 
     private fun refreshConfigList() {
         configList.clear()
@@ -462,83 +360,101 @@ class MainActivity : AppCompatActivity() {
     /**
      * Constructs the vaydns:// profile and copies it to clipboard
      */
+    private fun generateHumanReadableUrl(config: Config): String {
+        val uriBuilder = android.net.Uri.Builder()
+            .scheme("dnst")
+            .authority(config.domain)
+            .appendPath("vaydns")
+            .appendPath(config.protocol)
+            .appendQueryParameter("pubkey", config.pubkey)
+            .appendQueryParameter("record-type", config.recordType.lowercase())
+            .appendQueryParameter("clientid-size", config.clientIdSize.toString())
+            .appendQueryParameter("keepalive", config.keepAlive)
+            .appendQueryParameter("idle-timeout", config.idleTimeout)
 
-    private fun exportToVayDnsProfile(config: Config) {
-        try {
-            // Dynamically get the app version name from build.gradle.kts via PackageManager
-            val packageInfo = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageInfo(packageName, 0)
-            }
-
-            val appVersionName = packageInfo.versionName ?: "1.0" // Fallback if name is null
-            val protocol = "vaydns"
-
-            // Initialize 40-field array for pipe-delimited structure
-            val fields = Array(40) { "" }
-
-            fields[0] = appVersionName // Now uses the real version name (e.g., "1.0")
-            fields[1] = protocol
-            fields[2] = config.name
-            fields[3] = config.domain
-            fields[4] = config.dnsAddress // String format (e.g. 8.8.8.8:53 or https://...)
-            fields[5] = "0"
-            fields[6] = "200"
-            fields[7] = "bbr"
-            fields[8] = "1080"
-            fields[9] = "127.0.0.1"
-            fields[10] = "0"
-            fields[11] = config.pubkey
-            fields[12] = "" // Placeholder for username
-            fields[13] = "" // Placeholder for password
-            // ... indices 14-23 remain empty ...
-            fields[24] = config.mode // "udp", "dot", or "doh"
-
-            val rawString = fields.joinToString("|")
-
-            // Base64 encode without line wraps for URI safety
-            val encoded = android.util.Base64.encodeToString(
-                rawString.toByteArray(Charsets.UTF_8),
-                android.util.Base64.NO_WRAP
-            )
-
-            val vayDnsUri = "vaydns://$encoded"
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "VayDNS Configuration: ${config.name}")
-                putExtra(Intent.EXTRA_TEXT, vayDnsUri)
-            }
-
-            // 5. Start the system chooser
-            startActivity(Intent.createChooser(shareIntent, "Share VayDNS Profile via:"))
-
-        } catch (e: Exception) {
-//            Toast.makeText(this, "Error exporting: ${e.message}", Toast.LENGTH_SHORT).show()
-            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+        if (config.dnsttCompatible) {
+            uriBuilder.appendQueryParameter("dnstt-compat", "true")
         }
+
+        if (config.useAuth) {
+            uriBuilder.appendQueryParameter("user", config.user)
+            if (config.useSshKey) {
+                uriBuilder.appendQueryParameter("pk", config.pass)
+            } else {
+                uriBuilder.appendQueryParameter("password", config.pass)
+            }
+        }
+
+        uriBuilder.fragment(config.name)
+        return uriBuilder.build().toString()
     }
 
-    /*private fun refreshConfigList() {
-        val configs = loadAllConfigs(this)
-        val adapter = ConfigAdapter(configs, selectedConfigId,
-            onConfigSelected = { config ->
-                saveSelectedConfigId(config.id)
-                refreshConfigList()   // refresh highlight
-            },
-            onEditClicked = { config ->
-                val intent = Intent(this, ConfigEditorActivity::class.java).apply {
-                    putExtra("CONFIG_ID", config.id)
+    private fun generateBase64Json(config: Config): String {
+        val json = org.json.JSONObject()
+
+        // Root Tag
+        json.put("tag", config.name)
+
+        // Transport Object
+        val transport = org.json.JSONObject().apply {
+            put("type", "vaydns")
+            put("domain", config.domain)
+            put("pubkey", config.pubkey)
+            put("record_type", config.recordType.lowercase())
+            put("dnstt_compat", config.dnsttCompatible)
+            put("clientid_size", config.clientIdSize)
+            put("idle_timeout", config.idleTimeout)
+            put("keepalive", config.keepAlive)
+        }
+        json.put("transport", transport)
+
+        // Backend Object
+        val backend = org.json.JSONObject().apply {
+            put("type", config.protocol)
+            if (config.useAuth) {
+                put("user", config.user)
+                if (config.useSshKey) {
+                    put("pk", config.pass)
+                } else {
+                    put("password", config.pass)
                 }
-                startActivity(intent)
-            },
-            onDeleteClicked = { config ->
-                showDeleteConfirmation(config)
             }
+        }
+        json.put("backend", backend)
+
+        // Encode to Base64URL
+        val jsonString = json.toString()
+        val encoded = android.util.Base64.encodeToString(
+            jsonString.toByteArray(Charsets.UTF_8),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
         )
-        recyclerConfigs.adapter = adapter
-    }*/
+
+        return "dnst://$encoded"
+    }
+
+    /**
+     * Shows a choice dialog then exports the config in the chosen format
+     */
+    private fun exportToVayDnsProfile(config: Config) {
+        val options = arrayOf("Human-readable URL (dnst://...)", "Base64-JSON (Compressed)")
+
+        AlertDialog.Builder(this)
+            .setTitle("Select Export Format")
+            .setItems(options) { _, which ->
+                val exportString = when (which) {
+                    0 -> generateHumanReadableUrl(config)
+                    else -> generateBase64Json(config)
+                }
+
+                // Share the resulting string
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, exportString)
+                }
+                startActivity(Intent.createChooser(shareIntent, "Share VayDNS Profile"))
+            }
+            .show()
+    }
 
     private fun showDeleteConfirmation(config: Config) {
 
@@ -618,110 +534,105 @@ class MainActivity : AppCompatActivity() {
 //        btnImport.isAllCaps = false
 //        btnCancel.isAllCaps = false
     }
-/*
-    private fun showImportDialog() {
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(60, 40, 60, 10)
+
+private fun processImport(data: String) {
+    try {
+        if (!data.startsWith("dnst://")) {
+            throw Exception("Invalid profile prefix. Must start with dnst://")
         }
 
-        val label = TextView(this).apply {
-            text = "Paste the config below"
-            textSize = 16sp
-                    setPadding(0, 0, 0, 20)
-        }
+        val content = data.removePrefix("dnst://")
+        val newConfig: Config
 
-        val etInput = EditText(this).apply {
-            hint = "vaydns://..."
-            background = null // Optional: styling
-        }
+        if (content.contains("/")) {
+            // --- 1. Human-readable Form Parsing ---
+            // Grammar: dnst://<domain>/<transport>/<backend>?<params>#<tag>
+            val uri = android.net.Uri.parse(data)
 
-        layout.addView(label)
-        layout.addView(etInput)
+            val domain = uri.host ?: throw Exception("Missing tunnel domain")
+            val pathSegments = uri.pathSegments
+            if (pathSegments.size < 2) throw Exception("Invalid path structure. Need /transport/backend")
 
-        AlertDialog.Builder(this)
-            .setView(layout)
-            .setPositiveButton("Import") { _, _ ->
-                val input = etInput.text.toString().trim()
-                if (input.isNotEmpty()) {
-                    processImport(input)
-                }
+            val transport = pathSegments[0] // e.g., "vaydns"
+
+            if (transport != "vaydns") {
+                throw Exception("Unsupported transport: '$transport'. This app only supports 'vaydns'.")
             }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-*/
+            val backend = pathSegments[1]    // e.g., "socks", "ssh"
+            val tag = uri.fragment ?: "Imported"
 
-    private fun processImport(data: String) {
-        try {
-            if (!data.startsWith("vaydns://")) {
-                throw Exception("Invalid profile prefix")
-            }
-
-            // 1. Decode Base64
-            val base64Data = data.removePrefix("vaydns://")
-            val decodedBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
-            val rawString = String(decodedBytes, Charsets.UTF_8)
-            val fields = rawString.split("|")
-
-            // 2. Validate Required Fields (Domain and Pubkey)
-            // Domain at Index 3, Pubkey at Index 11
-            val domain = fields.getOrNull(3)?.takeIf { it.isNotEmpty() }
-            val pubkey = fields.getOrNull(11)?.takeIf { it.isNotEmpty() }
-
-            if (domain == null || pubkey == null) {
-                throw Exception("Profile missing Tunnel Domain or Server Public Key")
-            }
-
-            // 3. Name Logic & Conflict Resolution
-            val rawName = fields.getOrNull(2)?.takeIf { it.isNotEmpty() } ?: "Imported"
-            val currentConfigs = loadAllConfigs(this)
-            val finalName = getUniqueName(rawName, currentConfigs)
-
-            // 4. DNS & Mode Logic
-            // Use profile DNS if exists, otherwise default to 8.8.8.8:53
-            val dnsServer = fields.getOrNull(4)?.takeIf { it.isNotEmpty() } ?: "8.8.8.8:53"
-            val mode: String
-
-            if (dnsServer.startsWith("http")) {
-                mode = "doh"
-            } else {
-                // Logic: 853 -> dot, 53 -> udp, anything else -> udp
-                mode = when {
-                    dnsServer.contains(":853") -> "dot"
-                    dnsServer.contains(":53") -> "udp"
-                    else -> "udp"
-                }
-            }
-
-            // 5. Create and Save Config
-            // Note: We do NOT pass an 'id' here. The Config data class
-            // will automatically generate a new unique UUID.
-            val newConfig = Config(
-                name = finalName,
+            // Map Query Parameters to Config
+            newConfig = Config(
+                name = getUniqueName(tag, loadAllConfigs(this)),
                 domain = domain,
-                pubkey = pubkey,
-                dnsAddress = dnsServer,
-                mode = mode,
+                transport = transport,
+                protocol = backend,
+                pubkey = uri.getQueryParameter("pubkey") ?: "",
+                dnsAddress = "8.8.8.8:53", // Default if not provided
+                mode = "udp", // Default mode
+                recordType = uri.getQueryParameter("record-type")?.uppercase() ?: "TXT",
+                dnsttCompatible = uri.getQueryParameter("dnstt-compat")?.toBoolean() ?: false,
+                clientIdSize = uri.getQueryParameter("clientid-size")?.toLongOrNull() ?: 2L,
+                idleTimeout = uri.getQueryParameter("idle-timeout") ?: "10s",
+                keepAlive = uri.getQueryParameter("keepalive") ?: "2s",
+                useAuth = uri.getQueryParameter("user") != null,
+                user = uri.getQueryParameter("user") ?: "",
+                pass = uri.getQueryParameter("pk") ?: uri.getQueryParameter("password") ?: "",
+                useSshKey = uri.getQueryParameter("pk") != null,
                 isDefault = false
             )
+        } else {
+            // --- 2. Base64-JSON Form Parsing ---
+            val decodedBytes = android.util.Base64.decode(content, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING)
+            val json = org.json.JSONObject(String(decodedBytes, Charsets.UTF_8))
 
-            val updatedList = currentConfigs.toMutableList()
-            updatedList.add(newConfig)
-            saveAllConfigs(this, updatedList)
+            val transportObj = json.getJSONObject("transport")
+            val transportType = transportObj.optString("type", "").lowercase()
 
-            // 6. Refresh UI
-            refreshConfigList()
-            Toast.makeText(this, "Config '$finalName' imported", Toast.LENGTH_SHORT).show()
+            if (transportType != "vaydns") {
+                throw Exception("Unsupported transport: '$transportType'. This app only supports 'vaydns'.")
+            }
 
-        } catch (e: Exception) {
-            AlertDialog.Builder(this)
-                .setTitle("Import Error")
-                .setMessage(e.message ?: "Failed to parse profile")
-                .setPositiveButton("OK", null)
-                .show()
+            val backendObj = json.getJSONObject("backend")
+            val tag = json.optString("tag", "Imported")
+
+            newConfig = Config(
+                name = getUniqueName(tag, loadAllConfigs(this)),
+                domain = transportObj.getString("domain"),
+                pubkey = transportObj.optString("pubkey", ""),
+                recordType = transportObj.optString("record_type", "TXT").uppercase(),
+                dnsttCompatible = transportObj.optBoolean("dnstt_compat", false),
+                clientIdSize = transportObj.optLong("clientid_size", 2L),
+                idleTimeout = transportObj.optString("idle_timeout", "10s"),
+                keepAlive = transportObj.optString("keepalive", "2s"),
+                protocol = backendObj.getString("type"),
+                user = backendObj.optString("user", ""),
+                pass = backendObj.optString("pk", backendObj.optString("password", "")),
+                useSshKey = backendObj.has("pk"),
+                useAuth = backendObj.has("user"),
+                isDefault = false,
+                dnsAddress = "8.8.8.8:53",
+                mode = "udp" // Standard default
+            )
         }
+
+        // Save to internal storage
+        val currentConfigs = loadAllConfigs(this).toMutableList()
+        currentConfigs.add(newConfig)
+        saveAllConfigs(this, currentConfigs)
+
+        refreshConfigList()
+        Toast.makeText(this, "Imported: ${newConfig.name}", Toast.LENGTH_SHORT).show()
+
+    } catch (e: Exception) {
+        AlertDialog.Builder(this)
+            .setTitle("Import Error")
+            .setMessage(e.message ?: "Failed to parse dnst:// profile")
+            .setPositiveButton("OK", null)
+            .show()
     }
+}
+
 
     private fun getUniqueName(baseName: String, currentConfigs: List<Config>): String {
         var candidate = baseName
@@ -917,21 +828,22 @@ class MainActivity : AppCompatActivity() {
                     "1.0"
                 }
 
-                AlertDialog.Builder(this)
+                val dialog = AlertDialog.Builder(this)
                     .setTitle("VayDNS")
                     .setMessage("""
-            Version: $version
+                        Version: $version
             
-            DNS Tunneling app designed for heavily censored environments.
+                        DNS Tunneling app designed for heavily censored environments.
             
-            Made with ❤️
-            x.com/Starling226
-            https://github.com/Starling226/vaydns-vpn
-        """.trimIndent())
+                        Made with ❤️
+                        x.com/Starling226
+                        https://github.com/Starling226/vaydns-vpn
+                    """.trimIndent())
                     .setPositiveButton("Close", null)
                     .setIcon(R.mipmap.ic_launcher_round)
-                    .show()
-
+                    .create()
+                dialog.show()
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(android.graphics.Color.parseColor("#2F4A6F"))
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -981,6 +893,20 @@ class MainActivity : AppCompatActivity() {
             putExtra("PUBKEY", config.pubkey)
             putExtra("UDP", config.dnsAddress)
             putExtra("MODE", config.mode)
+            putExtra("RECORD_TYPE", config.recordType)
+            putExtra("IDLE_TIMEOUT", config.idleTimeout)
+            putExtra("KEEP_ALIVE", config.keepAlive)
+            putExtra("CLIENT_ID_SIZE", config.clientIdSize)
+            putExtra("DNSTT_COMPATIBLE", config.dnsttCompatible)
+            putExtra("USE_AUTH", config.useAuth)
+            putExtra("PROTOCOL", config.protocol)
+
+            // Apply the "none" fallback logic here as well for safety
+            val finalUser = if (config.useAuth) config.user.ifEmpty { "none" } else "none"
+            val finalPass = if (config.useAuth) config.pass.ifEmpty { "none" } else "none"
+
+            putExtra("USER", finalUser)
+            putExtra("PASS", finalPass)
         }
 
         // 3. Start the service
