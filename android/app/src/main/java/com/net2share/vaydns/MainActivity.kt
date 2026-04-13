@@ -41,6 +41,7 @@ private var selectedConfigId: String? = null   // which config is active for STA
 private val configList = mutableListOf<Config>() // Class-level list to hold User + Default configs
 class MainActivity : AppCompatActivity() {
 
+    private var configAdapter: ConfigAdapter? = null
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val status = intent?.getStringExtra("status")
@@ -320,41 +321,42 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshConfigList() {
         configList.clear()
-
-        // 1. Add User Configs
         configList.addAll(loadAllConfigs(this))
-
-        // 2. Add Native Default Configs if switch is ON
         if (switchDefault.isChecked) {
             configList.addAll(DefaultConfigProvider.getDefaultConfigs(this))
         }
 
-        val adapter = ConfigAdapter(
-            configList,
-            selectedConfigId,
-            onConfigSelected = { config ->
-                saveSelectedConfigId(config.id)
-                refreshConfigList()
-            },
-            onEditClicked = { config ->
-                val intent = Intent(this, ConfigEditorActivity::class.java).apply {
-                    putExtra("CONFIG_ID", config.id)
+        // Check if adapter already exists
+        if (recyclerConfigs.adapter == null) {
+            configAdapter = ConfigAdapter(
+                configList,
+                selectedConfigId,
+                onConfigSelected = { config ->
+                    saveSelectedConfigId(config.id)
+                    // Instead of refreshConfigList(), we just update the ID and notify
+                    configAdapter?.updateSelectedId(config.id)
+                },
+                onEditClicked = { config ->
+                    val intent = Intent(this, ConfigEditorActivity::class.java).apply {
+                        putExtra("CONFIG_ID", config.id)
+                    }
+                    startActivity(intent)
+                },
+                onDeleteClicked = { config -> showDeleteConfirmation(config) },
+                onExportClicked = { config ->
+                    if (config.isDefault) {
+                        Toast.makeText(this, "This config cannot be shared.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        exportToVayDnsProfile(config)
+                    }
                 }
-                startActivity(intent)
-            },
-            onDeleteClicked = { config ->
-                showDeleteConfirmation(config)
-            },
-            onExportClicked = { config ->
-                // Check if it's a default config from the native provider
-                if (config.isDefault) {
-                    Toast.makeText(this, "This config cannot be shared.", Toast.LENGTH_SHORT).show()
-                } else {
-                    exportToVayDnsProfile(config)
-                }
-            }
-        )
-        recyclerConfigs.adapter = adapter
+            )
+            recyclerConfigs.adapter = configAdapter
+        } else {
+            // If it exists, just tell the adapter the data changed
+            // without reassining the adapter itself.
+            configAdapter?.notifyDataSetChanged()
+        }
     }
 
     /**

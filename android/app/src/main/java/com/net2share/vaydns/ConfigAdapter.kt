@@ -10,13 +10,17 @@ import androidx.recyclerview.widget.RecyclerView
 
 class ConfigAdapter(
     private val configs: List<Config>,
-    private val selectedId: String?,
+    private var selectedId: String?,
     private val onConfigSelected: (Config) -> Unit,
     private val onEditClicked: (Config) -> Unit,
     private val onDeleteClicked: (Config) -> Unit,
     private val onExportClicked: (Config) -> Unit
 ) : RecyclerView.Adapter<ConfigAdapter.ViewHolder>() {
 
+    fun updateSelectedId(newId: String?) {
+        this.selectedId = newId
+        notifyDataSetChanged()
+    }
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val name: TextView = view.findViewById(R.id.tv_config_name)
         val domain: TextView = view.findViewById(R.id.tv_domain)
@@ -37,6 +41,7 @@ class ConfigAdapter(
         holder.name.text = config.name
         holder.domain.text = config.domain          // ← Just the domain, no label
 
+        val isSelected = config.id == selectedId
         if (config.isDefault) {
             holder.domain.text = "----------"
 
@@ -52,14 +57,6 @@ class ConfigAdapter(
             // holder.delete.visibility = View.VISIBLE
         }
 
-        if (config.isDefault) {
-            holder.export.alpha = 0.5f
-            holder.delete.alpha = 0.5f
-        } else {
-            holder.export.alpha = 1.0f
-            holder.delete.alpha = 1.0f
-        }
-
         // Highlight selected config
         val cardView = holder.itemView as androidx.cardview.widget.CardView
         if (config.id == selectedId) {
@@ -68,23 +65,25 @@ class ConfigAdapter(
             cardView.setCardBackgroundColor(0xFFFFFFFF.toInt())
         }
 
+        holder.itemView.setOnClickListener {
+            onConfigSelected(config)
+        }
+
+        if (isSelected) {
+            holder.export.alpha = 0.5f
+            holder.delete.alpha = 0.5f
+        } else {
+            holder.export.alpha = 1.0f
+            holder.delete.alpha = 1.0f
+        }
+
         holder.export.setOnClickListener {
-            if (config.isDefault) {
+            if (isSelected) {
                 Toast.makeText(holder.itemView.context, "Official configurations cannot be exported.", Toast.LENGTH_SHORT).show()
             } else {
                 onExportClicked(config)
             }
         }
-
-        /**holder.itemView.setOnClickListener {
-            onConfigSelected(config)
-        }
-
-        holder.itemView.setOnClickListener {
-            onConfigSelected(config)
-        }*/
-
-
 
         // holder.export.setOnClickListener { onExportClicked(config) }
         holder.edit.setOnClickListener { onEditClicked(config) }
