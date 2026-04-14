@@ -19,6 +19,8 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 
 - **Standardized DNST URL Support:**  Now fully compliant with the DNST URL Scheme, enabling seamless configuration sharing across compatible applications.
 
+- **Remote Update Configs:**  Remote Configuration Updates: Users can seamlessly update default configurations over-the-air whenever new servers or optimizations become available, ensuring the app stays ahead of network restrictions.
+
 ## 🔒 App Verification
 Official builds of VayDNS can be verified using the in-app verification tool. 
 **Official Public Key:** `f7eb9ede225433ff8b9d22a61fe72b6b81b18ec9cb3bc70e7706b57f6e0fed7b`

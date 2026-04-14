@@ -26,9 +26,19 @@ type DefaultConfig struct {
 	Pass            string `json:"pass"`
 }
 
+type ConfigWrapper struct {
+	Version int             `json:"version"`
+	ServerURL string        `json:"serverURL"`
+	AppSecretKey string     `json:"appSecretKey"`
+	Configs []DefaultConfig `json:"configs"`
+}
+
 var (
-	defaultConfigs []DefaultConfig
-	configMu       sync.Mutex // Use a Mutex instead of sync.Once to allow re-parsing
+	defaultConfigs   []DefaultConfig
+	currentVersion   int
+	currentServerURL string
+	currentSecretKey string
+	configMu         sync.Mutex
 )
 
 // ensureParsed checks if the slice needs to be populated.
@@ -37,34 +47,62 @@ func ensureParsed() {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	// Only attempt to parse if the slice is empty and we have the necessary data
 	if len(defaultConfigs) == 0 && InjectedConfigs != "" {
-		
-		// 1. Decode the Base64 InjectedConfigs
 		data, err := base64.StdEncoding.DecodeString(InjectedConfigs)
 		if err != nil {
-			// If Base64 decode fails, check if it's raw JSON (for local dev)
+			// Local raw JSON fallback
 			if json.Valid([]byte(InjectedConfigs)) {
-				_ = json.Unmarshal([]byte(InjectedConfigs), &defaultConfigs)
+				var wrapper ConfigWrapper
+				if err := json.Unmarshal([]byte(InjectedConfigs), &wrapper); err == nil && len(wrapper.Configs) > 0 {
+					defaultConfigs = wrapper.Configs
+					currentVersion = wrapper.Version
+					currentServerURL = wrapper.ServerURL
+					currentSecretKey = wrapper.AppSecretKey // Extract here!
+				} else {
+					_ = json.Unmarshal([]byte(InjectedConfigs), &defaultConfigs)
+					currentVersion = 0
+					currentServerURL = ""
+					currentSecretKey = ""
+				}
 			}
 			return
 		}
 
-		// 2. Prepare the Masking Key (InjectedPrivateKey)
-		// We decode the hex string into raw bytes to use for XOR
 		mask, err := hex.DecodeString(InjectedPrivateKey)
-		
-		// 3. XOR Decode if a valid mask exists
 		if err == nil && len(mask) > 0 {
 			for i := 0; i < len(data); i++ {
-				// XOR each byte of data with a byte from the private key
 				data[i] ^= mask[i%len(mask)]
 			}
 		}
 
-		// 4. Unmarshal the resulting JSON
-		_ = json.Unmarshal(data, &defaultConfigs)
+		var wrapper ConfigWrapper
+		if err := json.Unmarshal(data, &wrapper); err == nil && len(wrapper.Configs) > 0 {
+			defaultConfigs = wrapper.Configs
+			currentVersion = wrapper.Version
+			currentServerURL = wrapper.ServerURL 
+			currentSecretKey = wrapper.AppSecretKey // Extract here!
+		} else {
+			_ = json.Unmarshal(data, &defaultConfigs)
+			currentVersion = 0
+			currentServerURL = ""
+			currentSecretKey = ""
+		}
 	}
+}
+
+func GetAppSecretKey() string {
+	ensureParsed()
+	return currentSecretKey
+}
+
+func GetUpdateServerURL() string {
+	ensureParsed()
+	return currentServerURL
+}
+
+func GetDefaultConfigVersion() int64 {
+	ensureParsed()
+	return int64(currentVersion)
 }
 
 func SetDefaultConfigs(jsonStr string) {

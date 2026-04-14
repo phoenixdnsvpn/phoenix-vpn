@@ -28,6 +28,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.net2share.vaydns.ConfigEditorActivity.Companion.loadAllConfigs
 import com.net2share.vaydns.ConfigEditorActivity.Companion.saveAllConfigs
+import java.net.URL
 
 private lateinit var rgMode: RadioGroup   // kept only for editor (we don't use it here anymore)
 private lateinit var tvStatus: TextView
@@ -502,6 +503,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
+        menu.add(Menu.NONE, 1001, Menu.NONE, "Update Configs")
         return true
     }
 
@@ -840,6 +842,10 @@ private fun processImport(data: String) {
                 showVerificationDialog()
                 true
             }
+            1001 -> { // Triggers the server sync for Update Configs
+                syncConfigsWithServer()
+                true
+            }
             R.id.action_about -> {
                 val version = try {
                     packageManager.getPackageInfo(packageName, 0).versionName
@@ -868,6 +874,136 @@ private fun processImport(data: String) {
             else -> super.onOptionsItemSelected(item)
         }
     }
+
+    private fun fetchSecureContent(urlString: String): String {
+        val url = java.net.URL(urlString)
+        val connection = url.openConnection() as java.net.HttpURLConnection
+        val mySecretKey = mobile.Mobile.getAppSecretKey()
+
+        if (mySecretKey.isNotEmpty()) {
+            // Use your secret key here
+//            android.util.Log.d("VayDNS_Secret", "Secret key loaded securely!")
+        }
+        // Set up the connection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 5000 // 5 seconds
+        connection.readTimeout = 5000
+
+        // --- ADD YOUR SECRET TOKEN HERE ---
+        // This must match exactly what you put in Nginx
+        connection.setRequestProperty("X-VayDNS-Token", mySecretKey)
+
+        if (connection.responseCode == 200) {
+            return connection.inputStream.bufferedReader().use { it.readText() }
+        } else {
+            throw Exception("Server rejected connection: HTTP ${connection.responseCode}")
+        }
+    }
+
+    private fun syncConfigsWithServer() {
+        val currentVersion = mobile.Mobile.getDefaultConfigVersion()
+
+        Thread {
+            try {
+                var baseUrl = mobile.Mobile.getUpdateServerURL()
+
+                if (baseUrl.isEmpty()) {
+                    runOnUiThread { Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show() }
+                    return@Thread
+                }
+
+                baseUrl = baseUrl.trimEnd('/')
+
+                // 1. Fetch version using the secure connection
+                val versionUrl = "$baseUrl/config/version.txt"
+                val latestVersionText = fetchSecureContent(versionUrl).trim()
+                val latestVersion = latestVersionText.toInt()
+
+                if (latestVersion > currentVersion) {
+                    runOnUiThread { Toast.makeText(this, "New update found (v$latestVersion). Downloading...", Toast.LENGTH_SHORT).show() }
+
+                    // 2. Fetch the Base64 config file using the secure connection
+                    val configUrl = "$baseUrl/config/default_configs.bin"
+                    val newConfigB64 = fetchSecureContent(configUrl).trim()
+
+                    // 3. Persist the update
+                    getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("cached_obscured_json", newConfigB64)
+                        .apply()
+
+                    // 4. Update the Go engine
+                    mobile.Mobile.setDefaultConfigs(newConfigB64)
+
+                    runOnUiThread {
+                        refreshConfigList()
+                        Toast.makeText(this, "Configurations updated to v$latestVersion!", Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    runOnUiThread { Toast.makeText(this, "Configurations are already up to date.", Toast.LENGTH_SHORT).show() }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VayDNS_Update", "Crash during update process:", e)
+                runOnUiThread {
+                    Toast.makeText(this, "Update failed: Check your connection.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+    /**private fun syncConfigsWithServer() {
+        val currentVersion = mobile.Mobile.getDefaultConfigVersion()
+
+        Thread {
+            try {
+                // Fetch the decrypted server URL from the Go engine
+                var baseUrl = mobile.Mobile.getUpdateServerURL()
+                //android.util.Log.d("VayDNS_URL", "The fetched URL is: '$baseUrl'")
+
+                if (baseUrl.isEmpty()) {
+                    runOnUiThread {
+                        Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show()
+                    }
+                    return@Thread // Abort if URL is missing
+                }
+
+                // Remove trailing slash just in case it was accidentally included in the secret
+                baseUrl = baseUrl.trimEnd('/')
+
+                // 1. Check for the latest version number
+                val versionUrl = java.net.URL("$baseUrl/config/version.txt")
+                val latestVersionText = versionUrl.readText().trim()
+                val latestVersion = latestVersionText.toInt()
+
+                if (latestVersion > currentVersion) {
+                    runOnUiThread { Toast.makeText(this, "New update found (v$latestVersion). Downloading...", Toast.LENGTH_SHORT).show() }
+
+                    // 2. Download the new configuration Base64 string
+                    val configUrl = java.net.URL("$baseUrl/config/default_configs.bin")
+                    val newConfigB64 = configUrl.readText().trim()
+
+                    // 3. Persist the update
+                    getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("cached_obscured_json", newConfigB64)
+                        .apply()
+
+                    // 4. Update the Go engine in real-time
+                    mobile.Mobile.setDefaultConfigs(newConfigB64)
+
+                    runOnUiThread {
+                        refreshConfigList()
+                        Toast.makeText(this, "Configurations updated to v$latestVersion!", Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    runOnUiThread { Toast.makeText(this, "Configurations are already up to date.", Toast.LENGTH_SHORT).show() }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Update failed: Check your connection.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }*/
 
     private fun prepareAndStartVpn() {
         val intent = VpnService.prepare(this)

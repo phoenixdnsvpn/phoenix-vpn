@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginHorizontal="8dp"
-    android:layout_marginVertical="3dp"
+    android:layout_marginVertical="2dp"
     app:cardCornerRadius="8dp"
     app:cardElevation="2dp">
 
@@ -62,8 +62,8 @@
 
         <ImageView
             android:id="@+id/btn_edit"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="33dp"
+            android:layout_height="33dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_edit"
@@ -74,8 +74,8 @@
 
         <ImageView
             android:id="@+id/btn_export"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="33dp"
+            android:layout_height="33dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_share"
@@ -86,8 +86,8 @@
 
         <ImageView
             android:id="@+id/btn_delete"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="33dp"
+            android:layout_height="33dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
             android:src="@android:drawable/ic_delete"
