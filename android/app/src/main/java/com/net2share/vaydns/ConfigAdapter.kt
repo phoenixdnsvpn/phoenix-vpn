@@ -79,7 +79,7 @@ class ConfigAdapter(
 
         holder.export.setOnClickListener {
             if (isSelected) {
-                Toast.makeText(holder.itemView.context, "Official configurations cannot be exported.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(holder.itemView.context, "Built-in configs cannot be exported.", Toast.LENGTH_SHORT).show()
             } else {
                 onExportClicked(config)
             }
@@ -91,7 +91,7 @@ class ConfigAdapter(
 
         holder.delete.setOnClickListener {
             if (config.isDefault) {
-                Toast.makeText(holder.itemView.context, "Built-in servers cannot be deleted.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(holder.itemView.context, "Built-in configs cannot be deleted.", Toast.LENGTH_SHORT).show()
             } else {
                 this.onDeleteClicked(config)
             }

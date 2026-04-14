@@ -60,7 +60,7 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	reconnectMax := parseDur(c.ReconnectMax, 10*time.Second)
 	sessionCheck := parseDur(c.SessionCheck, 500*time.Millisecond)
 	openStreamTimeout := parseDur(c.OpenStreamTimeout, 10*time.Second)
-	udpTimeout := parseDur(c.UDPTimeout, 30*time.Second)
+	udpTimeout := parseDur(c.UDPTimeout, 10*time.Second)
 
 	// 3. Apply Dnstt Compatibility logic
 	if c.CompatDnstt {
@@ -99,30 +99,25 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 		return err
 	}
 
-/*
-	// NEW: Use DialerControl instead of resolver.Dialer
-	// This provides the "Bypass" logic for the Android VPN in v0.2.6
 	resolver.DialerControl = func(network, address string, rawConn syscall.RawConn) error {
-		return rawConn.Control(func(fd uintptr) {
-			if c.Protector != nil {
-				log.Infof("VAY_DEBUG: Protecting socket fd: %d", fd)
-				c.Protector.Protect(int(fd))
-			} else {
-				log.Errorf("VAY_DEBUG: PROTECTOR IS NULL! Bypass will fail.")
-			}
-		})
-	}
-*/
-	resolver.DialerControl = func(network, address string, rawConn syscall.RawConn) error {
-	    // Only intercept the dialer if we actually have a protector to use.
-	    // If Protector is nil, we let Android handle the routing normally.
+    	// Check if we are already shutting down
+	    if err := ctx.Err(); err != nil {
+    	    // Return context.Canceled directly. 
+    	    // Most Go network libraries treat this as a "stop everything" signal.
+    	    return err 
+	    }
+
 	    if c.Protector == nil {
 	        return nil 
 	    }
 
 	    return rawConn.Control(func(fd uintptr) {
-	        log.Infof("VAY_DEBUG: Protecting socket fd: %d", fd)
-	        c.Protector.Protect(int(fd))
+	        select {
+	        case <-ctx.Done():
+	            return 
+	        default:
+	            c.Protector.Protect(int(fd))
+	        }
 	    })
 	}
 
@@ -163,7 +158,9 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	go func() {
 		<-ctx.Done()
 		log.Info("VAY_DEBUG: Context cancelled - shutting down tunnel")
-		tunnel.Close()
+		if tunnel != nil {
+			tunnel.Close()
+		}
 	}()
 
 	if c.ListenAddr == "" {

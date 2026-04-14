@@ -7,20 +7,23 @@ import (
 	"math/rand"
 	"sync"
 	"time"
-    "net/http"
-    "net/url"
-    
+	"net/http"
+	"net/url"
+	"syscall"
+
 	"github.com/Starling226/vaydns-vpn/bridge"
 	"github.com/xjasonlyu/tun2socks/v2/engine"
 )
 
 var (
-	mu         sync.Mutex
-	ctx        context.Context
-	cancel     context.CancelFunc
-	isRunning  bool
-	wg         sync.WaitGroup // Used to ensure threads fully exit before StopVpn returns
+	mu              sync.Mutex
+	activeCtx       context.Context
+	activeCancel    context.CancelFunc
+	cancel          context.CancelFunc
+	activeWg        *sync.WaitGroup // POINTER prevents the reuse panic!
+	isRunning       bool
 	activeSocksPort int
+	wg         sync.WaitGroup // Used to ensure threads fully exit before StopVpn returns
 )
 
 // SocketProtector allows the Go code to call Android's VpnService.protect()
@@ -29,228 +32,155 @@ type SocketProtector interface {
 }
 
 func init() {
-	// Seed the randomizer once at startup
 	rand.Seed(time.Now().UnixNano())
 }
 
 /**
  * StartVpn: The main entry point for Android System-Wide VPN.
  */
-func StartVpn(fd int,
-    udp string,
-    doh string,
-    dot string,
-    domain string,
-    pubkey string,
-    recordType string,
-    idleTimeout string,
-    KeepAlive string,
-    clientIDSize int,
-	compatDnstt bool,
-	user string, // not used
-	pass string, // not used
-    protector SocketProtector,
-) string {
+ 
+func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey string, recordType string, idleTimeout string, KeepAlive string, clientIDSize int, compatDnstt bool, user string, pass string, protector SocketProtector) string {
 	mu.Lock()
-	defer mu.Unlock()
 
-	// 1. Safety check: Properly shut down any existing session
-	if isRunning && cancel != nil {
-		log.Printf("VAY_DEBUG: Stopping previous session before restart")
-		cancel()
-		wg.Wait() // Wait for all threads to confirm they've exited
+	// 1. SIGNAL OLD SESSION TO DIE
+	if activeCancel != nil {
+		log.Printf("VAY_DEBUG: Killing old session context")
+		activeCancel() 
 	}
 
-	// 2. Port Randomization: Avoids "address already in use" on rapid restarts
-	randomPort := 10000 + rand.Intn(40000)
-	activeSocksPort = randomPort
-	internalSocks := fmt.Sprintf("127.0.0.1:%d", randomPort)
-//	log.Printf("VAY_DEBUG: VPN starting on %s with MTU 500 recordType: %s idleTimeout: %s KeepAlive: %s", internalSocks, recordType, idleTimeout, KeepAlive)
+	// 2. THE SECRET SAUCE: DUPLICATE THE FD
+	// This prevents the 'fdsan' crash on Android 10+
+	newFd, err := syscall.Dup(fd)
+	if err != nil {
+		mu.Unlock()
+		return "Error: Failed to dup FD"
+	}
 
-	// 3. Initialize Lifecycle
-	ctx, cancel = context.WithCancel(context.Background())
+	activeWg = &sync.WaitGroup{}
+	activeCtx, activeCancel = context.WithCancel(context.Background())
 	isRunning = true
 
+	// Capture locals for goroutines
+	wg := activeWg
+	ctx := activeCtx
+	
+	activeSocksPort = 10000 + rand.Intn(40000)
+	internalSocks := fmt.Sprintf("127.0.0.1:%d", activeSocksPort)
+	
+	mu.Unlock()
+
 	tCfg := bridge.TunnelConfig{
-		UdpAddr:          udp,
-		DohURL:           doh,
-		DotAddr:          dot,
-		Domain:           domain,
-		ListenAddr:       internalSocks,
-		LogLevel:         "info",
-		UtlsDistribution: "chrome",
-//		RecordType:       "txt",
-		RecordType:       recordType,
-//		CompatDnstt:      false,
-		PubkeyHex:        pubkey,
-		Protector:        protector,
-		// Performance Settings
-//		IdleTimeout:      "10s",
-		IdleTimeout:      idleTimeout,
-//		KeepAlive:        "2s",
-		KeepAlive:        KeepAlive,		
-		UDPTimeout:       "2s",
-		ClientIDSize:     clientIDSize,
-		CompatDnstt:      compatDnstt,
-		
-//		UDPTimeout:       "500ms",		
+		UdpAddr: udp, DohURL: doh, DotAddr: dot, Domain: domain,
+		ListenAddr: internalSocks, LogLevel: "info", UtlsDistribution: "chrome",
+		RecordType: recordType, PubkeyHex: pubkey, Protector: protector,
+		IdleTimeout: idleTimeout, KeepAlive: KeepAlive, UDPTimeout: "2s",
+		ClientIDSize: clientIDSize, CompatDnstt: compatDnstt,
 	}
 
-	// 4. Start Tunnel Goroutine
+	// 3. START THE DNS TUNNEL (The part that was missing!)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("VAY_DEBUG: Tunnel Panic Recovered: %v", r)
-			}
-		}()
-		
 		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
 			log.Printf("VAY_DEBUG: Tunnel Error: %v", err)
 		}
 	}()
 
-	// 5. Start Tun2Socks Engine with MTU 500
-	key := &engine.Key{
-		Proxy:  "socks5://" + internalSocks,
-		Device: fmt.Sprintf("fd://%d", fd),
-		MTU:    500, // Critical for preventing fragmentation on filtered networks
-	}
-
+	// 4. START TUN2SOCKS ENGINE (Using newFd)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("VAY_DEBUG: Engine Panic Recovered: %v", r)
-			}
-		}()
-
+		key := &engine.Key{
+			Proxy:  "socks5://" + internalSocks,
+			Device: fmt.Sprintf("fd://%d", newFd),
+			MTU:    1232, 
+		}
 		engine.Insert(key)
-		
-		log.Printf("VAY_DEBUG: Tun2Socks Engine starting")
-		engine.Start() // This blocks until engine.Stop() is called
+		log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d", newFd)
+		engine.Start() 
 	}()
 
-	// 6. Graceful Watcher: Bridges the Context to the Engine's manual Stop()
+	// 5. SHUTDOWN WATCHER
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		<-ctx.Done()
-		log.Printf("VAY_DEBUG: Context cancelled, signaling engine shutdown")
+		log.Printf("VAY_DEBUG: Shutting down engine...")
 		engine.Stop()
+		// Important: We also close the newFd here because Go owns it now
+		syscall.Close(newFd) 
+		log.Printf("VAY_DEBUG: Native engine fully dead.")		
 	}()
 
 	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
 }
 
-/**
- * StopVpn: Cleans up all resources.
- */
 
+/**
+ * StopVpn: Cleans up all resources safely without deadlocks.
+ */
+ 
+ 
 func StopVpn() string {
 	mu.Lock()
-	if !isRunning || cancel == nil {
+	if activeCancel == nil {
 		mu.Unlock()
-		return "VPN was not running"
+		return "Not running"
 	}
 
-	log.Printf("VAY_DEBUG: Initiating synchronized shutdown")
+	log.Printf("VAY_DEBUG: [STOP] Native signal sent")
+	activeCancel() 
 	
-	// 1. Signal all goroutines to exit
-	cancel()
-	
-	// 2. IMPORTANT: Unlock before waiting! 
-	// This allows StartVpn to run if needed, though usually we wait.
-	mu.Unlock() 
-
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	
-	select {
-	case <-done:
-		log.Printf("VAY_DEBUG: All threads exited cleanly")
-	case <-time.After(2 * time.Second):
-		log.Printf("VAY_DEBUG: Shutdown timed out - forcing release")
-	}
-		
-	// 3. Wait for goroutines to confirm exit
-	// This replaces the unstable time.Sleep()
-
-	mu.Lock()
-	cancel = nil
 	isRunning = false
-	mu.Unlock()
+	activeSocksPort = 0
+	
+	// Release pointers so StartVpn can allocate fresh ones
+	tempWg := activeWg
+	activeCancel = nil 
+	activeWg = nil 
+	mu.Unlock() // UNLOCK HERE
 
-//	log.Printf("VAY_DEBUG: All threads finished. Safe to stop service.")
-	return "VPN Stopped"
+	// Wait for routines in the background so the function returns to Android INSTANTLY
+	go func() {
+		if tempWg != nil {
+			tempWg.Wait()
+			log.Printf("VAY_DEBUG: [STOP] Native threads cleared.")
+		}
+	}()
+
+	return "Stopping"
 }
  
-/*
-func StopVpn() string {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if !isRunning || cancel == nil {
-		return "VPN was not running"
-	}
-
-	log.Printf("VAY_DEBUG: StopVpn called - triggering synchronized shutdown")
-	
-	// Signal all goroutines (Tunnel, Engine, Watcher) to stop
-	cancel()
-
-	// CRITICAL: Block until every thread has confirmed it finished cleanup.
-	// This ensures port 10808 (or the random port) and FD are truly released.
-	wg.Wait()
-
-	cancel = nil
-	isRunning = false
-	log.Printf("VAY_DEBUG: All threads exited. VPN resources cleared.")
-
-	return "VPN Stopped"
-}
-*/
 
 func VerifyTunnel() string {
 	mu.Lock()
 	port := activeSocksPort
 	running := isRunning
-	appCtx := ctx
+	appCtx := activeCtx
 	mu.Unlock()
 
 	if !running || port == 0 || appCtx == nil {
-//	if !running || port == 0 {
 		return "Fail: VPN not running"
 	}
 
-	// 1. Build a client that strictly routes through the local vaydns proxy
 	proxyURL, _ := url.Parse(fmt.Sprintf("socks5://127.0.0.1:%d", port))
 	client := &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 		},
-		Timeout: 30 * time.Second, // Give the DNS tunnel 30s to handshake
+		Timeout: 30 * time.Second,
 	}
 
-	// 2. Do a lightweight HTTPS HEAD request
 	req, err := http.NewRequest("HEAD", "https://1.1.1.1", nil)
 	if err != nil {
 		return "Fail: " + err.Error()
 	}
 
-	// 3. Fire the request. 
-	// If the domain is fake, vaydns will fail to resolve it, and client.Do will return an error.
 	resp, err := client.Do(req)
 	if err != nil {
 		return "Fail: " + err.Error()
 	}
 	defer resp.Body.Close()
 
-	// If we get a response, the tunnel is 100% active end-to-end.
 	return "Success"
 }
