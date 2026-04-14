@@ -892,9 +892,6 @@ private fun processImport(data: String) {
     }*/
 
     private fun startVpnService() {
-        // 1. Look for the config in the combined list (User + Default)
-        // We use the 'configList' that is updated by refreshConfigList()
-//        val rawConfig = configList.find { it.id == selectedConfigId }
 
         if (selectedConfigId == null) {
             Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
@@ -902,19 +899,19 @@ private fun processImport(data: String) {
         }
         val config = configList.find { it.id == selectedConfigId }
 
-        // 3. Validation Check: Ensure the config exists and has a domain
-        if (config == null || config.domain.isEmpty()) {
+        if (config == null) {
+            Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
+            return // Abort without changing the UI text
+        }
+
+        if (config.domain.isEmpty()) {
             Toast.makeText(this, "Invalid configuration. Please select another.", Toast.LENGTH_SHORT).show()
-            return
+            return // Abort without changing the UI text
         }
 
         tvStatus.text = "Status: Connecting..."
         tvStatus.setTextColor(Color.parseColor("#FFA500")) // Optional: Orange for connecting
         btnToggle.text = "STOP Tunnel"
-
-        // 2. UNMASK the config: If it's a default config, this fetches
-        // the real Domain and Pubkey from your .so library via JNI.
-//        val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
 
         val intent = Intent(this, VayVpnService::class.java).apply {
 
