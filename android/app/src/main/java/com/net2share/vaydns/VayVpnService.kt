@@ -28,7 +28,7 @@ import java.net.InetAddress
 class VayVpnService : VpnService() {
     private var tunInterface: ParcelFileDescriptor? = null
     private var isStopping = false
-
+    private var isStarting = false
         // 1. Move protector to class level
     private var protector: AndroidProtector? = null
 
@@ -78,21 +78,23 @@ class VayVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
+
         if (intent?.action == "ACTION_STOP_VPN") {
             isStopping = true
+            stopForeground(STOP_FOREGROUND_REMOVE)
+
             Thread {
                 synchronized(goLock) {
                     try {
                         protector?.deactivate()
                         protector = null
-                        // 1. Tell Go to stop (Go will close its newFd)
-                        Mobile.stopVpn()
 
-                        // 2. Close the Android interface (This closes the original fd)
-                        // This satisfies fdsan and removes the Blue Key.
+                        // 1. Tell Go to stop (Go's engine closes the detached goFd)
+                        Mobile.stopVpn()
+                        //Thread.sleep(500)
+                        // 2. Close the original Android interface (Removes Blue Key)
                         tunInterface?.close()
                         tunInterface = null
-
                     } finally {
                         stopSelf()
                         isStopping = false
@@ -101,6 +103,7 @@ class VayVpnService : VpnService() {
             }.start()
             return START_NOT_STICKY
         }
+
 
         // 2. Initial Notification to satisfy Foreground Service requirements
         val notification = Notification.Builder(this, "VAYDNS_CHANNEL")
@@ -121,7 +124,7 @@ class VayVpnService : VpnService() {
                     updateNotification("Status: Connecting...")
 // Now it is perfectly safe to wait for Go to stop
                     Mobile.stopVpn()
-                    tunInterface = null
+                    //tunInterface = null
                     // Give the Linux kernel 500ms to truly release the UDP ports
                     Thread.sleep(500)
 
@@ -188,11 +191,14 @@ class VayVpnService : VpnService() {
                     //val fd = tunInterface!!.detachFd()
                     //tunInterface = null
 
-                    //val fd = tunInterface?.detachFd() ?: -1
-                    val fd = tunInterface?.fd ?: -1
+                    //val dupPfd = tunInterface!!.dup()
+                    //val fd = dupPfd.detachFd()
+                    val fd = tunInterface?.detachFd() ?: -1
+                    //val fd = tunInterface?.fd ?: -1
 
+                    //val fd = tunInterface?.detachFd() ?: -1
 // 2. Immediately wipe the reference so Java 'forgets' it
-                    tunInterface = null
+                    //tunInterface = null
 
                     // 6. Start Native Engine
 //                    val result = Mobile.startVpn(fd.toLong(), udp, doh, dot, domain, pubkey, protector)
@@ -223,6 +229,12 @@ class VayVpnService : VpnService() {
                                 putExtra("status", "DISCONNECTED")
                                 setPackage(packageName)
                             })
+                        }
+
+                        try {
+                            android.os.ParcelFileDescriptor.adoptFd(fd).close()
+                        } catch (e: Exception) {
+                            Log.e("VAY_DEBUG", "Failed to close original FD: ${e.message}")
                         }
                     } else {
                         Log.e("VayDNS", "Failed to start: Tunnel interface was null")
@@ -274,7 +286,6 @@ class VayVpnService : VpnService() {
             }
         }.start()
     }
-
 
     private fun updateNotification(status: String) {
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -367,9 +378,6 @@ class VayVpnService : VpnService() {
                     // 1. Tell Go to stop. Go's engine.Stop() will close the FD.
                     Mobile.stopVpn()
 
-                    // 2. IMPORTANT: DO NOT call tunInterface?.close() here!
-                    // Since we used detachFd(), Go owns the FD now.
-                    // Closing it here causes the fdsan crash you saw.
                     tunInterface = null
 
                     // 3. Deactivate the protector link
@@ -384,6 +392,5 @@ class VayVpnService : VpnService() {
 
         super.onDestroy()
     }
-
 
 }

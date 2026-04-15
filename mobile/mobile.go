@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"syscall"
-
+	
 	"github.com/Starling226/vaydns-vpn/bridge"
 	"github.com/xjasonlyu/tun2socks/v2/engine"
 )
@@ -24,6 +24,7 @@ var (
 	isRunning       bool
 	activeSocksPort int
 	wg         sync.WaitGroup // Used to ensure threads fully exit before StopVpn returns
+	
 )
 
 // SocketProtector allows the Go code to call Android's VpnService.protect()
@@ -37,7 +38,8 @@ func init() {
 
 /**
  * StartVpn: The main entry point for Android System-Wide VPN.
- */
+*/
+ 
  
 func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey string, recordType string, idleTimeout string, KeepAlive string, clientIDSize int, compatDnstt bool, user string, pass string, protector SocketProtector) string {
 	mu.Lock()
@@ -46,6 +48,7 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 	if activeCancel != nil {
 		log.Printf("VAY_DEBUG: Killing old session context")
 		activeCancel() 
+		time.Sleep(100 * time.Millisecond) //just added 
 	}
 
 	// 2. THE SECRET SAUCE: DUPLICATE THE FD
@@ -55,6 +58,8 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 		mu.Unlock()
 		return "Error: Failed to dup FD"
 	}
+
+//    syscall.Close(fd)
 
 	activeWg = &sync.WaitGroup{}
 	activeCtx, activeCancel = context.WithCancel(context.Background())
@@ -90,6 +95,9 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		
+		time.Sleep(300 * time.Millisecond)
+		
 		key := &engine.Key{
 			Proxy:  "socks5://" + internalSocks,
 			Device: fmt.Sprintf("fd://%d", newFd),
@@ -108,7 +116,7 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 		log.Printf("VAY_DEBUG: Shutting down engine...")
 		engine.Stop()
 		// Important: We also close the newFd here because Go owns it now
-		syscall.Close(newFd) 
+//		syscall.Close(newFd) 
 		log.Printf("VAY_DEBUG: Native engine fully dead.")		
 	}()
 
@@ -118,9 +126,9 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 
 /**
  * StopVpn: Cleans up all resources safely without deadlocks.
- */
- 
- 
+*/
+
+
 func StopVpn() string {
 	mu.Lock()
 	if activeCancel == nil {
@@ -131,26 +139,31 @@ func StopVpn() string {
 	log.Printf("VAY_DEBUG: [STOP] Native signal sent")
 	activeCancel() 
 	
-	isRunning = false
-	activeSocksPort = 0
-	
-	// Release pointers so StartVpn can allocate fresh ones
 	tempWg := activeWg
 	activeCancel = nil 
-	activeWg = nil 
-	mu.Unlock() // UNLOCK HERE
+	activeWg = nil    
+	isRunning = false
+	mu.Unlock()
 
-	// Wait for routines in the background so the function returns to Android INSTANTLY
-	go func() {
-		if tempWg != nil {
+	// THE FIX: Wait, but don't wait forever.
+	if tempWg != nil {
+		done := make(chan struct{})
+		go func() {
 			tempWg.Wait()
-			log.Printf("VAY_DEBUG: [STOP] Native threads cleared.")
-		}
-	}()
+			close(done)
+		}()
 
-	return "Stopping"
+		select {
+		case <-done:
+			log.Printf("VAY_DEBUG: [STOP] All threads exited cleanly.")
+		case <-time.After(1000 * time.Millisecond):
+			// If bridge.RunTunnel is stuck in its UDP loop, we force-exit
+			log.Printf("VAY_DEBUG: [STOP] Shutdown timed out. Proceeding anyway.")
+		}
+	}
+
+	return "Stopped"
 }
- 
 
 func VerifyTunnel() string {
 	mu.Lock()
