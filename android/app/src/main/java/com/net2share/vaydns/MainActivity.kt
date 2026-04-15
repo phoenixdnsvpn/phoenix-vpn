@@ -155,24 +155,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        /*btnToggle.setOnClickListener {
-            if (!isVpnConnected) {
-                // START LOGIC
-                if (selectedConfigId == null) {
-                    Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                btnToggle.isEnabled = false // Prevent double clicks
-                tvStatus.text = "Status: Connecting..."
-//                tvStatus.setTextColor(Color.BLUE)
-                prepareAndStartVpn()
-            } else {
-                // STOP LOGIC
-                btnToggle.isEnabled = false
-                stopVpnService()
-                // The receiver will update the UI to "Disconnected"
-            }
-        }*/
 
         // App selector button stays the same
         findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
@@ -556,104 +538,104 @@ class MainActivity : AppCompatActivity() {
 //        btnCancel.isAllCaps = false
     }
 
-private fun processImport(data: String) {
-    try {
-        if (!data.startsWith("dnst://")) {
-            throw Exception("Invalid profile prefix. Must start with dnst://")
-        }
 
-        val content = data.removePrefix("dnst://")
-        val newConfig: Config
-
-        if (content.contains("/")) {
-            // --- 1. Human-readable Form Parsing ---
-            // Grammar: dnst://<domain>/<transport>/<backend>?<params>#<tag>
-            val uri = android.net.Uri.parse(data)
-
-            val domain = uri.host ?: throw Exception("Missing tunnel domain")
-            val pathSegments = uri.pathSegments
-            if (pathSegments.size < 2) throw Exception("Invalid path structure. Need /transport/backend")
-
-            val transport = pathSegments[0] // e.g., "vaydns"
-
-            if (transport != "vaydns") {
-                throw Exception("Unsupported transport: '$transport'. This app only supports 'vaydns'.")
-            }
-            val backend = pathSegments[1]    // e.g., "socks", "ssh"
-            val tag = uri.fragment ?: "Imported"
-
-            // Map Query Parameters to Config
-            newConfig = Config(
-                name = getUniqueName(tag, loadAllConfigs(this)),
-                domain = domain,
-                transport = transport,
-                protocol = backend,
-                pubkey = uri.getQueryParameter("pubkey") ?: "",
-                dnsAddress = "8.8.8.8:53", // Default if not provided
-                mode = "udp", // Default mode
-                recordType = uri.getQueryParameter("record-type")?.uppercase() ?: "TXT",
-                dnsttCompatible = uri.getQueryParameter("dnstt-compat")?.toBoolean() ?: false,
-                clientIdSize = uri.getQueryParameter("clientid-size")?.toLongOrNull() ?: 2L,
-                idleTimeout = uri.getQueryParameter("idle-timeout") ?: "10s",
-                keepAlive = uri.getQueryParameter("keepalive") ?: "2s",
-                useAuth = uri.getQueryParameter("user") != null,
-                user = uri.getQueryParameter("user") ?: "",
-                pass = uri.getQueryParameter("pk") ?: uri.getQueryParameter("password") ?: "",
-                useSshKey = uri.getQueryParameter("pk") != null,
-                isDefault = false
-            )
-        } else {
-            // --- 2. Base64-JSON Form Parsing ---
-            val decodedBytes = android.util.Base64.decode(content, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING)
-            val json = org.json.JSONObject(String(decodedBytes, Charsets.UTF_8))
-
-            val transportObj = json.getJSONObject("transport")
-            val transportType = transportObj.optString("type", "").lowercase()
-
-            if (transportType != "vaydns") {
-                throw Exception("Unsupported transport: '$transportType'. This app only supports 'vaydns'.")
+    private fun processImport(data: String) {
+        try {
+            if (!data.startsWith("dnst://")) {
+                throw Exception("Invalid profile prefix. Must start with dnst://")
             }
 
-            val backendObj = json.getJSONObject("backend")
-            val tag = json.optString("tag", "Imported")
+            val content = data.removePrefix("dnst://")
+            val newConfig: Config
 
-            newConfig = Config(
-                name = getUniqueName(tag, loadAllConfigs(this)),
-                domain = transportObj.getString("domain"),
-                pubkey = transportObj.optString("pubkey", ""),
-                recordType = transportObj.optString("record_type", "TXT").uppercase(),
-                dnsttCompatible = transportObj.optBoolean("dnstt_compat", false),
-                clientIdSize = transportObj.optLong("clientid_size", 2L),
-                idleTimeout = transportObj.optString("idle_timeout", "10s"),
-                keepAlive = transportObj.optString("keepalive", "2s"),
-                protocol = backendObj.getString("type"),
-                user = backendObj.optString("user", ""),
-                pass = backendObj.optString("pk", backendObj.optString("password", "")),
-                useSshKey = backendObj.has("pk"),
-                useAuth = backendObj.has("user"),
-                isDefault = false,
-                dnsAddress = "8.8.8.8:53",
-                mode = "udp" // Standard default
-            )
+            if (content.contains("/")) {
+                // --- 1. Human-readable Form Parsing ---
+                // Grammar: dnst://<domain>/<transport>/<backend>?<params>#<tag>
+                val uri = android.net.Uri.parse(data)
+
+                val domain = uri.host ?: throw Exception("Missing tunnel domain")
+                val pathSegments = uri.pathSegments
+                if (pathSegments.size < 2) throw Exception("Invalid path structure. Need /transport/backend")
+
+                val transport = pathSegments[0] // e.g., "vaydns"
+
+                if (transport != "vaydns") {
+                    throw Exception("Unsupported transport: '$transport'. This app only supports 'vaydns'.")
+                }
+                val backend = pathSegments[1]    // e.g., "socks", "ssh"
+                val tag = uri.fragment ?: "Imported"
+
+                // Map Query Parameters to Config
+                newConfig = Config(
+                    name = getUniqueName(tag, loadAllConfigs(this)),
+                    domain = domain,
+                    transport = transport,
+                    protocol = backend,
+                    pubkey = uri.getQueryParameter("pubkey") ?: "",
+                    dnsAddress = "8.8.8.8:53", // Default if not provided
+                    mode = "udp", // Default mode
+                    recordType = uri.getQueryParameter("record-type")?.uppercase() ?: "TXT",
+                    dnsttCompatible = uri.getQueryParameter("dnstt-compat")?.toBoolean() ?: false,
+                    clientIdSize = uri.getQueryParameter("clientid-size")?.toLongOrNull() ?: 2L,
+                    idleTimeout = uri.getQueryParameter("idle-timeout") ?: "10s",
+                    keepAlive = uri.getQueryParameter("keepalive") ?: "2s",
+                    useAuth = uri.getQueryParameter("user") != null,
+                    user = uri.getQueryParameter("user") ?: "",
+                    pass = uri.getQueryParameter("pk") ?: uri.getQueryParameter("password") ?: "",
+                    useSshKey = uri.getQueryParameter("pk") != null,
+                    isDefault = false
+                )
+            } else {
+                // --- 2. Base64-JSON Form Parsing ---
+                val decodedBytes = android.util.Base64.decode(content, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING)
+                val json = org.json.JSONObject(String(decodedBytes, Charsets.UTF_8))
+
+                val transportObj = json.getJSONObject("transport")
+                val transportType = transportObj.optString("type", "").lowercase()
+
+                if (transportType != "vaydns") {
+                    throw Exception("Unsupported transport: '$transportType'. This app only supports 'vaydns'.")
+                }
+
+                val backendObj = json.getJSONObject("backend")
+                val tag = json.optString("tag", "Imported")
+
+                newConfig = Config(
+                    name = getUniqueName(tag, loadAllConfigs(this)),
+                    domain = transportObj.getString("domain"),
+                    pubkey = transportObj.optString("pubkey", ""),
+                    recordType = transportObj.optString("record_type", "TXT").uppercase(),
+                    dnsttCompatible = transportObj.optBoolean("dnstt_compat", false),
+                    clientIdSize = transportObj.optLong("clientid_size", 2L),
+                    idleTimeout = transportObj.optString("idle_timeout", "10s"),
+                    keepAlive = transportObj.optString("keepalive", "2s"),
+                    protocol = backendObj.getString("type"),
+                    user = backendObj.optString("user", ""),
+                    pass = backendObj.optString("pk", backendObj.optString("password", "")),
+                    useSshKey = backendObj.has("pk"),
+                    useAuth = backendObj.has("user"),
+                    isDefault = false,
+                    dnsAddress = "8.8.8.8:53",
+                    mode = "udp" // Standard default
+                )
+            }
+
+            // Save to internal storage
+            val currentConfigs = loadAllConfigs(this).toMutableList()
+            currentConfigs.add(newConfig)
+            saveAllConfigs(this, currentConfigs)
+
+            refreshConfigList()
+            Toast.makeText(this, "Imported: ${newConfig.name}", Toast.LENGTH_SHORT).show()
+
+        } catch (e: Exception) {
+            AlertDialog.Builder(this)
+                .setTitle("Import Error")
+                .setMessage(e.message ?: "Failed to parse dnst:// profile")
+                .setPositiveButton("OK", null)
+                .show()
         }
-
-        // Save to internal storage
-        val currentConfigs = loadAllConfigs(this).toMutableList()
-        currentConfigs.add(newConfig)
-        saveAllConfigs(this, currentConfigs)
-
-        refreshConfigList()
-        Toast.makeText(this, "Imported: ${newConfig.name}", Toast.LENGTH_SHORT).show()
-
-    } catch (e: Exception) {
-        AlertDialog.Builder(this)
-            .setTitle("Import Error")
-            .setMessage(e.message ?: "Failed to parse dnst:// profile")
-            .setPositiveButton("OK", null)
-            .show()
     }
-}
-
 
     private fun getUniqueName(baseName: String, currentConfigs: List<Config>): String {
         var candidate = baseName
@@ -689,6 +671,7 @@ private fun processImport(data: String) {
         }
         return super.onPrepareOptionsMenu(menu)
     }
+    
     private fun showVerificationDialog() {
         val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
         val storedKey = prefs.getString("verified_public_key", "")
@@ -950,82 +933,11 @@ private fun processImport(data: String) {
             }
         }.start()
     }
-    /**private fun syncConfigsWithServer() {
-        val currentVersion = mobile.Mobile.getDefaultConfigVersion()
-
-        Thread {
-            try {
-                // Fetch the decrypted server URL from the Go engine
-                var baseUrl = mobile.Mobile.getUpdateServerURL()
-                //android.util.Log.d("VayDNS_URL", "The fetched URL is: '$baseUrl'")
-
-                if (baseUrl.isEmpty()) {
-                    runOnUiThread {
-                        Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show()
-                    }
-                    return@Thread // Abort if URL is missing
-                }
-
-                // Remove trailing slash just in case it was accidentally included in the secret
-                baseUrl = baseUrl.trimEnd('/')
-
-                // 1. Check for the latest version number
-                val versionUrl = java.net.URL("$baseUrl/config/version.txt")
-                val latestVersionText = versionUrl.readText().trim()
-                val latestVersion = latestVersionText.toInt()
-
-                if (latestVersion > currentVersion) {
-                    runOnUiThread { Toast.makeText(this, "New update found (v$latestVersion). Downloading...", Toast.LENGTH_SHORT).show() }
-
-                    // 2. Download the new configuration Base64 string
-                    val configUrl = java.net.URL("$baseUrl/config/default_configs.bin")
-                    val newConfigB64 = configUrl.readText().trim()
-
-                    // 3. Persist the update
-                    getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
-                        .edit()
-                        .putString("cached_obscured_json", newConfigB64)
-                        .apply()
-
-                    // 4. Update the Go engine in real-time
-                    mobile.Mobile.setDefaultConfigs(newConfigB64)
-
-                    runOnUiThread {
-                        refreshConfigList()
-                        Toast.makeText(this, "Configurations updated to v$latestVersion!", Toast.LENGTH_LONG).show()
-                    }
-                } else {
-                    runOnUiThread { Toast.makeText(this, "Configurations are already up to date.", Toast.LENGTH_SHORT).show() }
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Update failed: Check your connection.", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }.start()
-    }*/
 
     private fun prepareAndStartVpn() {
         val intent = VpnService.prepare(this)
         if (intent != null) vpnPermissionLauncher.launch(intent) else startVpnService()
     }
-
-    /*private fun startVpnService() {
-        val configs = loadAllConfigs(this)
-        val config = configs.find { it.id == selectedConfigId } ?: return
-
-        val intent = Intent(this, VayVpnService::class.java).apply {
-            putExtra("DOMAIN", config.domain)
-            putExtra("PUBKEY", config.pubkey)
-            putExtra("UDP", config.dnsAddress)
-            putExtra("MODE", config.mode)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-    }*/
 
     private fun startVpnService() {
 
@@ -1116,15 +1028,6 @@ private fun processImport(data: String) {
             action = "ACTION_STOP_VPN"
         }
         startService(stopIntent)
-//        tvStatus.text = "Status: Disconnected"
-//        tvStatus.setTextColor(Color.parseColor("#424242"))
-        /*
-                com.google.android.material.snackbar.Snackbar.make(
-                    findViewById(R.id.bottom_controls),
-                    "VPN Stopped",
-                    com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
-                ).setAnchorView(R.id.btn_stop).show()
-        */
         tvStatus.text = "Status: Disconnected"
         tvStatus.setTextColor(Color.parseColor("#424242"))
     }

@@ -91,7 +91,7 @@ class VayVpnService : VpnService() {
 
                         // 1. Tell Go to stop (Go's engine closes the detached goFd)
                         Mobile.stopVpn()
-                        //Thread.sleep(500)
+                        Thread.sleep(500)
                         // 2. Close the original Android interface (Removes Blue Key)
                         tunInterface?.close()
                         tunInterface = null
@@ -103,7 +103,6 @@ class VayVpnService : VpnService() {
             }.start()
             return START_NOT_STICKY
         }
-
 
         // 2. Initial Notification to satisfy Foreground Service requirements
         val notification = Notification.Builder(this, "VAYDNS_CHANNEL")
@@ -193,8 +192,8 @@ class VayVpnService : VpnService() {
 
                     //val dupPfd = tunInterface!!.dup()
                     //val fd = dupPfd.detachFd()
-                    val fd = tunInterface?.detachFd() ?: -1
-                    //val fd = tunInterface?.fd ?: -1
+                    //val fd = tunInterface?.detachFd() ?: -1
+                    val fd = tunInterface?.fd ?: -1
 
                     //val fd = tunInterface?.detachFd() ?: -1
 // 2. Immediately wipe the reference so Java 'forgets' it
@@ -231,11 +230,11 @@ class VayVpnService : VpnService() {
                             })
                         }
 
-                        try {
+                        /*try {
                             android.os.ParcelFileDescriptor.adoptFd(fd).close()
                         } catch (e: Exception) {
                             Log.e("VAY_DEBUG", "Failed to close original FD: ${e.message}")
-                        }
+                        }*/
                     } else {
                         Log.e("VayDNS", "Failed to start: Tunnel interface was null")
                     }
@@ -371,24 +370,6 @@ class VayVpnService : VpnService() {
 
     override fun onDestroy() {
         Log.i("VayDNS", "onDestroy: Closing Go session...")
-
-        Thread {
-            synchronized(goLock) {
-                try {
-                    // 1. Tell Go to stop. Go's engine.Stop() will close the FD.
-                    Mobile.stopVpn()
-
-                    tunInterface = null
-
-                    // 3. Deactivate the protector link
-                    protector?.deactivate()
-
-                    Log.i("VayDNS", "Service cleanup complete.")
-                } catch (e: Exception) {
-                    Log.e("VayDNS", "Cleanup error: ${e.message}")
-                }
-            }
-        }.start()
 
         super.onDestroy()
     }
