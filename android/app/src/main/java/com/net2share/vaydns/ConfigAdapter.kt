@@ -22,6 +22,7 @@ class ConfigAdapter(
         notifyDataSetChanged()
     }
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val container: View = view.findViewById(R.id.config_card_layout)
         val name: TextView = view.findViewById(R.id.tv_config_name)
         val domain: TextView = view.findViewById(R.id.tv_domain)
         val edit: ImageView = view.findViewById(R.id.btn_edit)
@@ -58,24 +59,16 @@ class ConfigAdapter(
         }
 
         // Highlight selected config
-        val cardView = holder.itemView as androidx.cardview.widget.CardView
-        if (config.id == selectedId) {
-            cardView.setCardBackgroundColor(0xFFCCE5FF.toInt())
-        } else {
-            cardView.setCardBackgroundColor(0xFFFFFFFF.toInt())
-        }
+        holder.itemView.isSelected = isSelected
 
         holder.itemView.setOnClickListener {
             onConfigSelected(config)
         }
 
-        if (isSelected) {
-            holder.export.alpha = 0.5f
-            holder.delete.alpha = 0.5f
-        } else {
-            holder.export.alpha = 1.0f
-            holder.delete.alpha = 1.0f
-        }
+        // Handle alpha for icons
+        val iconAlpha = if (isSelected) 0.5f else 1.0f
+        holder.export.alpha = iconAlpha
+        holder.delete.alpha = iconAlpha
 
         holder.export.setOnClickListener {
             if (isSelected) {

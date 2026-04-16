@@ -4,13 +4,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@android:color/white"
+    android:background="?android:attr/windowBackground"
     android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@android:color/white"
+        android:background="?attr/colorSurface"
         app:elevation="4dp">
 
         <com.google.android.material.appbar.MaterialToolbar
@@ -18,9 +18,9 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             app:title="Scanner parameters"
-            app:titleTextColor="@android:color/black"
+            app:titleTextColor="?attr/colorOnSurface"
             app:navigationIcon="@android:drawable/ic_menu_revert"
-            app:navigationIconTint="@android:color/black" />
+            app:navigationIconTint="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -40,6 +40,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Tunnel Domain:"
+                android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold" />
 
             <EditText
@@ -48,13 +49,14 @@
                 android:layout_height="wrap_content"
                 android:inputType="none"
                 android:focusable="false"
-                android:backgroundTint="#2F4A6F"
-                android:textColor="#2F4A6F" />
+                android:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorPrimary" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Proxy Type:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="16dp"
                 android:textStyle="bold" />
 
@@ -70,21 +72,24 @@
                     android:layout_height="wrap_content"
                     android:text="socks5h"
                     android:checked="true"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
 
                 <RadioButton
                     android:id="@+id/rb_socks5"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="socks5"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
 
                 <RadioButton
                     android:id="@+id/rb_http"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="http"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
             </RadioGroup>
 
             <Button
@@ -92,8 +97,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="START SCAN"
-                android:backgroundTint="#2F4A6F"
-                android:textColor="@android:color/white"
+                android:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
                 android:layout_marginTop="16dp" />
 
             <Switch
@@ -101,24 +106,25 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Use Public DNS Resolvers"
+                android:textColor="?attr/colorOnSurface"
                 android:checked="true"
                 android:layout_marginTop="20dp"
-                android:thumbTint="@color/switch_thumb_selector"
-                android:trackTint="@color/switch_track_selector" />
+                android:thumbTint="?attr/colorPrimary" />
 
             <Switch
                 android:id="@+id/switch_conservative"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Use Conservative Scan"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="20dp"
-                android:thumbTint="@color/switch_thumb_selector"
-                android:trackTint="@color/switch_track_selector" />
+                android:thumbTint="?attr/colorPrimary" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Resolvers Source:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="20dp"
                 android:textStyle="bold" />
 
@@ -134,8 +140,8 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="Default"
-                    android:backgroundTint="#2F4A6F"
-                    android:textColor="@android:color/white"
+                    android:backgroundTint="?attr/colorPrimary"
+                    android:textColor="?attr/colorOnPrimary"
                     android:layout_marginEnd="8dp" />
 
                 <Button
@@ -144,8 +150,8 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="Custom"
-                    android:backgroundTint="#2F4A6F"
-                    android:textColor="@android:color/white"
+                    android:backgroundTint="?attr/colorPrimary"
+                    android:textColor="?attr/colorOnPrimary"
                     android:layout_marginStart="8dp" />
             </LinearLayout>
 
@@ -155,12 +161,13 @@
                 android:layout_height="wrap_content"
                 android:text="Loaded resolvers: 0"
                 android:layout_marginTop="8dp"
-                android:textColor="#666666" />
+                android:textColor="?android:attr/textColorSecondary" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Number of Resolvers to scan:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="20dp"
                 android:textStyle="bold" />
 
@@ -169,6 +176,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="number"
+                android:textColor="?attr/colorOnSurface"
                 android:text="500" />
 
             <Switch
@@ -176,15 +184,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Use Random Resolvers"
+                android:textColor="?attr/colorOnSurface"
                 android:checked="true"
                 android:layout_marginTop="20dp"
-                android:thumbTint="@color/switch_thumb_selector"
-                android:trackTint="@color/switch_track_selector" />
+                android:thumbTint="?attr/colorPrimary" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Workers:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="20dp"
                 android:textStyle="bold" />
 
@@ -193,12 +202,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="number"
+                android:textColor="?attr/colorOnSurface"
                 android:text="10" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Tunnel Wait (ms):"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="20dp"
                 android:textStyle="bold" />
 
@@ -207,12 +218,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="number"
+                android:textColor="?attr/colorOnSurface"
                 android:text="1000" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Probe Timeout (seconds):"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="20dp"
                 android:textStyle="bold" />
 
@@ -221,12 +234,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="number"
+                android:textColor="?attr/colorOnSurface"
                 android:text="15" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Retry:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="20dp"
                 android:textStyle="bold" />
 
@@ -235,6 +250,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="number"
+                android:textColor="?attr/colorOnSurface"
                 android:text="0" />
 
         </LinearLayout>

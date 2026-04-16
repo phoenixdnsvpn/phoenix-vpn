@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 	"fmt"
-//	"runtime/debug"
+	"strings"
+	"math/rand"
+	"runtime/debug"
 
 	"github.com/Starling226/vaydns-vpn/bridge"
 )
@@ -19,6 +21,10 @@ type scanStats struct {
 	total     int
 	processed int
 	healthy   int
+}
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
 }
 
 func ScanWithContext(ctx context.Context, cfg Config, hooks Hooks) error {
@@ -48,7 +54,9 @@ func scanResolversWithContext(ctx context.Context, runtime *runtimeConfig, hooks
 			// Ensure worker function signature accepts context.Context
 			worker(ctx, port, runtime, jobs, hooks, stats)
 		}(runtime.StartPort + i)
+//		}(runtime.StartPort + rand.Intn(20000))
 	}
+
 
 	for _, resolver := range runtime.parsedResolvers {
 		select {
@@ -89,7 +97,8 @@ func worker(ctx context.Context, port int, cfg *runtimeConfig, jobs <-chan parse
 		if r := recover(); r != nil {
 			// This logs the exact line causing the crash to LogCat
 //			fmt.Printf("GO_WORKER_PANIC [%d]: %v\nstack: %s\n", port, r, debug.Stack())
-			fmt.Printf("Worker %d recovered from an unexpected error: %v\n", port, r)
+//			fmt.Printf("Worker %d recovered from an unexpected error: %v\n", port, r)
+
 		}
 	}()
 
@@ -104,6 +113,11 @@ func worker(ctx context.Context, port int, cfg *runtimeConfig, jobs <-chan parse
 				return
 			}
 
+			if resolver.ip == nil {
+                fmt.Printf("DEBUG: Skipping nil IP for %s\n", resolver.addr)
+                continue
+            }
+            
 			// 1. Setup per-check networking
 			proxyURL := &url.URL{
 				Scheme: cfg.Proxy,
@@ -129,7 +143,9 @@ func worker(ctx context.Context, port int, cfg *runtimeConfig, jobs <-chan parse
 			// 2. Run the check
 			// We pass 'ctx' so that if the scan is stopped, checkResolver 
 			// cancels its internal tunnel and probes IMMEDIATELY.
+
 			result, healthy := checkResolver(ctx, client, cfg, resolver, port)
+
 
 			// 3. Clean up native sockets
 			transport.CloseIdleConnections()
@@ -160,16 +176,14 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 
 	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 
-	tCfg := bridge.TunnelConfig{
-		UdpAddr:          resolver.addr,
-		Domain:           cfg.Domain,
-		ListenAddr:       listenAddr,
-		LogLevel:         "error",
-		UtlsDistribution: "chrome",
-		RecordType:       "txt",
-		CompatDnstt:      false,
-		PubkeyHex:        cfg.Pubkey,
-	}
+	tCfg := ParseExtraArgs(cfg.ExtraArgs)
+	tCfg.UdpAddr =  resolver.addr
+	tCfg.ListenAddr  = listenAddr
+	tCfg.Domain = cfg.Domain
+
+//	logMessage := fmt.Sprintf("TunnelConfig Content: %+v", tCfg)
+//	fmt.Println(logMessage)
+
 
 	// 2. Start the tunnel with a recovery safety net
 	go func() {
@@ -271,5 +285,86 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	}
 		
 	return result, isHealthy
+}
+
+func ParseExtraArgs(args []string) bridge.TunnelConfig {
+	config := bridge.TunnelConfig{}
+
+	config.CompatDnstt = false
+
+	for i := 0; i < len(args); i++ {
+		// 1. Clean the key of any leading/trailing whitespace
+		key := strings.TrimSpace(args[i])
+
+		// 2. Handle boolean flags (Presence = True, No value following)
+		if key == "-dnstt-compat" {
+			config.CompatDnstt = true
+			continue // Immediately move to the next item in the slice
+		}
+
+		// 3. Guard: For all other flags, we need a following value
+		if i+1 >= len(args) {
+			break
+		}
+
+		// 4. Clean the value
+		value := strings.TrimSpace(args[i+1])
+
+		// 5. Map keys to the struct fields
+		switch key {
+		// String Fields
+		case "-doh":
+			config.DohURL = value
+		case "-dot":
+			config.DotAddr = value
+		case "-udp":
+			config.UdpAddr = value
+		case "-domain":
+			config.Domain = value
+		case "-listen":
+			config.ListenAddr = value
+		case "-pubkey":
+			config.PubkeyHex = value
+		case "-utls":
+			config.UtlsDistribution = value
+		case "-record-type":
+			config.RecordType = value
+		case "-log-level":
+			config.LogLevel = value
+		case "-idle-timeout":
+			config.IdleTimeout = value
+		case "-keepalive":
+			config.KeepAlive = value
+		case "-reconnect-min":
+			config.ReconnectMin = value
+		case "-reconnect-max":
+			config.ReconnectMax = value
+		case "-session-check-interval":
+			config.SessionCheck = value
+		case "-open-stream-timeout":
+			config.OpenStreamTimeout = value
+		case "-udp-timeout":
+			config.UDPTimeout = value
+
+		// Integer Fields
+		case "-max-qname-len":
+			config.MaxQnameLen, _ = strconv.Atoi(value)
+		case "-max-num-labels":
+			config.MaxNumLabels, _ = strconv.Atoi(value)
+		case "-max-streams":
+			config.MaxStreams, _ = strconv.Atoi(value)
+		case "-clientid-size":
+			config.ClientIDSize, _ = strconv.Atoi(value)
+
+		// Float Fields
+		case "-rps":
+			config.RpsLimit, _ = strconv.ParseFloat(value, 64)
+		}
+
+		// 6. Skip the value index in the next iteration
+		i++
+	}
+
+	return config
 }
 

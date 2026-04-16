@@ -5,13 +5,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@android:color/white"
+    android:background="?android:attr/windowBackground"
     android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@android:color/white"
+        android:background="?attr/colorSurface"
         app:elevation="4dp">
 
         <com.google.android.material.appbar.MaterialToolbar
@@ -19,9 +19,9 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             app:title="Scanned Resolvers"
-            app:titleTextColor="@android:color/black"
+            app:titleTextColor="?attr/colorOnSurface"
             app:navigationIcon="@android:drawable/ic_menu_revert"
-            app:navigationIconTint="@android:color/black">
+            app:navigationIconTint="?attr/colorOnSurface">
 
             <ImageButton
                 android:id="@+id/btn_sort"
@@ -31,7 +31,7 @@
                 android:scaleType="fitCenter"
                 android:src="@android:drawable/ic_menu_sort_by_size"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                app:tint="#2F4A6F"
+                app:tint="?attr/colorPrimary"
                 android:contentDescription="Sort by Latency" />
 
             <ImageButton
@@ -44,7 +44,7 @@
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_copy_modern"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                app:tint="#2F4A6F"
+                app:tint="?attr/colorPrimary"
                 android:contentDescription="Copy IPs" />
         </com.google.android.material.appbar.MaterialToolbar>
     </com.google.android.material.appbar.AppBarLayout>
@@ -72,7 +72,7 @@
                 android:layout_height="wrap_content"
                 android:text="0 / 500"
                 android:textSize="15sp"
-                android:textColor="@android:color/black"
+                android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold" />
 
             <TextView
@@ -84,21 +84,19 @@
                 android:text="0 passed"
                 android:textSize="15sp"
                 android:textStyle="bold"
-                android:textColor="#00C853" />
-
-            <Button
-                android:id="@+id/btn_stop_resume"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minHeight="0dp"
-                android:minWidth="0dp"
-                android:text="STOP"
-                android:backgroundTint="#2F4A6F"
-                android:textColor="@android:color/white"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp" />
+                android:textColor="#00C853" /> <Button
+            android:id="@+id/btn_stop_resume"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:text="STOP"
+            android:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp" />
         </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView

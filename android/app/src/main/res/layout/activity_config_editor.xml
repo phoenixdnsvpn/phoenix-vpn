@@ -4,13 +4,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@android:color/white"
+    android:background="?android:attr/windowBackground"
     android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@android:color/white"
+        android:background="?attr/colorSurface"
         app:elevation="4dp">
 
         <com.google.android.material.appbar.MaterialToolbar
@@ -18,9 +18,9 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             app:title="Config parameters"
-            app:titleTextColor="@android:color/black"
+            app:titleTextColor="?attr/colorOnSurface"
             app:navigationIcon="@android:drawable/ic_menu_revert"
-            app:navigationIconTint="@android:color/black" />
+            app:navigationIconTint="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -40,54 +40,63 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Config Name:"
+                android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold" />
 
             <EditText
                 android:id="@+id/et_config_name"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="My Server 1" />
+                android:hint="My Server 1"
+                android:textColor="?attr/colorOnSurface" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Tunnel Domain:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="16dp" />
 
             <EditText
                 android:id="@+id/et_domain"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:textColor="?attr/colorOnSurface"
                 android:hint="t.example.com" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Server Public Key:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="8dp" />
 
             <EditText
                 android:id="@+id/et_pubkey"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:textColor="?attr/colorOnSurface"
                 android:hint="Your Server Key" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="DNS Server:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="8dp" />
 
             <EditText
                 android:id="@+id/et_dns"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:textColor="?attr/colorOnSurface"
                 android:text="8.8.8.8:53" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Tunnel Mode:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="16dp"
                 android:textStyle="bold" />
 
@@ -104,7 +113,8 @@
                     android:text="UDP"
                     android:checked="true"
                     android:layout_weight="1"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
 
                 <RadioButton
                     android:id="@+id/rb_tls"
@@ -112,7 +122,8 @@
                     android:layout_height="wrap_content"
                     android:text="DoT"
                     android:layout_weight="1"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
 
                 <RadioButton
                     android:id="@+id/rb_https"
@@ -120,67 +131,71 @@
                     android:layout_height="wrap_content"
                     android:text="DoH"
                     android:layout_weight="1"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
             </RadioGroup>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Following parameters must be consistent with server"
-                android:textColor="#D32F2F"
-                android:textSize="12sp"
-                android:layout_marginTop="16dp"
-                android:textStyle="bold" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Record Type:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold" />
+
             <Spinner
                 android:id="@+id/sp_record_type"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:background="@android:drawable/btn_dropdown" />
+                style="@style/Widget.AppCompat.Spinner.Underlined"
+                android:backgroundTint="?attr/colorOnSurface" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Idle Timeout:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold" />
+
             <EditText
                 android:id="@+id/et_idle_timeout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="e.g. 10s"
+                android:textColor="?attr/colorOnSurface"
                 android:inputType="text" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Keep Alive:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold" />
+
             <EditText
                 android:id="@+id/et_keep_alive"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="e.g. 2s"
+                android:textColor="?attr/colorOnSurface"
                 android:inputType="text" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Client ID Size:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold" />
+
             <EditText
                 android:id="@+id/et_client_id_size"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:textColor="?attr/colorOnSurface"
                 android:inputType="number"
                 android:text="2" />
 
@@ -190,11 +205,10 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:text="DNSTT Compatible"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginHorizontal="16dp"
                 android:textSize="14sp"
-                android:theme="@style/ThemeOverlay.AppCompat.Light"
-                app:thumbTint="@color/switch_thumb_selector"
-                app:trackTint="@color/switch_track_selector" />
+                app:thumbTint="?attr/colorPrimary" />
 
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/sw_auth"
@@ -202,17 +216,17 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:text="Use Server Authorization"
+                android:textColor="?attr/colorOnSurface"
                 android:checked="false"
                 android:textSize="14sp"
-                android:theme="@style/ThemeOverlay.AppCompat.Light"
-                app:thumbTint="@color/switch_thumb_selector"
-                app:trackTint="@color/switch_track_selector" />
+                app:thumbTint="?attr/colorPrimary" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:text="Protocol"
+                android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold" />
 
             <RadioGroup
@@ -229,7 +243,8 @@
                     android:text="socks"
                     android:checked="true"
                     android:layout_weight="1"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
 
                 <RadioButton
                     android:id="@+id/rb_ssh"
@@ -237,7 +252,8 @@
                     android:layout_height="wrap_content"
                     android:text="ssh"
                     android:layout_weight="1"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
 
                 <RadioButton
                     android:id="@+id/rb_shadowsocks"
@@ -245,7 +261,8 @@
                     android:layout_height="wrap_content"
                     android:text="shadowsocks"
                     android:layout_weight="2"
-                    android:buttonTint="#2F4A6F" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
             </RadioGroup>
 
             <androidx.appcompat.widget.SwitchCompat
@@ -254,25 +271,27 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="Use SSH Key"
+                android:textColor="?attr/colorOnSurface"
                 android:checked="false"
                 android:textSize="14sp"
-                android:theme="@style/ThemeOverlay.AppCompat.Light"
-                app:thumbTint="@color/switch_thumb_selector"
-                app:trackTint="@color/switch_track_selector" />
+                app:thumbTint="?attr/colorPrimary" />
 
             <TextView
                 android:id="@+id/tv_user_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="User:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold" />
+
             <EditText
                 android:id="@+id/et_user"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="Optional"
-                android:textColorHint="#757575"
+                android:textColorHint="?android:attr/textColorSecondary"
+                android:textColor="?attr/colorOnSurface"
                 android:inputType="text" />
 
             <TextView
@@ -280,6 +299,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Password:"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold" />
 
@@ -288,7 +308,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="Optional"
-                android:textColorHint="#757575"
+                android:textColorHint="?android:attr/textColorSecondary"
+                android:textColor="?attr/colorOnSurface"
                 android:inputType="textPassword" />
 
             <Button
@@ -297,8 +318,8 @@
                 android:layout_height="wrap_content"
                 android:text="SAVE CONFIG"
                 android:layout_marginTop="24dp"
-                android:backgroundTint="#2F4A6F"
-                android:textColor="@android:color/white" />
+                android:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary" />
 
         </LinearLayout>
     </ScrollView>

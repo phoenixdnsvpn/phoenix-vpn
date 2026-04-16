@@ -7,21 +7,26 @@
     android:layout_marginHorizontal="8dp"
     android:layout_marginVertical="2dp"
     app:cardCornerRadius="8dp"
-    app:cardElevation="2dp">
+    app:cardElevation="0dp"
+    app:cardMaxElevation="0dp"
+    app:cardBackgroundColor="@android:color/transparent">
 
     <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/config_card_layout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingVertical="8dp"
+        android:paddingVertical="6dp"
         android:paddingStart="14dp"
-        android:paddingEnd="6dp">
+        android:paddingEnd="6dp"
+        android:duplicateParentState="true"
+        android:background="@drawable/config_card_selector">
 
         <TextView
             android:id="@+id/tv_config_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="16sp"
-            android:textColor="@android:color/black"
+            android:textColor="?attr/colorOnSurface"
             android:ellipsize="end"
             android:maxLines="1"
             android:textStyle="normal"
@@ -39,7 +44,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text=" | "
-            android:textColor="#BBBBBB"
+            android:textColor="?android:attr/textColorSecondary"
             android:textSize="16sp"
             app:layout_constraintBottom_toBottomOf="@+id/tv_config_name"
             app:layout_constraintEnd_toStartOf="@+id/tv_domain"
@@ -51,43 +56,43 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:textSize="15sp"
-            android:textColor="#666666"
+            android:textColor="?android:attr/textColorSecondary"
             android:ellipsize="end"
             android:maxLines="1"
             app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toStartOf="@+id/btn_edit"
+            app:layout_constraintEnd_toStartOf="@+id/btn_export"
             app:layout_constraintStart_toEndOf="@+id/tv_separator"
             app:layout_constraintTop_toTopOf="parent"
-            android:text="shiraz.live" />
+            android:text="domain.com" />
 
         <ImageView
             android:id="@+id/btn_edit"
-            android:layout_width="33dp"
-            android:layout_height="33dp"
+            android:layout_width="35dp"
+            android:layout_height="35dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_edit"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/btn_delete"
             app:layout_constraintTop_toTopOf="parent"
-            app:tint="#2F4A6F" />
+            app:tint="?attr/colorPrimary" />
 
         <ImageView
             android:id="@+id/btn_export"
-            android:layout_width="33dp"
-            android:layout_height="33dp"
+            android:layout_width="35dp"
+            android:layout_height="35dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_share"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/btn_edit"
             app:layout_constraintTop_toTopOf="parent"
-            app:tint="#2F4A6F" />
+            app:tint="?attr/colorPrimary" />
 
         <ImageView
             android:id="@+id/btn_delete"
-            android:layout_width="33dp"
-            android:layout_height="33dp"
+            android:layout_width="35dp"
+            android:layout_height="35dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
             android:src="@android:drawable/ic_delete"

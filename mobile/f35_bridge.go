@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 	"fmt"
-//	"log"
+	"log"
 //	"runtime/debug"
 
 	"github.com/Starling226/vaydns-vpn/f35"
@@ -33,6 +33,9 @@ func StartF35Scan(
 	proxyUser string,
 	proxyPass string,
 	recordType string,
+	idleTimeout string,
+	keepAlive string,
+	clientIdSize int,
 	workers int,          
 	tunnelWait int,       
 	probeTimeout int,     
@@ -49,6 +52,12 @@ func StartF35Scan(
 	scanMu.Unlock()
 	
 	fmt.Println("GO_DEBUG: StartF35Scan entry")
+	
+/*	log.Printf("VAY_F35_DEBUG Parameters Loaded: "+
+        "domain=%s, pubkey=%s, type=%s, user=%s, pass=%s, record=%s, "+
+        "workers=%d, wait=%d, probe=%d, retries=%d",
+        domain, publicKey, proxyType, proxyUser, proxyPass, strings.ToLower(recordType),
+        workers, tunnelWait, probeTimeout, retries)*/
 	    
 	cfg := f35.DefaultConfig()
 		
@@ -92,16 +101,20 @@ func StartF35Scan(
 	if proxyPass != "" && proxyPass != "none" {
 		cfg.ProxyPass = proxyPass
 	}
-
-//	log.Printf("VAY_DEBUG: SCANNER RESOLVER started with record type %s", recordType)
 	
+//	log.Printf("VAY_DEBUG: SCANNER RESOLVER started | Type: %s | ID Size: %v | KeepAlive: %s | Idle: %s", 
+//    recordType, clientIdSize, keepAlive, idleTimeout)
+    
 	// Build ExtraArgs for vaydns
 	cfg.ExtraArgs = []string{
 		"-pubkey", publicKey,
 		"-record-type", strings.ToLower(recordType),
-//		"-record-type", "txt",
-//		"-clientid-size", "2",
-//		"-udp-timeout", "1000ms",
+		"-log-level", "error",
+		"-clientid-size", fmt.Sprintf("%d", clientIdSize),
+		"-utls", "chrome",
+		"-keepalive", keepAlive,
+		"-idle-timeout", idleTimeout,
+		"-udp-timeout", "2s",
 	}
 
 	// Apply Conservative mode overrides

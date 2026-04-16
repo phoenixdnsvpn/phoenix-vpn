@@ -28,6 +28,10 @@ class DnsScannerActivity : AppCompatActivity() {
     private lateinit var etRetries: EditText
     private lateinit var btnStartScan: Button
 
+    private var selectedIdleTimeout = "10s"
+    private var selectedKeepAlive = "2s"
+    private var selectedClientIdSize = 2L
+
     private var selectedDomain = ""
     private var selectedPubkey = ""
     private var selectedRecordType = "TXT"
@@ -47,8 +51,10 @@ class DnsScannerActivity : AppCompatActivity() {
         isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT", false)
         selectedDomain = intent.getStringExtra("DOMAIN") ?: ""
         selectedPubkey = intent.getStringExtra("PUBKEY") ?: ""
-
         selectedRecordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
+        selectedIdleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
+        selectedKeepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
+        selectedClientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
 
         toolbar.title = "DNS Resolver Scanner"
 //        toolbar.subtitle = if (selectedDomain.contains("-")) "Protected Config" else selectedDomain
@@ -84,6 +90,7 @@ class DnsScannerActivity : AppCompatActivity() {
         etProbeTimeout = findViewById(R.id.et_probe_timeout)
         etRetries = findViewById(R.id.et_retries)
         btnStartScan = findViewById(R.id.btn_start_scan)
+
 
         // Set domain from config
         etDomain = findViewById(R.id.et_domain)
@@ -196,6 +203,8 @@ class DnsScannerActivity : AppCompatActivity() {
         val probeTimeout = etProbeTimeout.text.toString().toLongOrNull() ?: 15L
         val retries = etRetries.text.toString().toLongOrNull() ?: 0L
 
+
+
     /*    val baseResolvers = if (useRandom) {
             resolversList.shuffled().take(numResolvers)
         } else {
@@ -230,6 +239,9 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("RESOLVERS", resolversCommaSeparated)
             putExtra("PROXY_TYPE", proxyType)
             putExtra("RECORD_TYPE", selectedRecordType)
+            putExtra("IDLE_TIMEOUT", selectedIdleTimeout)
+            putExtra("KEEP_ALIVE", selectedKeepAlive)
+            putExtra("CLIENT_ID_SIZE", selectedClientIdSize)
             putExtra("CONSERVATIVE", isConservative)
             putExtra("TOTAL_RESOLVERS", finalResolvers.size)
             putExtra("WORKERS", workers)

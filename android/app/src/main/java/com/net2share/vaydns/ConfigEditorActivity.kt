@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import android.view.View
 import android.view.ViewGroup
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.json.JSONArray
 import org.json.JSONObject
 import mobile.Mobile
@@ -63,7 +64,12 @@ class ConfigEditorActivity : AppCompatActivity() {
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
 
         val recordTypes = arrayOf("TXT", "NULL", "CNAME", "A", "AAAA", "MX", "NS", "SRV", "CAA")
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, recordTypes)
+//        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, recordTypes)
+        val adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            recordTypes
+        )
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spRecordType.adapter = adapter
 

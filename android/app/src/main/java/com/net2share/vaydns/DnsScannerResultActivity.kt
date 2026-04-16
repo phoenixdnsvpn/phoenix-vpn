@@ -80,6 +80,9 @@ class DnsScannerResultActivity : AppCompatActivity() {
         val resolversCommaSeparated = intent.getStringExtra("RESOLVERS") ?: ""
         val proxyType = intent.getStringExtra("PROXY_TYPE") ?: "socks5h"
         val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
+        val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
+        val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
+        val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
 //        val isConservative = intent.getBooleanExtra("CONSERVATIVE", false)
         val workers = intent.getLongExtra("WORKERS", 10L)
         val tunnelWait = intent.getLongExtra("TUNNEL_WAIT", 2000L)
@@ -127,7 +130,9 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 btnStopResume.text = "STOP"
                 isRunning = true
 //                startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative, workers, tunnelWait, probeTimeout, retries)
-                startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType, workers, tunnelWait, probeTimeout, retries, user, pass)
+                startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType,
+                    workers, tunnelWait, probeTimeout, retries, user, pass,
+                    idleTimeout, keepAlive, clientIdSize)
             }
         }
 
@@ -158,7 +163,9 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
         // Start initial scan
 //        startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative, workers, tunnelWait, probeTimeout, retries)
-        startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType, workers, tunnelWait, probeTimeout, retries, user, pass)
+        startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType,
+            workers, tunnelWait, probeTimeout, retries, user, pass,
+            idleTimeout, keepAlive, clientIdSize)
     }
 
     private fun stopScanProcess() {
@@ -184,7 +191,10 @@ class DnsScannerResultActivity : AppCompatActivity() {
         probeTimeout: Long,
         retries: Long,
         user: String,
-        pass: String
+        pass: String,
+        idleTimeout: String,
+        keepAlive: String,
+        clientIdSize: Long
     ) {
         scanCallback = object : ScanResultCallback {
             override fun onResult(jsonResult: String) {
@@ -225,6 +235,9 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 user,
                 pass,
                 recordType,
+                idleTimeout,
+                keepAlive,
+                clientIdSize,
                 workers,
                 tunnelWait,
                 probeTimeout,

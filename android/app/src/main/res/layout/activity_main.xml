@@ -4,22 +4,20 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
+    android:fitsSystemWindows="true"
+    android:background="?android:attr/windowBackground"> <com.google.android.material.appbar.AppBarLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/colorSurface"
+    android:elevation="4dp">
 
-    <com.google.android.material.appbar.AppBarLayout
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@android:color/white"
-        android:elevation="4dp">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            app:title="VayDNS"
-            app:titleTextColor="@android:color/black"
-            app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
-    </com.google.android.material.appbar.AppBarLayout>
+        android:layout_height="?attr/actionBarSize"
+        app:title="VayDNS"
+        app:titleTextColor="?attr/colorOnSurface"
+        app:popupTheme="?attr/toolbarStyle" /> </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
@@ -41,11 +39,10 @@
             android:id="@+id/bottom_controls"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:background="@android:color/white"
+            android:background="?attr/colorSurface"
             android:elevation="8dp"
             android:orientation="vertical"
             android:paddingHorizontal="16dp"
-            android:padding="0dp"
             android:paddingBottom="8dp"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
@@ -56,39 +53,31 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Use default configs"
+                android:textColor="?attr/colorOnSurface"
                 android:minHeight="0dp"
                 android:paddingVertical="4dp"
                 android:layout_marginHorizontal="16dp"
-                android:layout_marginTop="0dp"
-                android:layout_marginBottom="0dp"
                 android:textSize="14sp"
-                android:theme="@style/ThemeOverlay.AppCompat.Light"
-                app:thumbTint="@color/switch_thumb_selector"
-                app:trackTint="@color/switch_track_selector" />
-
-            <Button
-                android:id="@+id/btn_select_apps"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="SELECT APPS TO TUNNEL"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:padding="0dp"
-                android:paddingStart="16dp"
-                android:paddingEnd="0dp"
-                android:drawableStart="@android:drawable/ic_menu_add"
-                android:gravity="start|center_vertical"
-                android:textColor="#2F4A6F" />
+                app:thumbTint="?attr/colorPrimary" /> <Button
+            android:id="@+id/btn_select_apps"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="SELECT APPS TO TUNNEL"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingStart="16dp"
+            android:drawableStart="@android:drawable/ic_menu_add"
+            android:drawableTint="?attr/colorOnSurface"
+            android:gravity="start|center_vertical"
+            android:textColor="?attr/colorOnSurface" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Only selected apps will use the DNS tunnel."
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
                 android:textSize="12sp"
-                android:textColor="#666666"
+                android:textColor="?android:attr/textColorSecondary"
                 android:paddingStart="4dp"/>
 
             <TextView
@@ -98,6 +87,7 @@
                 android:gravity="center"
                 android:padding="8dp"
                 android:text="Status: Disconnected"
+                android:textColor="?attr/colorOnSurface"
                 android:textSize="16sp" />
 
             <Button
@@ -107,8 +97,8 @@
                 android:text="START TUNNEL"
                 android:textAllCaps="true"
                 android:textStyle="bold"
-                android:textColor="@android:color/white"
-                android:backgroundTint="#2F4A6F" />
+                android:textColor="?attr/colorOnPrimary"
+                android:backgroundTint="?attr/colorPrimary" />
 
             <Button
                 android:id="@+id/btn_dns_scanner"
@@ -117,8 +107,9 @@
                 android:layout_height="wrap_content"
                 android:text="DNS Resolver Scanner"
                 android:drawableStart="@android:drawable/ic_menu_search"
+                android:drawableTint="?attr/colorOnSurface"
                 android:layout_marginTop="8dp"
-                android:textColor="#2F4A6F" />
+                android:textColor="?attr/colorOnSurface" />
 
         </LinearLayout>
 

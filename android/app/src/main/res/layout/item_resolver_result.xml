@@ -15,7 +15,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:textSize="15sp"
-        android:textColor="@android:color/black"
+        android:textColor="?attr/colorOnSurface"
         android:textStyle="bold" />
 
     <TextView
@@ -23,7 +23,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textSize="15sp"
-        android:textColor="#2F4A6F"
+        android:textColor="?attr/colorPrimary"
         android:textStyle="bold" />
 
 </LinearLayout>
