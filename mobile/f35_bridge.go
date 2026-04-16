@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 	"fmt"
-	"log"
+//	"log"
 //	"runtime/debug"
 
 	"github.com/Starling226/vaydns-vpn/f35"
