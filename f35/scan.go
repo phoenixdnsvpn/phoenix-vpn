@@ -10,8 +10,8 @@ import (
 	"time"
 	"fmt"
 	"strings"
-	"math/rand"
-	"runtime/debug"
+//	"math/rand"
+//	"runtime/debug"
 
 	"github.com/Starling226/vaydns-vpn/bridge"
 )
@@ -23,9 +23,9 @@ type scanStats struct {
 	healthy   int
 }
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
+//func init() {
+//	rand.Seed(time.Now().UnixNano())
+//}
 
 func ScanWithContext(ctx context.Context, cfg Config, hooks Hooks) error {
 	runtime, err := prepareConfig(cfg)
