@@ -679,6 +679,12 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
 
             R.id.action_dns_scanner -> {
+
+                if (isVpnConnected) {
+                    Toast.makeText(this, "Please stop the VPN before running a scan.", Toast.LENGTH_LONG).show()
+                    return true
+                }
+
                 val rawConfig = configList.find { it.id == selectedConfigId }
                 if (rawConfig == null) {
                     Toast.makeText(this, "Please select a config first", Toast.LENGTH_LONG).show()
