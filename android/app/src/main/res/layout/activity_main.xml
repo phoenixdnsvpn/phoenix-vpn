@@ -41,6 +41,7 @@
             android:layout_height="wrap_content"
             android:background="?attr/colorSurface"
             android:elevation="8dp"
+            android:paddingVertical="4dp"
             android:orientation="vertical"
             android:paddingHorizontal="16dp"
             android:paddingBottom="8dp"
@@ -55,7 +56,7 @@
                 android:text="Use default configs"
                 android:textColor="?attr/colorOnSurface"
                 android:minHeight="0dp"
-                android:paddingVertical="4dp"
+                android:paddingVertical="8dp"
                 android:layout_marginHorizontal="16dp"
                 android:textSize="14sp"
                 app:thumbTint="?attr/colorPrimary" /> <Button

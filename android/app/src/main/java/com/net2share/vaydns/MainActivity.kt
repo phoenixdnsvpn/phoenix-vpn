@@ -157,52 +157,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        /*btnToggle.setOnClickListener {
-            if (!isVpnConnected) {
-                // START LOGIC
-                if (selectedConfigId == null) {
-                    Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                btnToggle.isEnabled = false // Prevent double clicks
-                tvStatus.text = "Status: Connecting..."
-//                tvStatus.setTextColor(Color.BLUE)
-                prepareAndStartVpn()
-            } else {
-                // STOP LOGIC
-                btnToggle.isEnabled = false
-                stopVpnService()
-                // The receiver will update the UI to "Disconnected"
-            }
-        }*/
-
         // App selector button stays the same
         findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
             startActivity(Intent(this, AppSelectorActivity::class.java))
         }
-
-        /**findViewById<Button>(R.id.btn_dns_scanner).setOnClickListener {
-            val rawConfig = configList.find { it.id == selectedConfigId } // UPDATED: find in class list
-            if (rawConfig == null) {
-                Toast.makeText(this, "Please select a config first", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-
-            // NEW: Get real data from JNI for the scanner
-            val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
-
-            val intent = Intent(this, DnsScannerActivity::class.java).apply {
-                val index = config.id.removePrefix("default_").toIntOrNull() ?: 0
-                putExtra("DOMAIN", config.domain)
-                putExtra("PUBKEY", config.pubkey)
-                putExtra("RECORD_TYPE", config.recordType)
-                putExtra("IS_DEFAULT", config.isDefault)
-                putExtra("IDLE_TIMEOUT", config.idleTimeout)
-                putExtra("CLIENT_ID_SIZE", config.clientIdSize)
-                // Pass the flag so the Scanner Activity knows to MASK the UI
-            }
-            startActivity(intent)
-        }*/
 
         // Register receiver
         val filter = IntentFilter("VPN_STATE_CHANGED")
@@ -968,82 +926,11 @@ class MainActivity : AppCompatActivity() {
             }
         }.start()
     }
-    /**private fun syncConfigsWithServer() {
-        val currentVersion = mobile.Mobile.getDefaultConfigVersion()
-
-        Thread {
-            try {
-                // Fetch the decrypted server URL from the Go engine
-                var baseUrl = mobile.Mobile.getUpdateServerURL()
-                //android.util.Log.d("VayDNS_URL", "The fetched URL is: '$baseUrl'")
-
-                if (baseUrl.isEmpty()) {
-                    runOnUiThread {
-                        Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show()
-                    }
-                    return@Thread // Abort if URL is missing
-                }
-
-                // Remove trailing slash just in case it was accidentally included in the secret
-                baseUrl = baseUrl.trimEnd('/')
-
-                // 1. Check for the latest version number
-                val versionUrl = java.net.URL("$baseUrl/config/version.txt")
-                val latestVersionText = versionUrl.readText().trim()
-                val latestVersion = latestVersionText.toInt()
-
-                if (latestVersion > currentVersion) {
-                    runOnUiThread { Toast.makeText(this, "New update found (v$latestVersion). Downloading...", Toast.LENGTH_SHORT).show() }
-
-                    // 2. Download the new configuration Base64 string
-                    val configUrl = java.net.URL("$baseUrl/config/default_configs.bin")
-                    val newConfigB64 = configUrl.readText().trim()
-
-                    // 3. Persist the update
-                    getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
-                        .edit()
-                        .putString("cached_obscured_json", newConfigB64)
-                        .apply()
-
-                    // 4. Update the Go engine in real-time
-                    mobile.Mobile.setDefaultConfigs(newConfigB64)
-
-                    runOnUiThread {
-                        refreshConfigList()
-                        Toast.makeText(this, "Configurations updated to v$latestVersion!", Toast.LENGTH_LONG).show()
-                    }
-                } else {
-                    runOnUiThread { Toast.makeText(this, "Configurations are already up to date.", Toast.LENGTH_SHORT).show() }
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Update failed: Check your connection.", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }.start()
-    }*/
 
     private fun prepareAndStartVpn() {
         val intent = VpnService.prepare(this)
         if (intent != null) vpnPermissionLauncher.launch(intent) else startVpnService()
     }
-
-    /*private fun startVpnService() {
-        val configs = loadAllConfigs(this)
-        val config = configs.find { it.id == selectedConfigId } ?: return
-
-        val intent = Intent(this, VayVpnService::class.java).apply {
-            putExtra("DOMAIN", config.domain)
-            putExtra("PUBKEY", config.pubkey)
-            putExtra("UDP", config.dnsAddress)
-            putExtra("MODE", config.mode)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-    }*/
 
     private fun startVpnService() {
 
@@ -1134,15 +1021,7 @@ class MainActivity : AppCompatActivity() {
             action = "ACTION_STOP_VPN"
         }
         startService(stopIntent)
-//        tvStatus.text = "Status: Disconnected"
-//        tvStatus.setTextColor(Color.parseColor("#424242"))
-        /*
-                com.google.android.material.snackbar.Snackbar.make(
-                    findViewById(R.id.bottom_controls),
-                    "VPN Stopped",
-                    com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
-                ).setAnchorView(R.id.btn_stop).show()
-        */
+
         tvStatus.text = "Status: Disconnected"
         tvStatus.setTextColor(Color.parseColor("#424242"))
     }
