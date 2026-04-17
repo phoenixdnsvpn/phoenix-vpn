@@ -78,28 +78,6 @@ class VayVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        /*if (intent.action == "ACTION_START_VPN") {
-            if (isStopping) {
-                Log.w("VAY_DEBUG", "Start ignored: Shutdown in progress")
-                return START_NOT_STICKY
-            }
-            if (isStarting) return START_NOT_STICKY
-
-            isStarting = true
-            // Proceed with your Start logic...
-            // At the end of your start thread, set isStarting = false
-        }*/
-
-        /*if (intent?.action == "ACTION_STOP_VPN") {
-            isStopping = true
-            Thread {
-                synchronized(goLock) {
-                    protector?.deactivate()
-                    Mobile.stopVpn() // Triggers the Go watcher
-                    stopSelf()       // Cleans up the service
-                }
-            }.start()
-        }*/
         if (intent?.action == "ACTION_STOP_VPN") {
             isStopping = true
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -124,29 +102,6 @@ class VayVpnService : VpnService() {
             }.start()
             return START_NOT_STICKY
         }
-        /*if (intent?.action == "ACTION_STOP_VPN") {
-            isStopping = true
-            Thread {
-                synchronized(goLock) {
-                    try {
-                        protector?.deactivate()
-                        protector = null
-                        // 1. Tell Go to stop (Go will close its newFd)
-                        Mobile.stopVpn()
-
-                        // 2. Close the Android interface (This closes the original fd)
-                        // This satisfies fdsan and removes the Blue Key.
-                        tunInterface?.close()
-                        tunInterface = null
-
-                    } finally {
-                        stopSelf()
-                        isStopping = false
-                    }
-                }
-            }.start()
-            return START_NOT_STICKY
-        }*/
 
         // 2. Initial Notification to satisfy Foreground Service requirements
         val notification = Notification.Builder(this, "VAYDNS_CHANNEL")
@@ -180,9 +135,12 @@ class VayVpnService : VpnService() {
                     val idleTimeout = intent?.getStringExtra("IDLE_TIMEOUT") ?: "10s"
                     val keepAlive = intent?.getStringExtra("KEEP_ALIVE") ?: "2s"
 //                    val clientIdSize = intent?.getIntExtra("CLIENT_ID_SIZE", 2)
-                    val clientIdSize = intent?.getIntExtra("CLIENT_ID_SIZE", 2) ?: 2
+                    val clientIdSize = intent?.getLongExtra("CLIENT_ID_SIZE", 2L) ?: 2L
 //                    val dnsttCompatible = intent?.getBooleanExtra("DNSTT_COMPATIBLE", false)
                     val dnsttCompatible = intent?.getBooleanExtra("DNSTT_COMPATIBLE", false) ?: false
+                    val useAuth = intent?.getBooleanExtra("USE_AUTH", false) ?: false
+                    val protocol = intent?.getStringExtra("PROTOCOL") ?: "socks5"
+                    val ssMethod = intent?.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
                     val user = intent?.getStringExtra("USER") ?: ""
                     val pass = intent?.getStringExtra("PASS") ?: ""
 
@@ -258,6 +216,9 @@ class VayVpnService : VpnService() {
                             keepAlive,
                             clientIdSize.toLong(), // Pass as Long for Go compatibility if needed
                             dnsttCompatible,
+                            useAuth,
+                            protocol,
+                            ssMethod,
                             user,
                             pass,
                             protector

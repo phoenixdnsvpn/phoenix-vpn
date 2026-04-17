@@ -7,6 +7,8 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+	"os"
+	"strings"
 	"net/http"
 	"net/url"
 	"syscall"
@@ -25,6 +27,7 @@ var (
 	activeSocksPort int
 	wg         sync.WaitGroup // Used to ensure threads fully exit before StopVpn returns
 	
+	engineLock      sync.Mutex
 )
 
 // SocketProtector allows the Go code to call Android's VpnService.protect()
@@ -40,32 +43,25 @@ func init() {
  * StartVpn: The main entry point for Android System-Wide VPN.
 */
  
- 
-func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey string, recordType string, idleTimeout string, KeepAlive string, clientIDSize int, compatDnstt bool, user string, pass string, protector SocketProtector) string {
+func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey string, recordType string, idleTimeout string, KeepAlive string, clientIDSize int, compatDnstt bool, useAuth bool, protocol string, ssMethod string, user string, pass string, protector SocketProtector) string {
 	mu.Lock()
 
-	// 1. SIGNAL OLD SESSION TO DIE
 	if activeCancel != nil {
 		log.Printf("VAY_DEBUG: Killing old session context")
 		activeCancel() 
-		time.Sleep(100 * time.Millisecond) //just added 
+		time.Sleep(100 * time.Millisecond) 
 	}
 
-	// 2. THE SECRET SAUCE: DUPLICATE THE FD
-	// This prevents the 'fdsan' crash on Android 10+
 	newFd, err := syscall.Dup(fd)
 	if err != nil {
-		mu.Unlock()
+		mu.Lock() 
 		return "Error: Failed to dup FD"
 	}
-
-//    syscall.Close(fd)
 
 	activeWg = &sync.WaitGroup{}
 	activeCtx, activeCancel = context.WithCancel(context.Background())
 	isRunning = true
 
-	// Capture locals for goroutines
 	wg := activeWg
 	ctx := activeCtx
 	
@@ -82,7 +78,6 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 		ClientIDSize: clientIDSize, CompatDnstt: compatDnstt,
 	}
 
-	// 3. START THE DNS TUNNEL (The part that was missing!)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -91,7 +86,66 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 		}
 	}()
 
-	// 4. START TUN2SOCKS ENGINE (Using newFd)
+	// 4. BUILD THE PROXY URL WITH AUTHENTICATION
+	
+	// 🚨 MASTER GUARDRAIL: If authentication is disabled, SSH and Shadowsocks 
+	// are impossible. Force fallback to plain SOCKS5.
+	if !useAuth || protocol == "" || protocol == "socks" {
+		protocol = "socks5"
+	} else {
+		// Secondary guardrails for invalid UI states when auth IS enabled
+		if protocol == "ssh" && (user == "" || user == "none") {
+			log.Printf("VAY_DEBUG: SSH selected but no username provided. Falling back to socks5.")
+			protocol = "socks5"
+		} else if (protocol == "shadowsocks" || protocol == "ss") && (pass == "" || pass == "none") {
+			log.Printf("VAY_DEBUG: Shadowsocks selected but no password provided. Falling back to socks5.")
+			protocol = "socks5"
+		}
+	}
+
+	proxyURL := &url.URL{
+		Scheme: protocol,
+		Host:   internalSocks,
+	}
+
+	var sshKeyPath string 
+
+	// ONLY process credentials if Authorization is actually toggled ON
+	if useAuth {
+		if protocol == "shadowsocks" || protocol == "ss" {
+			if ssMethod == "" || ssMethod == "none" {
+				ssMethod = "chacha20-ietf-poly1305"
+			}
+			proxyURL.User = url.UserPassword(ssMethod, pass)
+
+		} else if user != "" && user != "none" {
+			
+			if protocol == "ssh" && strings.Contains(pass, "-----BEGIN") {
+				proxyURL.User = url.User(user) 
+				
+				tmpFile, err := os.CreateTemp("", "vaydns_ssh_key_*")
+				if err == nil {
+					tmpFile.Write([]byte(pass)) 
+					tmpFile.Close()
+					sshKeyPath = tmpFile.Name()
+					
+					q := proxyURL.Query()
+					q.Set("privateKeyFile", sshKeyPath)
+					proxyURL.RawQuery = q.Encode()
+				} else {
+					log.Printf("VAY_DEBUG: Failed to create temp SSH key file: %v", err)
+				}
+			} else if pass != "" && pass != "none" {
+				proxyURL.User = url.UserPassword(user, pass)
+			} else {
+				proxyURL.User = url.User(user)
+			}
+		}
+	}
+
+	proxyString := proxyURL.String()
+
+	// 5. START TUN2SOCKS ENGINE
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -99,24 +153,28 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 		time.Sleep(300 * time.Millisecond)
 		
 		key := &engine.Key{
-			Proxy:  "socks5://" + internalSocks,
+			Proxy:  proxyString,
 			Device: fmt.Sprintf("fd://%d", newFd),
 			MTU:    1232, 
 		}
 		engine.Insert(key)
-		log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d", newFd)
+		log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d with proxy %s", newFd, proxyString)
 		engine.Start() 
 	}()
 
-	// 5. SHUTDOWN WATCHER
+	// 6. SHUTDOWN WATCHER
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		<-ctx.Done()
 		log.Printf("VAY_DEBUG: Shutting down engine...")
 		engine.Stop()
-		// Important: We also close the newFd here because Go owns it now
-//		syscall.Close(newFd) 
+		
+		if sshKeyPath != "" {
+			os.Remove(sshKeyPath)
+			log.Printf("VAY_DEBUG: Removed temporary SSH key file.")
+		}
+		
 		log.Printf("VAY_DEBUG: Native engine fully dead.")		
 	}()
 
@@ -127,7 +185,6 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 /**
  * StopVpn: Cleans up all resources safely without deadlocks.
 */
-
 
 func StopVpn() string {
 	mu.Lock()
@@ -164,7 +221,7 @@ func StopVpn() string {
 
 	return "Stopped"
 }
-
+ 
 func VerifyTunnel() string {
 	mu.Lock()
 	port := activeSocksPort

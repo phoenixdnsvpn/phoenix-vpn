@@ -35,17 +35,18 @@
                 android:contentDescription="Sort by Latency" />
 
             <ImageButton
-                android:id="@+id/btn_copy"
+                android:id="@+id/btn_share"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_gravity="end"
                 android:layout_marginEnd="8dp"
                 android:padding="12dp"
                 android:scaleType="fitCenter"
-                android:src="@drawable/ic_copy_modern"
+                android:src="@android:drawable/ic_menu_share"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 app:tint="?attr/colorPrimary"
-                android:contentDescription="Copy IPs" />
+                android:contentDescription="Share IPs" />
+
         </com.google.android.material.appbar.MaterialToolbar>
     </com.google.android.material.appbar.AppBarLayout>
 

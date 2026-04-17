@@ -20,5 +20,6 @@ data class Config(
     val protocol: String = "socks",
     val user: String = "",
     val pass: String = "",
+    val ssMethod: String = "chacha20-ietf-poly1305",
     val isDefault: Boolean = false // Crucial for your toggle logicval
 )

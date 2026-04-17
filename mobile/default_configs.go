@@ -22,6 +22,7 @@ type DefaultConfig struct {
 	DnsttCompatible bool   `json:"dnsttCompatible"`
 	Protocol        string `json:"protocol"` 
 	UseSshKey       bool   `json:"useSshKey"`
+	ssMethod        string `json:"method"`
 	User            string `json:"user"`
 	Pass            string `json:"pass"`
 }
@@ -214,6 +215,14 @@ func GetDefaultConfigUseSshKey(index int64) bool {
 		return false
 	}
 	return defaultConfigs[index].UseSshKey
+}
+
+func GetDefaultConfigMethod(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	return defaultConfigs[index].ssMethod
 }
 
 // GetDefaultConfigUser returns the User string

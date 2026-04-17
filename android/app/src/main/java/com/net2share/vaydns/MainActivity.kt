@@ -182,114 +182,6 @@ class MainActivity : AppCompatActivity() {
         selectedConfigId = id
     }
 
-// Inside MainActivity.kt
-
-    private fun setupRecyclerView() {
-        // 1. Gather all configs (Default + User Saved)
-        val allConfigs = mutableListOf<Config>()
-        allConfigs.addAll(DefaultConfigProvider.getDefaultConfigs(this))
-        allConfigs.addAll(loadAllConfigs(this))
-
-        // 2. Initialize the Adapter with the new export callback
-        val adapter = ConfigAdapter(
-            allConfigs,
-            selectedConfigId,
-            onConfigSelected = { config ->
-                selectedConfigId = config.id
-                refreshConfigList()
-
-                // Provide feedback via snackbar instead of Toast for a better UI
-                com.google.android.material.snackbar.Snackbar.make(
-                    recyclerConfigs,
-                    "Selected: ${config.name}",
-                    com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
-                ).show()
-            },
-            onEditClicked = { config ->
-                if (config.isDefault) {
-                    Toast.makeText(this, "Default configs cannot be edited", Toast.LENGTH_SHORT).show()
-                } else {
-                    val intent = Intent(this, ConfigEditorActivity::class.java)
-                    intent.putExtra("EDIT_CONFIG_ID", config.id)
-                    startActivity(intent)
-                }
-            },
-            onDeleteClicked = { config ->
-                if (config.isDefault) {
-                    Toast.makeText(this, "Default configs cannot be deleted", Toast.LENGTH_SHORT).show()
-                } else {
-                    val currentList = loadAllConfigs(this).toMutableList()
-                    currentList.removeAll { it.id == config.id }
-                    saveAllConfigs(this, currentList)
-                    refreshConfigList()
-                }
-            },
-            onExportClicked = { config ->
-                // Check if it's a default config before exporting
-                if (config.isDefault) {
-                    Toast.makeText(this, "This config cannot be shared.", Toast.LENGTH_SHORT).show()
-                } else {
-                    generateVayDnsProfile(config)
-                }
-            }
-        )
-
-        recyclerConfigs.layoutManager = LinearLayoutManager(this)
-        recyclerConfigs.adapter = adapter
-    }
-
-    /**
-     * Generates a vaydns:// URI and copies it to the system clipboard
-     */
-    private fun generateVayDnsProfile(config: Config) {
-        try {
-            val version = "18" // App version at Index 1
-            val protocol = "vaydns" // Protocol type at Index 2
-
-            // Construct the 40-field array to maintain pipe indexing
-            val fields = Array(40) { "" }
-
-            fields[0] = version
-            fields[1] = protocol
-            fields[2] = config.name
-            fields[3] = config.domain
-            fields[4] = config.dnsAddress // String format (e.g., 8.8.8.8:53 or https://...)
-            fields[5] = "0"
-            fields[6] = "200"
-            fields[7] = "bbr"
-            fields[8] = "1080"
-            fields[9] = "127.0.0.1"
-            fields[10] = "0"
-            fields[11] = config.pubkey
-            fields[12] = "" // Placeholder for username
-            fields[13] = "" // Placeholder for password
-            // Fields 14-23 remain empty
-            fields[24] = config.mode // "udp", "dot", or "doh"
-            // Fields 25-39 remain empty
-
-            // Join into pipe-delimited string
-            val rawProfile = fields.joinToString("|")
-
-            // Base64 Encode (NO_WRAP is essential for URI compatibility)
-            val encodedData = android.util.Base64.encodeToString(
-                rawProfile.toByteArray(Charsets.UTF_8),
-                android.util.Base64.NO_WRAP
-            )
-
-            val finalUri = "dnst://$encodedData"
-
-            // Copy to Clipboard
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            val clip = android.content.ClipData.newPlainText("VayDNS Config", finalUri)
-            clipboard.setPrimaryClip(clip)
-
-            Toast.makeText(this, "Config copied to clipboard", Toast.LENGTH_SHORT).show()
-
-        } catch (e: Exception) {
-            Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     private fun refreshConfigList() {
         configList.clear()
         configList.addAll(loadAllConfigs(this))
@@ -390,6 +282,9 @@ class MainActivity : AppCompatActivity() {
                     put("pk", config.pass)
                 } else {
                     put("password", config.pass)
+                }
+                if (config.protocol == "shadowsocks") {
+                    put("method", config.ssMethod)
                 }
             }
         }
@@ -551,6 +446,7 @@ class MainActivity : AppCompatActivity() {
                     idleTimeout = uri.getQueryParameter("idle-timeout") ?: "10s",
                     keepAlive = uri.getQueryParameter("keepalive") ?: "2s",
                     useAuth = uri.getQueryParameter("user") != null,
+                    ssMethod = uri.getQueryParameter("method") ?: "chacha20-ietf-poly1305",
                     user = uri.getQueryParameter("user") ?: "",
                     pass = uri.getQueryParameter("pk") ?: uri.getQueryParameter("password") ?: "",
                     useSshKey = uri.getQueryParameter("pk") != null,
@@ -581,6 +477,7 @@ class MainActivity : AppCompatActivity() {
                     idleTimeout = transportObj.optString("idle_timeout", "10s"),
                     keepAlive = transportObj.optString("keepalive", "2s"),
                     protocol = backendObj.getString("type"),
+                    ssMethod = backendObj.optString("method", "chacha20-ietf-poly1305"),
                     user = backendObj.optString("user", ""),
                     pass = backendObj.optString("pk", backendObj.optString("password", "")),
                     useSshKey = backendObj.has("pk"),
@@ -965,21 +862,31 @@ class MainActivity : AppCompatActivity() {
                 config
             }
             // Now 'config.domain' and 'config.pubkey' contain the real data
-            putExtra("DOMAIN", config.domain)
-            putExtra("PUBKEY", config.pubkey)
-            putExtra("UDP", config.dnsAddress)
-            putExtra("MODE", config.mode)
-            putExtra("RECORD_TYPE", config.recordType)
-            putExtra("IDLE_TIMEOUT", config.idleTimeout)
-            putExtra("KEEP_ALIVE", config.keepAlive)
-            putExtra("CLIENT_ID_SIZE", config.clientIdSize)
-            putExtra("DNSTT_COMPATIBLE", config.dnsttCompatible)
-            putExtra("USE_AUTH", config.useAuth)
-            putExtra("PROTOCOL", config.protocol)
+            putExtra("DOMAIN", finalConfig.domain)
+            putExtra("PUBKEY", finalConfig.pubkey)
+            putExtra("UDP", finalConfig.dnsAddress)
+            putExtra("MODE", finalConfig.mode)
+            putExtra("RECORD_TYPE", finalConfig.recordType)
+            putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)
+            putExtra("KEEP_ALIVE", finalConfig.keepAlive)
+            putExtra("CLIENT_ID_SIZE", finalConfig.clientIdSize)
+            putExtra("DNSTT_COMPATIBLE", finalConfig.dnsttCompatible)
+            putExtra("USE_AUTH", finalConfig.useAuth)
+            putExtra("PROTOCOL", finalConfig.protocol)
 
             // Apply the "none" fallback logic here as well for safety
-            val finalUser = if (config.useAuth) config.user.ifEmpty { "none" } else "none"
-            val finalPass = if (config.useAuth) config.pass.ifEmpty { "none" } else "none"
+            //val finalUser = if (config.useAuth) config.user.ifEmpty { "none" } else "none"
+            putExtra("SS_METHOD", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
+
+            val finalUser = if (finalConfig.protocol == "shadowsocks") {
+                // If SS, inject the encryption method into the username slot
+                finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
+            } else if (config.useAuth) {
+                finalConfig.user.ifEmpty { "none" }
+            } else {
+                "none"
+            }
+            val finalPass = if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none"
 
             putExtra("USER", finalUser)
             putExtra("PASS", finalPass)

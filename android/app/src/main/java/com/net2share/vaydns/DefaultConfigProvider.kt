@@ -57,6 +57,7 @@ object DefaultConfigProvider {
                 keepAlive = mobile.Mobile.getDefaultConfigKeepAlive(i),
                 clientIdSize = mobile.Mobile.getDefaultConfigClientIdSize(i),
                 dnsttCompatible = mobile.Mobile.getDefaultConfigDnsttCompatible(i),
+                ssMethod = mobile.Mobile.getDefaultConfigMethod(i),
                 protocol = mobile.Mobile.getDefaultConfigProtocol(i),
                 useSshKey = mobile.Mobile.getDefaultConfigUseSshKey(i),
 
@@ -84,6 +85,7 @@ object DefaultConfigProvider {
             keepAlive = Mobile.getDefaultConfigKeepAlive(index),
             clientIdSize = mobile.Mobile.getDefaultConfigClientIdSize(index),
             dnsttCompatible = mobile.Mobile.getDefaultConfigDnsttCompatible(index),
+            ssMethod = mobile.Mobile.getDefaultConfigMethod(index),
             user = mobile.Mobile.getDefaultConfigUser(index),
             pass = mobile.Mobile.getDefaultConfigPass(index)
         )

@@ -2,6 +2,7 @@ package com.net2share.vaydns
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.ImageButton
@@ -27,7 +28,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private lateinit var tvProgress: TextView
     private lateinit var tvPassed: TextView
     private lateinit var btnStopResume: Button
-    private lateinit var btnCopy: ImageButton
+    private lateinit var btnShare: ImageButton
 //    private lateinit var btnBack: ImageButton
     private lateinit var recycler: RecyclerView
     private lateinit var adapter: ResolverAdapter
@@ -65,7 +66,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         tvProgress = findViewById(R.id.tv_progress)
         tvPassed = findViewById(R.id.tv_passed)
         btnStopResume = findViewById(R.id.btn_stop_resume)
-        btnCopy = findViewById(R.id.btn_copy)
+        btnShare = findViewById(R.id.btn_share)
 //        btnBack = findViewById(R.id.btn_back)
         recycler = findViewById(R.id.recycler_results)
 
@@ -136,9 +137,39 @@ class DnsScannerResultActivity : AppCompatActivity() {
             }
         }
 
+// Share Logic
+        btnShare.setOnClickListener {
+            if (results.isEmpty()) {
+                Toast.makeText(this, "No results to share", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 1. Filter for successful probes
+            val successfulResults = results.filter { it.probe == "ok" }
+
+            if (successfulResults.isEmpty()) {
+                Toast.makeText(this, "No successful IPs to share", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 2. Map to a formatted string
+            val shareText = "VayDNS Scan Results:\n" + successfulResults.joinToString("\n") {
+                "${it.ip} (${it.latencyMs} ms)"
+            }
+
+            // 3. Create the Share Intent
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "VayDNS Scan Results")
+                putExtra(Intent.EXTRA_TEXT, shareText)
+            }
+
+            // 4. Launch the Android Chooser (WhatsApp, Email, Telegram, etc.)
+            startActivity(Intent.createChooser(shareIntent, "Share Resolvers via"))
+        }
         // Copy Logic
 // Copy Logic
-        btnCopy.setOnClickListener {
+        /**btnShare.setOnClickListener {
             if (results.isEmpty()) {
                 Toast.makeText(this, "No results to copy", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -159,7 +190,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
                 Toast.makeText(this, "Copied results to clipboard", Toast.LENGTH_SHORT).show()
             }
-        }
+        }*/
 
         // Start initial scan
 //        startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative, workers, tunnelWait, probeTimeout, retries)

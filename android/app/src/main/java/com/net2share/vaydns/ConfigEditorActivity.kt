@@ -58,10 +58,17 @@ class ConfigEditorActivity : AppCompatActivity() {
         val etPass = findViewById<EditText>(R.id.et_pass)
         val btnSave = findViewById<Button>(R.id.btn_save_config)
         val swSshKey = findViewById<SwitchCompat>(R.id.sw_ssh_key)
+        val spSsMethod = findViewById<Spinner>(R.id.sp_ss_method)
         val tvUserLabel = findViewById<TextView>(R.id.tv_user_label)
         val tvPassLabel = findViewById<TextView>(R.id.tv_pass_label)
+        val tvSsMethodLabel = findViewById<TextView>(R.id.tv_ss_method_label)
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
+
+        val ssMethods = arrayOf("chacha20-ietf-poly1305", "aes-128-gcm", "aes-256-gcm", "xchacha20-ietf-poly1305")
+        val ssAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, ssMethods)
+        ssAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spSsMethod.adapter = ssAdapter
 
         val recordTypes = arrayOf("TXT", "NULL", "CNAME", "A", "AAAA", "MX", "NS", "SRV", "CAA")
 //        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, recordTypes)
@@ -107,7 +114,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 etClientIdSize.setText(mobile.Mobile.getDefaultConfigClientIdSize(index).toString())
                 swDnstt.isChecked = mobile.Mobile.getDefaultConfigDnsttCompatible(index)
 
-
+                val ssMethod = mobile.Mobile.getDefaultConfigMethod(index)
                 val user = mobile.Mobile.getDefaultConfigUser(index)
                 val pass = mobile.Mobile.getDefaultConfigPass(index)
                 val protocol = mobile.Mobile.getDefaultConfigProtocol(index) // e.g. "socks", "ssh"
@@ -172,6 +179,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swAuth.visibility = View.GONE
                 rgProtocol.visibility = View.GONE
                 swSshKey.visibility = View.GONE
+                spSsMethod.visibility = View.GONE
                 etUser.visibility = View.GONE
                 etPass.visibility = View.GONE
 
@@ -215,6 +223,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         swAuth, config.useAuth,
                         swSshKey, config.useSshKey,
                         rgProtocol, config.protocol,
+                        spSsMethod, config.ssMethod,
                         etUser, config.user,
                         etPass, config.pass,
                         tvUserLabel, tvPassLabel // Pass the labels here
@@ -247,6 +256,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             etUser.visibility = View.VISIBLE
             etPass.visibility = View.VISIBLE
             swSshKey.visibility = View.VISIBLE
+            spSsMethod.visibility = View.VISIBLE
             tvUserLabel.visibility = View.VISIBLE
             tvPassLabel.visibility = View.VISIBLE
 
@@ -291,6 +301,38 @@ class ConfigEditorActivity : AppCompatActivity() {
         rgProtocol.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.rb_ssh -> {
+                    swSshKey.isEnabled = swAuth.isChecked
+
+                    tvUserLabel.visibility = View.VISIBLE
+                    etUser.visibility = View.VISIBLE
+                    tvSsMethodLabel.visibility = View.GONE
+                    spSsMethod.visibility = View.GONE
+                }
+                R.id.rb_shadowsocks -> {
+                    swSshKey.isChecked = false
+                    swSshKey.isEnabled = false
+
+                    // Shadowsocks uses a Method instead of a User
+                    tvUserLabel.visibility = View.GONE
+                    etUser.visibility = View.GONE
+                    tvSsMethodLabel.visibility = View.VISIBLE
+                    spSsMethod.visibility = View.VISIBLE
+                }
+                else -> {
+                    swSshKey.isChecked = false
+                    swSshKey.isEnabled = false
+
+                    tvUserLabel.visibility = View.VISIBLE
+                    etUser.visibility = View.VISIBLE
+                    tvSsMethodLabel.visibility = View.GONE
+                    spSsMethod.visibility = View.GONE
+                }
+            }
+        }
+
+        /*rgProtocol.setOnCheckedChangeListener { _, checkedId ->
+            when (checkedId) {
+                R.id.rb_ssh -> {
                     // Only enable the toggle if the master Auth switch is also ON
                     swSshKey.isEnabled = swAuth.isChecked
                 }
@@ -299,7 +341,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     swSshKey.isEnabled = false
                 }
             }
-        }
+        }*/
 
         swAuth.setOnCheckedChangeListener { _, isChecked ->
             // 1. Enable/Disable User and Password fields
@@ -329,7 +371,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 Toast.makeText(this, "Config name is required", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-
+            val ssMethod = spSsMethod.selectedItem.toString()
             val domain = etDomain.text.toString().trim()
             val pubkey = etPubkey.text.toString().trim()
             val dns = etDns.text.toString().trim()
@@ -381,7 +423,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
             saveOrUpdateConfig(
                 name, domain, pubkey, dns, mode, rt, idle, keep,
-                clientIdSize, dnstt, useAuth, useSshKey, protocol, user, pass
+                clientIdSize, dnstt, useAuth, useSshKey, protocol, ssMethod, user, pass
             )
             finish()
 
@@ -410,6 +452,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         swAuth: SwitchCompat, useAuth: Boolean,
         swSshKey: SwitchCompat, useSshKey: Boolean,
         rgProtocol: RadioGroup, protocolValue: String,
+        spSsMethod: Spinner, ssMethodValue: String,
         etUser: EditText, userValue: String,
         etPass: EditText, passValue: String,
         tvUserLabel: TextView, tvPassLabel: TextView // Added these to update labels
@@ -424,6 +467,9 @@ class ConfigEditorActivity : AppCompatActivity() {
         etClientIdSize.setText(clientIdValue.toString())
         etUser.setText(userValue)
         etPass.setText(passValue)
+        val adapter = spSsMethod.adapter as ArrayAdapter<String>
+        val methodIndex = adapter.getPosition(ssMethodValue)
+        if (methodIndex >= 0) spSsMethod.setSelection(methodIndex)
 
         etUser.isEnabled = useAuth
         etPass.isEnabled = useAuth
@@ -503,6 +549,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         useAuth: Boolean,
         useSshKey: Boolean,
         protocol: String,
+        ssMethod: String,
         user: String,
         pass: String
     ) {
@@ -530,7 +577,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val obj = jsonArray.getJSONObject(i)
                 if (obj.getString("id") == editingConfigId) {
                     populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
-                        idleTimeout, keepAlive, clientIdSize, dnsttCompatible, useAuth, useSshKey, protocol, user, pass)
+                        idleTimeout, keepAlive, clientIdSize, dnsttCompatible, useAuth, useSshKey, protocol, ssMethod, user, pass)
                     break
                 }
             }
@@ -538,7 +585,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             val newObj = JSONObject()
             newObj.put("id", java.util.UUID.randomUUID().toString())
             populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
-                idleTimeout, keepAlive, clientIdSize, dnsttCompatible, useAuth, useSshKey, protocol, user, pass)
+                idleTimeout, keepAlive, clientIdSize, dnsttCompatible, useAuth, useSshKey, protocol, ssMethod, user, pass)
             jsonArray.put(newObj)
         }
 
@@ -549,7 +596,7 @@ class ConfigEditorActivity : AppCompatActivity() {
     private fun populateJsonObject(
         obj: JSONObject, name: String, domain: String, pubkey: String, dns: String, mode: String,
         recordType: String, idleTimeout: String, keepAlive: String,
-        clientIdSize: Long, dnsttCompatible: Boolean, useAuth: Boolean, useSshKey: Boolean, protocol: String, user: String, pass: String
+        clientIdSize: Long, dnsttCompatible: Boolean, useAuth: Boolean, useSshKey: Boolean, protocol: String, ssMethod: String, user: String, pass: String
     ) {
         obj.put("name", name)
         obj.put("domain", domain)
@@ -564,6 +611,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("useAuth", useAuth)
         obj.put("useSshKey", useSshKey)
         obj.put("protocol", protocol)
+        obj.put("ssMethod", ssMethod)
         obj.put("user", user)
         obj.put("pass", pass)
     }
@@ -595,9 +643,9 @@ class ConfigEditorActivity : AppCompatActivity() {
                         useAuth = obj.optBoolean("useAuth", false),
                         useSshKey = obj.optBoolean("useSshKey", false),
                         protocol = obj.optString("protocol", "socks"),
+                        ssMethod = obj.optString("ssMethod", "chacha20-ietf-poly1305"),
                         user = obj.optString("user", ""),
                         pass = obj.optString("pass", ""),
-
                         isDefault = false // User configs are never default
                     )
                 )
@@ -630,6 +678,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("useAuth", config.useAuth)
                         put("useSshKey", config.useSshKey)
                         put("protocol", config.protocol)
+                        put("ssMethod", config.ssMethod)
                         put("user", config.user)
                         put("pass", config.pass)
                     }
