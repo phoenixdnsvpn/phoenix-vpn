@@ -100,17 +100,6 @@
                 android:textColor="?attr/colorOnPrimary"
                 android:backgroundTint="?attr/colorPrimary" />
 
-            <Button
-                android:id="@+id/btn_dns_scanner"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="DNS Resolver Scanner"
-                android:drawableStart="@android:drawable/ic_menu_search"
-                android:drawableTint="?attr/colorOnSurface"
-                android:layout_marginTop="8dp"
-                android:textColor="?attr/colorOnSurface" />
-
         </LinearLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>

@@ -18,6 +18,16 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_update_configs"
+        android:title="Update Configs"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_dns_scanner"
+        android:title="DNS Scanner"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_about"
         android:title="About"
         app:showAsAction="never" />
