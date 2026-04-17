@@ -7,13 +7,25 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 	"fmt"
 	"strings"
-//	"math/rand"
-//	"runtime/debug"
+	"runtime/debug"
 
 	"github.com/Starling226/vaydns-vpn/bridge"
+)
+
+var globalDynamicPort int32
+
+var dynamicPort int32 = 20000
+
+// 🚨 CRITICAL FIX: The Global Tunnel Registry
+// This prevents the Go Garbage Collector from deleting tunnels when the app backgrounds.
+// By holding a permanent reference, we stop kcp-go finalizers from triggering the 0x70 panic.
+var (
+	activeTunnels []context.CancelFunc
+	tunnelMu      sync.Mutex
 )
 
 type scanStats struct {
@@ -23,11 +35,12 @@ type scanStats struct {
 	healthy   int
 }
 
-//func init() {
-//	rand.Seed(time.Now().UnixNano())
-//}
-
 func ScanWithContext(ctx context.Context, cfg Config, hooks Hooks) error {
+	// Clear the registry at the start of a new scan
+	tunnelMu.Lock()
+	activeTunnels = make([]context.CancelFunc, 0)
+	tunnelMu.Unlock()
+
 	runtime, err := prepareConfig(cfg)
 	if err != nil {
 		return err
@@ -41,6 +54,8 @@ func scanResolversWithContext(ctx context.Context, runtime *runtimeConfig, hooks
 	jobs := make(chan parsedResolver, runtime.Workers*2)
 	stats := newScanStats(total)
 
+	atomic.StoreInt32(&globalDynamicPort, int32(runtime.StartPort))
+
 	var wg sync.WaitGroup
 	for i := 0; i < runtime.Workers; i++ {
 		wg.Add(1)
@@ -51,12 +66,9 @@ func scanResolversWithContext(ctx context.Context, runtime *runtimeConfig, hooks
 					fmt.Printf("GO_WORKER_CRASH [%d]: %v\n", port, r)
 				}
 			}()
-			// Ensure worker function signature accepts context.Context
-			worker(ctx, port, runtime, jobs, hooks, stats)
-		}(runtime.StartPort + i)
-//		}(runtime.StartPort + rand.Intn(20000))
+			worker(ctx, runtime, jobs, hooks, stats)
+		}(i)
 	}
-
 
 	for _, resolver := range runtime.parsedResolvers {
 		select {
@@ -91,37 +103,32 @@ func newScanStats(total int) *scanStats {
 	return &scanStats{total: total}
 }
 
-func worker(ctx context.Context, port int, cfg *runtimeConfig, jobs <-chan parsedResolver, hooks Hooks, stats *scanStats) {
-	// Panic recovery to catch the 0x70 error (nil pointer dereference)
+func worker(ctx context.Context, cfg *runtimeConfig, jobs <-chan parsedResolver, hooks Hooks, stats *scanStats) {
 	defer func() {
 		if r := recover(); r != nil {
-			// This logs the exact line causing the crash to LogCat
-//			fmt.Printf("GO_WORKER_PANIC [%d]: %v\nstack: %s\n", port, r, debug.Stack())
-//			fmt.Printf("Worker %d recovered from an unexpected error: %v\n", port, r)
-
+			fmt.Printf("GO_WORKER_PANIC [%d]: %v\nstack: %s\n", r, debug.Stack())
 		}
 	}()
 
 	for {
 		select {
 		case <-ctx.Done(): 
-			// Exit immediately if the scan is cancelled or grace period ends
 			return
 		case resolver, ok := <-jobs:
 			if !ok {
-				// No more resolvers in the channel
 				return
 			}
 
 			if resolver.ip == nil {
-                fmt.Printf("DEBUG: Skipping nil IP for %s\n", resolver.addr)
-                continue
-            }
+				fmt.Printf("DEBUG: Skipping nil IP for %s\n", resolver.addr)
+				continue
+			}
+
+			uniquePort := int(atomic.AddInt32(&dynamicPort, 1))
             
-			// 1. Setup per-check networking
 			proxyURL := &url.URL{
 				Scheme: cfg.Proxy,
-				Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+				Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(uniquePort)),
 			}
 			if cfg.ProxyUser != "" {
 				proxyURL.User = url.UserPassword(cfg.ProxyUser, cfg.ProxyPass)
@@ -129,7 +136,7 @@ func worker(ctx context.Context, port int, cfg *runtimeConfig, jobs <-chan parse
 
 			transport := &http.Transport{
 				Proxy:             http.ProxyURL(proxyURL),
-				DisableKeepAlives: true, // Do not reuse sockets for different resolvers
+				DisableKeepAlives: true, 
 				DialContext: (&net.Dialer{
 					Timeout:   30 * time.Second,
 					KeepAlive: 30 * time.Second,
@@ -140,24 +147,14 @@ func worker(ctx context.Context, port int, cfg *runtimeConfig, jobs <-chan parse
 				Transport: transport,
 			}
 
-			// 2. Run the check
-			// We pass 'ctx' so that if the scan is stopped, checkResolver 
-			// cancels its internal tunnel and probes IMMEDIATELY.
+			result, healthy := checkResolver(ctx, client, cfg, resolver, uniquePort)
 
-			result, healthy := checkResolver(ctx, client, cfg, resolver, port)
-
-
-			// 3. Clean up native sockets
 			transport.CloseIdleConnections()
 
-			// 4. Report results ONLY if the context is still active.
-			// This is the most important check to prevent the 0x70 crash 
-			// when the Android activity is closing.
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				// Call the Java hooks through Gomobile
 				if hooks.OnResult != nil {
 					hooks.OnResult(result)
 				}
@@ -170,9 +167,13 @@ func worker(ctx context.Context, port int, cfg *runtimeConfig, jobs <-chan parse
 }
 
 func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig, resolver parsedResolver, port int) (Result, bool) {
-	// 1. Link to parent context for coordinated shutdown
-	tunnelCtx, cancelTunnel := context.WithCancel(ctx)
-	defer cancelTunnel()
+	// 🚨 CRITICAL FIX: We create a context, but we DO NOT defer the cancellation.
+	// We save the cancel function to a global registry so the GC can never touch the tunnel.
+	tunnelCtx, cancelTunnel := context.WithCancel(context.Background())
+	
+	tunnelMu.Lock()
+	activeTunnels = append(activeTunnels, cancelTunnel)
+	tunnelMu.Unlock()
 
 	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 
@@ -181,15 +182,9 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	tCfg.ListenAddr  = listenAddr
 	tCfg.Domain = cfg.Domain
 
-//	logMessage := fmt.Sprintf("TunnelConfig Content: %+v", tCfg)
-//	fmt.Println(logMessage)
-
-
-	// 2. Start the tunnel with a recovery safety net
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				// This catches the 0x70 panic if the bridge is unstable
 				fmt.Printf("CAUGHT_TUNNEL_PANIC [%s]: %v\n", resolver.addr, r)
 			}
 		}()
@@ -200,13 +195,9 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 		}
 	}()
 
-	// 3. IMMEDIATE TERMINATION: Replace time.Sleep with a select block
-	// This allows the worker to stop instantly if the scan ends during the wait
 	select {
 	case <-time.After(cfg.TunnelWait):
-		// Tunnel wait finished naturally, proceed to probes
 	case <-ctx.Done():
-		// Main scan context was cancelled; exit immediately
 		return Result{Resolver: resolver.addr, Probe: "stopped"}, false
 	}
 
@@ -221,10 +212,6 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	isHealthy := false
 	bestPriority := 0
 
-	// 4. Context-Aware Probe Execution
-	// Before each test, we check if the context is still valid
-
-	// Download
 	if cfg.Download && ctx.Err() == nil {
 		result.Download = "fail"
 		latency, ok := doHTTPCheck(ctx, client, cfg.DownloadURL, cfg.DownloadTimeout, true)
@@ -236,7 +223,6 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 		}
 	}
 
-	// Upload
 	if cfg.Upload && ctx.Err() == nil {
 		result.Upload = "fail"
 		latency, ok := doUploadCheck(ctx, client, cfg.UploadURL, cfg.UploadTimeout, cfg.uploadPayload)
@@ -250,7 +236,6 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 		}
 	}
 
-	// Whois
 	if cfg.Whois && ctx.Err() == nil {
 		result.Whois = "fail"
 		latency, org, country, ok := lookupResolverInfo(ctx, client, resolver.ip.String(), cfg.WhoisTimeout)
@@ -265,7 +250,6 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 		}
 	}
 
-	// Probe
 	if cfg.Probe && ctx.Err() == nil {
 		result.Probe = "fail"
 		latency, ok := doHTTPCheck(ctx, client, cfg.ProbeURL, cfg.ProbeTimeout, true)
@@ -293,26 +277,20 @@ func ParseExtraArgs(args []string) bridge.TunnelConfig {
 	config.CompatDnstt = false
 
 	for i := 0; i < len(args); i++ {
-		// 1. Clean the key of any leading/trailing whitespace
 		key := strings.TrimSpace(args[i])
 
-		// 2. Handle boolean flags (Presence = True, No value following)
 		if key == "-dnstt-compat" {
 			config.CompatDnstt = true
-			continue // Immediately move to the next item in the slice
+			continue 
 		}
 
-		// 3. Guard: For all other flags, we need a following value
 		if i+1 >= len(args) {
 			break
 		}
 
-		// 4. Clean the value
 		value := strings.TrimSpace(args[i+1])
 
-		// 5. Map keys to the struct fields
 		switch key {
-		// String Fields
 		case "-doh":
 			config.DohURL = value
 		case "-dot":
@@ -345,8 +323,6 @@ func ParseExtraArgs(args []string) bridge.TunnelConfig {
 			config.OpenStreamTimeout = value
 		case "-udp-timeout":
 			config.UDPTimeout = value
-
-		// Integer Fields
 		case "-max-qname-len":
 			config.MaxQnameLen, _ = strconv.Atoi(value)
 		case "-max-num-labels":
@@ -355,16 +331,11 @@ func ParseExtraArgs(args []string) bridge.TunnelConfig {
 			config.MaxStreams, _ = strconv.Atoi(value)
 		case "-clientid-size":
 			config.ClientIDSize, _ = strconv.Atoi(value)
-
-		// Float Fields
 		case "-rps":
 			config.RpsLimit, _ = strconv.ParseFloat(value, 64)
 		}
-
-		// 6. Skip the value index in the next iteration
 		i++
 	}
 
 	return config
 }
-
