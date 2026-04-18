@@ -234,21 +234,41 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
                     try {
                         val json = JSONObject(jsonResult)
-                        val ip = json.getString("resolver")
-                        val latency = json.optInt("latency_ms", 99999)
-                        val probe = json.optString("probe", "ok")
 
-                        val item = ResolverResult(ip, latency, probe)
-                        results.add(item)
+                        // 🚨 NEW: Check if this is a system status message first!
+                        if (json.has("status")) {
+                            val status = json.getString("status")
+                            if (status == "finished") {
+                                // The scan naturally completed!
+                                stopScanProcess() // Flushes Go resources and flips UI to "RESUME"
 
-                        if (probe == "ok") {
-                            passedCount++
+                                val errorMsg = json.optString("error", "")
+                                if (errorMsg.isNotEmpty()) {
+                                    Toast.makeText(this@DnsScannerResultActivity, "Scan finished with error: $errorMsg", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(this@DnsScannerResultActivity, "Scan Complete!", Toast.LENGTH_SHORT).show()
+                                }
+                                return@runOnUiThread
+                            }
                         }
-                        adapter.notifyItemInserted(results.size - 1)
-//                        recycler.scrollToPosition(results.size - 1)
 
-                        tvProgress.text = "${results.size} / $totalResolvers"
-                        tvPassed.text = "$passedCount passed"
+                        // Otherwise, process it as a normal resolver result
+                        if (json.has("resolver")) {
+                            val ip = json.getString("resolver")
+                            val latency = json.optInt("latency_ms", 99999)
+                            val probe = json.optString("probe", "ok")
+
+                            val item = ResolverResult(ip, latency, probe)
+                            results.add(item)
+
+                            if (probe == "ok") {
+                                passedCount++
+                            }
+                            adapter.notifyItemInserted(results.size - 1)
+
+                            tvProgress.text = "${results.size} / $totalResolvers"
+                            tvPassed.text = "$passedCount passed"
+                        }
 
                     } catch (e: Exception) {
                         // ignore bad json

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 	"fmt"
+	"net/http"
 //	"log"
 //	"runtime/debug"
 
@@ -117,14 +118,6 @@ func StartF35Scan(
 		"-udp-timeout", "2s",
 	}
 
-	// Apply Conservative mode overrides
-/*	if isConservative {
-		cfg.Workers = 10
-		cfg.TunnelWait = 2000 * time.Millisecond
-		cfg.ProbeTimeout = 8 * time.Second
-		cfg.Retries = 1
-	}*/
-    
 	cfg.Pubkey = publicKey // Ensure this field is set in your bridge DEBUG
 	if err := f35.ValidateConfig(cfg); err != nil {
     	status, _ := json.Marshal(map[string]string{"status": "error", "message": err.Error()})
@@ -201,9 +194,16 @@ func StartF35Scan(
 // StopF35Scan stops any currently running scan immediately
 func StopF35Scan() {
 	scanMu.Lock()
-	defer scanMu.Unlock()
 	if scanCancel != nil {
 		scanCancel()
 		scanCancel = nil
 	}
+	scanMu.Unlock()
+
+	// 1. Terminate all lingering HTTP Keep-Alive connections
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
+
+	fmt.Println("VAY_DEBUG: Scanner stopped. Network resources will release naturally via IdleTimeout.")
 }
