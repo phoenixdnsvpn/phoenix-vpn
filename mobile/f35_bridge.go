@@ -158,12 +158,12 @@ func StartF35Scan(
 
 		// 2. IMPLEMENT THE TASK: Wait 15 seconds after the last resolver
 		// This matches cfg.ProbeTimeout (15s) to ensure everything has time to finish
-		select {
+/*		select {
 		case <-time.After(15 * time.Second):
 			fmt.Println("GO_DEBUG: Grace period ended.")
 		case <-ctx.Done():
 			fmt.Println("GO_DEBUG: Scan was manually stopped during grace period.")
-		}
+		}*/
 
 		// 3. Notify the App that we are truly finished
 		if callback != nil {
@@ -184,6 +184,7 @@ func StartF35Scan(
 		scanMu.Lock()
 		scanCancel = nil
 		scanMu.Unlock()
+		
 	}()	
 	
 	status, _ := json.Marshal(map[string]string{"status": "started", "engine": "vaydns"})
@@ -207,3 +208,4 @@ func StopF35Scan() {
 
 	fmt.Println("VAY_DEBUG: Scanner stopped. Network resources will release naturally via IdleTimeout.")
 }
+
