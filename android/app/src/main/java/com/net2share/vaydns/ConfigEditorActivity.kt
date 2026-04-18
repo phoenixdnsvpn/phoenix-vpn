@@ -9,6 +9,7 @@ import android.widget.RadioGroup
 import android.widget.Toast
 import android.widget.Spinner
 import android.widget.ArrayAdapter
+import android.widget.ImageButton
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
@@ -46,6 +47,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         val etDomain = findViewById<EditText>(R.id.et_domain)
         val etPubkey = findViewById<EditText>(R.id.et_pubkey)
         val etDns = findViewById<EditText>(R.id.et_dns)
+        val btnLoadSavedResolvers = findViewById<ImageButton>(R.id.btn_load_saved_resolvers)
         val rgMode = findViewById<RadioGroup>(R.id.rg_mode)
         val spRecordType = findViewById<Spinner>(R.id.sp_record_type)
         val etIdleTimeout = findViewById<EditText>(R.id.et_idle_timeout)
@@ -85,6 +87,103 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         if (editingConfigId != null) {
 //            supportActionBar?.title = "Edit Config"
+            btnLoadSavedResolvers.visibility = View.VISIBLE
+            btnLoadSavedResolvers.setOnClickListener {
+                try {
+                    // 1. Read directly from the physical file
+                    val file = java.io.File(filesDir, "resolvers_$editingConfigId.txt")
+                    if (!file.exists()) {
+                        Toast.makeText(this, "No saved resolvers for this config.", Toast.LENGTH_SHORT).show()
+                        return@setOnClickListener
+                    }
+
+                    val lines = file.readLines().filter { it.isNotBlank() }
+                    if (lines.isEmpty()) {
+                        Toast.makeText(this, "Saved resolvers are empty.", Toast.LENGTH_SHORT).show()
+                        return@setOnClickListener
+                    }
+
+                    // 2. Parse the IP and Latency for the UI
+                    val displayList = mutableListOf<String>()
+                    val ipList = mutableListOf<String>()
+
+                    for (line in lines) {
+                        val parts = line.split(",")
+                        if (parts.isNotEmpty()) {
+                            val ip = parts[0]
+                            val latency = if (parts.size > 1) parts[1] else "?"
+
+                            // Formats as: "8.8.8.8  (45 ms)"
+                            displayList.add("$ip  ($latency ms)")
+                            ipList.add(ip)
+                        }
+                    }
+
+                    // 🚨 FIX 2: Custom Adapter to squash the unused vertical space
+                    val adapter = object : android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, displayList) {
+                        override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
+                            val view = super.getView(position, convertView, parent) as android.widget.TextView
+
+                            // Remove Android's default minimum height
+                            view.minHeight = 0
+                            view.minimumHeight = 0
+
+                            // Shrink the padding (Horizontal: 16dp, Vertical: 6dp)
+                            val padHorizontal = (16 * resources.displayMetrics.density).toInt()
+                            val padVertical = (6 * resources.displayMetrics.density).toInt()
+
+                            view.setPadding(padHorizontal, padVertical, padHorizontal, padVertical)
+                            view.textSize = 15f
+                            return view
+                        }
+                    }
+
+                    // 3. Show the compressed dialog
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Select a Saved Resolver")
+                        .setAdapter(adapter) { _, which ->
+                            val selectedIp = ipList[which]
+                            etDns.setText(selectedIp) // Inserts ONLY the IP, ignores the latency text
+
+                            when (rgMode.checkedRadioButtonId) {
+                                R.id.rb_udp -> lastUdp = selectedIp
+                                R.id.rb_tls -> lastDot = selectedIp
+                                R.id.rb_https -> lastDoh = selectedIp
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Error loading resolvers", Toast.LENGTH_SHORT).show()
+                }
+            }
+            /**btnLoadSavedResolvers.setOnClickListener {
+                val prefs = getSharedPreferences("SavedResolvers", Context.MODE_PRIVATE)
+                val savedStr = prefs.getString("resolvers_$editingConfigId", "")
+
+                if (savedStr.isNullOrEmpty()) {
+                    Toast.makeText(this, "No saved resolvers for this config.", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                // Split string back into an array
+                val ipArray = savedStr.split(",").toTypedArray()
+
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Select a Saved Resolver")
+                    .setItems(ipArray) { _, which ->
+                        etDns.setText(ipArray[which])
+                        // Optional: Force it to remember this selection immediately
+                        when (rgMode.checkedRadioButtonId) {
+                            R.id.rb_udp -> lastUdp = ipArray[which]
+                            R.id.rb_tls -> lastDot = ipArray[which]
+                            R.id.rb_https -> lastDoh = ipArray[which]
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }*/
             if (isDefault) {
                 val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
 //                etName.setText(DefaultConfigs.getConfigName(index))

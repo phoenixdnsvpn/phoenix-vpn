@@ -51,6 +51,7 @@ class DnsScannerActivity : AppCompatActivity() {
         isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT", false)
         selectedDomain = intent.getStringExtra("DOMAIN") ?: ""
         selectedPubkey = intent.getStringExtra("PUBKEY") ?: ""
+        configId = intent.getStringExtra("CONFIG_ID") ?: ""
         selectedRecordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
         selectedIdleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
         selectedKeepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
@@ -234,6 +235,7 @@ class DnsScannerActivity : AppCompatActivity() {
 
         // Open the new result window and pass all needed data
         val intent = Intent(this, DnsScannerResultActivity::class.java).apply {
+            putExtra("CONFIG_ID", configId)
             putExtra("DOMAIN", selectedDomain)
             putExtra("PUBKEY", selectedPubkey)
             putExtra("RESOLVERS", resolversCommaSeparated)

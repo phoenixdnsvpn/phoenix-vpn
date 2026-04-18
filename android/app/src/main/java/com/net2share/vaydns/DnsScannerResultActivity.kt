@@ -5,6 +5,9 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
+import android.widget.EditText
+import android.content.Context
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
@@ -42,7 +45,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
         setContentView(R.layout.activity_dns_scanner_result)
 
         val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar_results)
-        val btnSort = findViewById<ImageButton>(R.id.btn_sort) // Initialize sort button
+        val btnSort = findViewById<ImageButton>(R.id.btn_sort)
+        val btnSave = findViewById<ImageButton>(R.id.btn_save)
 
         // The new way to handle the back arrow click
         toolbar.setNavigationOnClickListener {
@@ -50,6 +54,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
             finish()
         }
 
+        val configId = intent.getStringExtra("CONFIG_ID") ?: "unknown_config"
 // Sort Logic: Ascending Latency
         btnSort.setOnClickListener {
             if (results.isNotEmpty()) {
@@ -62,6 +67,50 @@ class DnsScannerResultActivity : AppCompatActivity() {
 //                Toast.makeText(this, "Sorted by latency (fastest first)", Toast.LENGTH_SHORT).show()
             }
         }
+
+        btnSave.setOnClickListener {
+            if (results.none { it.probe == "ok" }) {
+                Toast.makeText(this, "No successful resolvers to save.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val input = EditText(this)
+            input.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            input.hint = "e.g., 200"
+
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Save Fast Resolvers")
+                .setMessage("Enter maximum acceptable latency (ms):")
+                .setView(input)
+                .setPositiveButton("Save") { _, _ ->
+                    val maxLatencyStr = input.text.toString()
+                    val maxLatency = maxLatencyStr.toIntOrNull() ?: Int.MAX_VALUE
+
+                    // Filter and sort
+                    val filteredAndSorted = results
+                        .filter { it.probe == "ok" && it.latencyMs <= maxLatency }
+                        .sortedBy { it.latencyMs }
+
+                    if (filteredAndSorted.isEmpty()) {
+                        Toast.makeText(this, "No resolvers found under ${maxLatency}ms.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // 🚨 FIX 1 & 3: Save IP + Latency directly to a physical File!
+                        // Format: "1.1.1.1,45" per line. This completely bypasses the multi-process cache bug.
+                        val dataToSave = filteredAndSorted.joinToString("\n") { "${it.ip},${it.latencyMs}" }
+
+                        try {
+                            val file = java.io.File(filesDir, "resolvers_$configId.txt")
+                            file.writeText(dataToSave)
+                            Toast.makeText(this, "Saved ${filteredAndSorted.size} resolvers!", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "Error saving: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
         // Initialize Views
         tvProgress = findViewById(R.id.tv_progress)
         tvPassed = findViewById(R.id.tv_passed)

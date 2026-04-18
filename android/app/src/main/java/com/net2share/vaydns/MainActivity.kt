@@ -692,6 +692,7 @@ class MainActivity : AppCompatActivity() {
                     val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
 
                     val intent = Intent(this, DnsScannerActivity::class.java).apply {
+                        putExtra("CONFIG_ID", config.id)
                         putExtra("DOMAIN", config.domain)
                         putExtra("PUBKEY", config.pubkey)
                         putExtra("RECORD_TYPE", config.recordType)

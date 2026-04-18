@@ -29,10 +29,21 @@
                 android:layout_height="48dp"
                 android:padding="12dp"
                 android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_menu_sort_by_size"
+                android:src="@drawable/ic_sort_modern"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 app:tint="?attr/colorPrimary"
                 android:contentDescription="Sort by Latency" />
+
+            <ImageButton
+                android:id="@+id/btn_save"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:padding="12dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_save_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Save Fast Resolvers" />
 
             <ImageButton
                 android:id="@+id/btn_share"
@@ -42,7 +53,7 @@
                 android:layout_marginEnd="8dp"
                 android:padding="12dp"
                 android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_menu_share"
+                android:src="@drawable/ic_share_modern"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 app:tint="?attr/colorPrimary"
                 android:contentDescription="Share IPs" />

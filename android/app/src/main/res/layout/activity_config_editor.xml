@@ -92,6 +92,30 @@
                 android:textColor="?attr/colorOnSurface"
                 android:text="8.8.8.8:53" />
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/et_dns"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="?attr/colorOnSurface"
+                    android:text="8.8.8.8:53" />
+
+                <ImageButton
+                    android:id="@+id/btn_load_saved_resolvers"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@android:drawable/ic_menu_recent_history"
+                    android:background="?attr/selectableItemBackground"
+                    app:tint="?attr/colorPrimary"
+                    android:contentDescription="Load Saved Resolvers" />
+            </LinearLayout>
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
