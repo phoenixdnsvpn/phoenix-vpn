@@ -31,6 +31,7 @@
         <activity
             android:name=".DnsScannerActivity"
             android:label="Scanner parameters"
+            android:process=":scanner"
             android:parentActivityName=".MainActivity">
             <meta-data
                 android:name="android.support.PARENT_ACTIVITY"
@@ -52,6 +53,7 @@
 
         <activity
             android:name=".DnsScannerResultActivity"
+            android:process=":scanner"
             android:exported="false"
             android:parentActivityName=".DnsScannerActivity" />
 

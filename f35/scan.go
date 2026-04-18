@@ -24,7 +24,7 @@ var dynamicPort int32 = 20000
 // This prevents the Go Garbage Collector from deleting tunnels when the app backgrounds.
 // By holding a permanent reference, we stop kcp-go finalizers from triggering the 0x70 panic.
 var (
-	activeTunnels []context.CancelFunc
+//	activeTunnels []context.CancelFunc
 	tunnelMu      sync.Mutex
 )
 
@@ -38,7 +38,7 @@ type scanStats struct {
 func ScanWithContext(ctx context.Context, cfg Config, hooks Hooks) error {
 	// Clear the registry at the start of a new scan
 	tunnelMu.Lock()
-	activeTunnels = make([]context.CancelFunc, 0)
+//	activeTunnels = make([]context.CancelFunc, 0)
 	tunnelMu.Unlock()
 
 	runtime, err := prepareConfig(cfg)
@@ -169,12 +169,13 @@ func worker(ctx context.Context, cfg *runtimeConfig, jobs <-chan parsedResolver,
 func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig, resolver parsedResolver, port int) (Result, bool) {
 	// 🚨 CRITICAL FIX: We create a context, but we DO NOT defer the cancellation.
 	// We save the cancel function to a global registry so the GC can never touch the tunnel.
-	tunnelCtx, cancelTunnel := context.WithCancel(context.Background())
+//	tunnelCtx, cancelTunnel := context.WithCancel(context.Background())
 	
-	tunnelMu.Lock()
-	activeTunnels = append(activeTunnels, cancelTunnel)
-	tunnelMu.Unlock()
+//	tunnelMu.Lock()
+//	activeTunnels = append(activeTunnels, cancelTunnel)
+//	tunnelMu.Unlock()
 
+	
 	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 
 	tCfg := ParseExtraArgs(cfg.ExtraArgs)
@@ -189,7 +190,8 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 			}
 		}()
 
-		err := bridge.RunTunnel(tunnelCtx, tCfg)
+//		err := bridge.RunTunnel(tunnelCtx, tCfg)
+		err := bridge.RunTunnel(context.Background(), tCfg) //Sandboxing
 		if err != nil && err != context.Canceled {
 			fmt.Printf("TUNNEL_ERROR [%s]: %v\n", resolver.addr, err)			
 		}

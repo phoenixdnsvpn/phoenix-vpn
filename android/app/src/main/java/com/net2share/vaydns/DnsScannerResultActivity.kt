@@ -167,33 +167,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
             // 4. Launch the Android Chooser (WhatsApp, Email, Telegram, etc.)
             startActivity(Intent.createChooser(shareIntent, "Share Resolvers via"))
         }
-        // Copy Logic
-// Copy Logic
-        /**btnShare.setOnClickListener {
-            if (results.isEmpty()) {
-                Toast.makeText(this, "No results to copy", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            // 1. Filter for successful probes
-            // 2. Map to a string format: "1.2.3.4 (150 ms)"
-            val copyText = results
-                .filter { it.probe == "ok" }
-                .joinToString("\n") { "${it.ip} (${it.latencyMs} ms)" }
-
-            if (copyText.isEmpty()) {
-                Toast.makeText(this, "No successful IPs to copy", Toast.LENGTH_SHORT).show()
-            } else {
-                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("VayDNS Scanned Resolvers", copyText)
-                clipboard.setPrimaryClip(clip)
-
-                Toast.makeText(this, "Copied results to clipboard", Toast.LENGTH_SHORT).show()
-            }
-        }*/
 
         // Start initial scan
-//        startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative, workers, tunnelWait, probeTimeout, retries)
         startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType,
             workers, tunnelWait, probeTimeout, retries, user, pass,
             idleTimeout, keepAlive, clientIdSize)
@@ -301,7 +276,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        stopScanProcess() // Safety kill
+//        stopScanProcess() // Safety kill
         super.onDestroy()
+        System.exit(0) // now we are Sandboxing the scanner process to prevent crash from kcp-go leaking.
     }
 }
