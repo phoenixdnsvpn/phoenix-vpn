@@ -724,6 +724,11 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
+            R.id.action_how_to_use -> {
+                showHowToUseDialog()
+                true
+            }
+
             R.id.action_about -> {
                 val version = try {
                     packageManager.getPackageInfo(packageName, 0).versionName
@@ -753,6 +758,59 @@ class MainActivity : AppCompatActivity() {
             }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun showHowToUseDialog() {
+        val instructions = """
+            1. Select Apps to Tunnel: Tap on SELECT APPS TO TUNNEL and choose a few specific apps (3–4 recommended) that you want to pass through the tunnel. Only selected apps will be routed; all other traffic will remain on your local network.
+
+            2. Add Your Configuration:
+               • To use your own server: Tap the Menu (three dots) and select "Add Config".
+               • To use built-in servers: Toggle on "Use default configs" and select a server from the list.
+
+            3. Find a Usable Resolver: To establish a tunnel, you must find a functional DNS Resolver for your network.
+               • Open the Menu and select "DNS Scanner".
+               • Use the default parameters and tap "START SCAN".
+               • Look for a resolver with a latency lower than 6000 ms.
+               • Tap the Set (Checkmark) icon to apply the fastest resolver to your config, or the Save icon to store a list of fast resolvers.
+               • Note: If no usable resolvers are found, go back and start a new scan to get a fresh random list.
+
+            4. Start the Tunnel: Return to the main menu and tap START TUNNEL. It may take up to 20 seconds to establish a stable connection.
+
+            5. Troubleshooting: Different configurations use different DNS record types (TXT, NULL, etc.). A resolver that works for one config may not work for another. If you cannot connect, try switching to a different configuration.
+
+            6. Performance Expectations: DNS tunneling is inherently slower than traditional VPNs due to protocol overhead. Expect speeds ranging from 10 KB/sec to 200 KB/sec, depending on your network conditions.
+        """.trimIndent()
+
+        // Resolve dynamic text color for Day/Night modes
+        val onSurfaceColor = com.google.android.material.color.MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorOnSurface,
+            android.graphics.Color.BLACK
+        )
+
+        val textView = TextView(this).apply {
+            text = instructions
+            textSize = 15f
+            setTextColor(onSurfaceColor)
+
+            // Convert dp to pixels for padding
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, padding)
+
+            // Enable line spacing for better readability
+            setLineSpacing(0f, 1.2f)
+        }
+
+        val scrollView = android.widget.ScrollView(this).apply {
+            addView(textView)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("How to Use VayDNS")
+            .setView(scrollView)
+            .setPositiveButton("Got it", null)
+            .show()
     }
 
     private fun fetchSecureContent(urlString: String): String {

@@ -151,6 +151,24 @@ cd android
 * Missing Bind Package: If you get an error saying golang.org/x/mobile/bind is not found, ensure you have run go mod tidy inside the mobile/ folder after creating tools.go.
 * NDK Not Found: Ensure ANDROID_NDK_HOME points to the specific version folder (e.g., ndk/android-ndk-r27d) rather than just the root ndk folder.
 
+## How to Use VayDNS
+
+Follow these steps to set up and start your secure tunnel:
+
+1.  **Select Apps to Tunnel**: Tap on **SELECT APPS TO TUNNEL** and choose a few specific apps (3–4 recommended) that you want to pass through the tunnel. Only selected apps will be routed; all other traffic will remain on your local network.
+2.  **Add Your Configuration**: 
+    * To use your own server: Tap the **Menu** (three dots) and select **Add Config**.
+    * To use built-in servers: Toggle on **Use default configs** and select a server from the list.
+3.  **Find a Usable Resolver**: To establish a tunnel, you must find a functional DNS Resolver for your current network.
+    * Open the **Menu** and select **DNS Scanner**. 
+    * Use the default parameters and tap **START SCAN**.
+    * Once the scan finishes, look for a resolver with a latency lower than **6000 ms**.
+    * Tap the **Set (Checkmark)** icon to apply the fastest resolver to your config, or the **Save** icon to store a list of fast resolvers for later use. 
+    * *Note: If no usable resolvers are found, go back and start a new scan to get a fresh random list.*
+4.  **Start the Tunnel**: Return to the main menu and tap **START TUNNEL**. It may take up to **20 seconds** to establish a stable connection.
+5.  **Troubleshooting**: Different configurations use different DNS record types (TXT, NULL, etc.). A resolver that works for one config may not work for another. If you cannot connect, try switching to a different configuration or record type.
+6.  **Performance Expectations**: Please note that DNS tunneling is inherently slower than traditional VPNs due to protocol overhead. Expect speeds ranging from **10 KB/sec to 200 KB/sec**, depending on your network conditions.
+   
 ## Acknowledgments
 
 This project would not be possible without the incredible work of the following open-source repositories:
