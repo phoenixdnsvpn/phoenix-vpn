@@ -60,6 +60,7 @@
             android:name=".VayVpnService"
             android:exported="false"
             android:foregroundServiceType="specialUse"
+            android:process=":vpn"
             android:permission="android.permission.BIND_VPN_SERVICE">
             <intent-filter>
                 <action android:name="android.net.VpnService" />

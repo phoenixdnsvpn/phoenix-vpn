@@ -20,8 +20,19 @@
             android:layout_height="?attr/actionBarSize"
             app:title="Scanned Resolvers"
             app:titleTextColor="?attr/colorOnSurface"
-            app:navigationIcon="@android:drawable/ic_menu_revert"
+            app:navigationIcon="@drawable/ic_arrow_back_modern"
             app:navigationIconTint="?attr/colorOnSurface">
+
+            <ImageButton
+                android:id="@+id/btn_set"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:padding="12dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_check_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Set Fastest Resolver" />
 
             <ImageButton
                 android:id="@+id/btn_sort"

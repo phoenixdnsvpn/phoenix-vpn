@@ -856,7 +856,10 @@ class MainActivity : AppCompatActivity() {
 
         tvStatus.text = "Status: Connecting..."
         tvStatus.setTextColor(Color.parseColor("#FFA500")) // Optional: Orange for connecting
-        btnToggle.text = "STOP Tunnel"
+//        btnToggle.text = "STOP Tunnel"
+        btnToggle.text = "CONNECTING..."
+        btnToggle.isEnabled = false
+        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.GRAY)
 
         val intent = Intent(this, VayVpnService::class.java).apply {
 
@@ -922,12 +925,23 @@ class MainActivity : AppCompatActivity() {
         isVpnConnected = false
 
         // 2. Reset Button Text and Color
-        btnToggle.text = "START TUNNEL"
-        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
+//        btnToggle.text = "START TUNNEL"
+        btnToggle.isEnabled = false
+        btnToggle.text = "STOPPING..."
+        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.GRAY)
+//        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
 
         // 3. Reset Status Text
         tvStatus.text = "Status: Disconnected"
         tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
+
+// Unlock and reset the UI after exactly 1 second
+        btnToggle.postDelayed({
+            btnToggle.isEnabled = true
+            btnToggle.text = "START TUNNEL"
+            btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
+            tvStatus.text = "Status: Disconnected"
+        }, 1000)
     }
 
     private fun stopVpnService_x() {
@@ -942,11 +956,46 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        checkForPendingDnsUpdates()
         refreshConfigList()   // refresh after returning from editor
     }
 
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(vpnStateReceiver)
+    }
+
+    private fun checkForPendingDnsUpdates() {
+        try {
+            // Find any files left behind by the scanner sandbox
+            val files = filesDir.listFiles { _, name -> name.startsWith("apply_dns_") && name.endsWith(".txt") }
+            if (files.isNullOrEmpty()) return
+
+            for (file in files) {
+                val pendingConfigId = file.name.removePrefix("apply_dns_").removeSuffix(".txt")
+                val newIp = file.readText().trim()
+
+                if (newIp.isNotEmpty()) {
+                    if (pendingConfigId.startsWith("default_")) {
+                        // 1. Update the Main Process's memory for Default Configs
+                        val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                        prefs.edit().putString("${pendingConfigId}_dns", newIp).apply()
+                    } else {
+                        // 2. Update the Main Process's memory for User Configs
+                        val currentConfigs = com.net2share.vaydns.ConfigEditorActivity.loadAllConfigs(this).toMutableList()
+                        val index = currentConfigs.indexOfFirst { it.id == pendingConfigId }
+
+                        if (index != -1) {
+                            currentConfigs[index] = currentConfigs[index].copy(dnsAddress = newIp)
+                            com.net2share.vaydns.ConfigEditorActivity.saveAllConfigs(this, currentConfigs)
+                        }
+                    }
+                }
+                // 3. Nuke the file so we only apply it once
+                file.delete()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

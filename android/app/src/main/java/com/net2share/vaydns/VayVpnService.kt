@@ -543,113 +543,20 @@ class VayVpnService : VpnService() {
             }
         }
     }
-    /**
-    private fun cleanupAndStop() {
-        if (isStopping) return
-        isStopping = true
 
-        // 3. IMMEDIATELY deactivate so late JNI calls don't crash the service
-        protector?.deactivate()
-
-        sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
-            putExtra("status", "DISCONNECTED")
-            setPackage(packageName)
-        })
-
-        Thread {
-            synchronized(goLock) {
-                try {
-//                    Mobile.stopVpn()
-                    // 4. CLOSE FD FIRST.
-                    // This is the "Emergency Brake" for the Go engine.
-                    tunInterface?.close()
-                    tunInterface = null
-                    Thread.sleep(100)
-                    Mobile.stopVpn()
-
-                    // 5. Now tell Go to stop
-                    Log.i("VayDNS", "Go engine and TUN interface closed successfully.")
-                } catch (e: Exception) {
-                    Log.e("VayDNS", "Stop error: ${e.message}")
-                }
-            }
-
-            Handler(Looper.getMainLooper()).post {
-                val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-                nm.cancel(1)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    // The modern way (API 24+)
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } else {
-                    // The old way for very old devices
-                    stopForeground(true)
-                }
-                stopSelf()
-            }
-        }.start()
-    }
-    */
     override fun onDestroy() {
         Log.i("VayDNS", "onDestroy: Closing Go session...")
 
-        /*Thread {
-            synchronized(goLock) {
-                try {
-                    // 1. Tell Go to stop. Go's engine.Stop() will close the FD.
-                    Mobile.stopVpn()
+        // 1. Explicitly run your cleanup logic to safely shut down Go and the TUN interface
+        cleanupAndStop()
 
-                    // 2. IMPORTANT: DO NOT call tunInterface?.close() here!
-                    // Since we used detachFd(), Go owns the FD now.
-                    // Closing it here causes the fdsan crash you saw.
-                    tunInterface = null
-
-                    // 3. Deactivate the protector link
-                    protector?.deactivate()
-
-                    Log.i("VayDNS", "Service cleanup complete.")
-                } catch (e: Exception) {
-                    Log.e("VayDNS", "Cleanup error: ${e.message}")
-                }
-            }
-        }.start()*/
-
-
+        // 2. Run the standard Android lifecycle teardown
         super.onDestroy()
+
+       //  3. Obliterate the isolated :vpn process.
+        // This instantly cures any kcp-go socket leaks or memory panics,
+        // leaving a perfectly clean slate for the next time the user hits START.
+        System.exit(0)
     }
-        /**override fun onDestroy_x() {
-            Log.i("VayDNS", "onDestroy: Ensuring Go engine is dead before service exit...")
-
-            // Use the lock to ensure we aren't mid-start or mid-verification
-            synchronized(goLock) {
-                try {
-                    // 1. Tell Go to stop.
-                    // Your Go code has a safety timeout, so this will block briefly.
-                    Mobile.stopVpn()
-
-                    // 2. Now that Go is dead, safe to sever JNI and close FD
-                    protector?.deactivate()
-
-                    tunInterface?.close()
-                    tunInterface = null
-
-                    Log.i("VayDNS", "Go engine destroyed. Memory is clean.")
-                } catch (e: Exception) {
-                    Log.e("VayDNS", "Error during onDestroy cleanup: ${e.message}")
-                }
-            }
-
-            // super.onDestroy() must be last
-            super.onDestroy()
-        }*/
-    /**
-    override fun onDestroy() {
-        Log.i("VayDNS", "onDestroy triggered")
-        // Only call cleanup if not already stopping
-        if (!isStopping) {
-            cleanupAndStop()
-        }
-        super.onDestroy()
-    }
-    */
 
 }

@@ -19,7 +19,7 @@
             android:layout_height="?attr/actionBarSize"
             app:title="Scanner parameters"
             app:titleTextColor="?attr/colorOnSurface"
-            app:navigationIcon="@android:drawable/ic_menu_revert"
+            app:navigationIcon="@drawable/ic_arrow_back_modern"
             app:navigationIconTint="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 

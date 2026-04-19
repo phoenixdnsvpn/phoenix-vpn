@@ -55,6 +55,62 @@ class DnsScannerResultActivity : AppCompatActivity() {
         }
 
         val configId = intent.getStringExtra("CONFIG_ID") ?: "unknown_config"
+        val btnSet = findViewById<ImageButton>(R.id.btn_set)
+        btnSet.setOnClickListener {
+            // 1. Find the fastest successful resolver
+            val fastest = results.filter { it.probe == "ok" }.minByOrNull { it.latencyMs }
+
+            if (fastest == null) {
+                Toast.makeText(this, "No successful resolvers to set.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 2. Ask for confirmation so the user knows what is happening
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Apply Fastest Resolver")
+                .setMessage("Set ${fastest.ip} (${fastest.latencyMs} ms) as the DNS server for this configuration?")
+                .setPositiveButton("Apply") { _, _ ->
+                    try {
+                        val updateFile = java.io.File(filesDir, "apply_dns_${configId}.txt")
+                        updateFile.writeText(fastest.ip)
+                        Toast.makeText(this, "Fastest resolver applied!", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "Failed to apply: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+
+                    if (configId.startsWith("default_")) {
+                        // --- Logic for Official/Default Configs ---
+                        val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                        prefs.edit().putString("${configId}_dns", fastest.ip).apply()
+
+                        Toast.makeText(this, "Applied to Default Config!", Toast.LENGTH_SHORT).show()
+
+                    } else {
+                        // --- Logic for Custom User Configs ---
+                        try {
+                            // Load existing list using the companion object in ConfigEditorActivity
+                            val currentConfigs = com.net2share.vaydns.ConfigEditorActivity.loadAllConfigs(this).toMutableList()
+
+                            val index = currentConfigs.indexOfFirst { it.id == configId }
+                            if (index != -1) {
+                                // Data classes allow us to copy the object and change only one field
+                                val updatedConfig = currentConfigs[index].copy(dnsAddress = fastest.ip)
+                                currentConfigs[index] = updatedConfig
+
+                                // Save the updated list back to SharedPreferences
+                                com.net2share.vaydns.ConfigEditorActivity.saveAllConfigs(this, currentConfigs)
+                                Toast.makeText(this, "Fastest resolver applied!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this, "Error: Config not found.", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "Failed to apply: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
 // Sort Logic: Ascending Latency
         btnSort.setOnClickListener {
             if (results.isNotEmpty()) {
