@@ -1,8 +1,10 @@
-# VayDNS Android Client
+# VayDNS VPN Android Client
 
 [English] | [**فارسی**](README.fa.md)
 
-VayDNS is a high-performance DNS-based tunneling solution. Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates three powerful Go-based technologies to provide a full-device VPN experience even in highly restrictive network environments.
+Copyright © 2026 The VayDNS VPN Project. Licensed under the **VayDNS Source-Available License**.
+
+VayDNS VPN is a high-performance DNS-based tunneling solution. Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates three powerful Go-based technologies to provide a full-device VPN experience even in highly restrictive network environments.
 
 - **vaydns**: The "Tunnel" layer. It encapsulates data into DNS queries (DoH, DoT, or UDP) to bypass firewalls and deep packet inspection (DPI).
 - **Tun2Socks**: The "VPN" layer. It captures all IP traffic from the Android TUN interface and transparently forwards it through the VayDNS tunnel.
@@ -22,7 +24,7 @@ VayDNS is a high-performance DNS-based tunneling solution. Originally developed 
 - **Remote Update Configs:**  Remote Configuration Updates: Users can seamlessly update default configurations over-the-air whenever new servers or optimizations become available, ensuring the app stays ahead of network restrictions.
 
 ## 🔒 App Verification
-Official builds of VayDNS can be verified using the in-app verification tool. 
+Official builds of VayDNS VPN can be verified using the in-app verification tool. 
 **Official Public Key:** `f7eb9ede225433ff8b9d22a61fe72b6b81b18ec9cb3bc70e7706b57f6e0fed7b`
 
 
@@ -151,7 +153,7 @@ cd android
 * Missing Bind Package: If you get an error saying golang.org/x/mobile/bind is not found, ensure you have run go mod tidy inside the mobile/ folder after creating tools.go.
 * NDK Not Found: Ensure ANDROID_NDK_HOME points to the specific version folder (e.g., ndk/android-ndk-r27d) rather than just the root ndk folder.
 
-## How to Use VayDNS
+## How to Use VayDNS VPN
 
 Follow these steps to set up and start your secure tunnel:
 
@@ -182,12 +184,13 @@ This project would not be possible without the incredible work of the following 
 -   **[dnst-url-spec](https://github.com/net2share/dnst-url-spec)**: A standard URL format for sharing DNS-tunneled proxy configurations across clients and apps.
 
 
-## Disclaimer & License
+## License & Disclaimer
+
+### License
+This project is licensed under the **VayDNS VPN Source-Available License**. 
+
+Please see the [LICENSE](LICENSE) file for the full legal text. For third-party components and their respective licenses, see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
 
 ### Disclaimer
-
-This software is provided "as is", without warranty of any kind. The authors are not responsible for any misuse, data loss, or legal consequences resulting from the use of this software. Users are responsible for complying with local laws and regulations regarding VPN and tunneling usage.
-### License
-
-This project is licensed under the **GPLv3 License**.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. Use of VayDNS VPN is at your own risk. The maintainers are not responsible for any misuse, data loss, or legal consequences. Users are solely responsible for complying with their local laws and regulations regarding the use of VPN and tunneling technologies.
 
