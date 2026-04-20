@@ -14,7 +14,7 @@ VayDNS VPN is a high-performance DNS-based tunneling solution. Originally develo
 VayDNS VPN is a transparent, source-available project dedicated to promoting digital freedom and providing secure internet access for users in countries facing heavy internet censorship. The primary objective of this software is to facilitate open communication and information access through DNS tunneling technology. This project is strictly educational and humanitarian in nature; it does not target, exploit, or attack any systems, networks, or infrastructure. The source code is made available for public audit to ensure transparency and trust within the community of users who rely on these tools for safe and restricted-free connectivity.
 
 ## Key Features
-- **Encrypted Configuration:** Supports pre-configured "Default Servers" that are protected by a native go security layer, preventing the leakage of private infrastructure details in public builds.
+- **Encrypted Configuration:** Supports pre-configured 'Default Servers' integrated via a compiled Go native layer. This architecture secures private infrastructure details by ensuring they are not stored in plain-text configuration files.
 
 - **CI/CD Ready:** Automated build pipeline via GitHub Actions that injects server configurations through encrypted secrets.
 
