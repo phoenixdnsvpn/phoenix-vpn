@@ -10,6 +10,9 @@ VayDNS VPN is a high-performance DNS-based tunneling solution. Originally develo
 - **Tun2Socks**: The "VPN" layer. It captures all IP traffic from the Android TUN interface and transparently forwards it through the VayDNS tunnel.
 - **f35**: The E2E resolver scanner. To proble and rapidly measuring the latency and reliability of DNS resolvers across a network.
 
+### Transparency & Purpose
+VayDNS VPN is a transparent, source-available project dedicated to promoting digital freedom and providing secure internet access for users in countries facing heavy internet censorship. The primary objective of this software is to facilitate open communication and information access through DNS tunneling technology. This project is strictly educational and humanitarian in nature; it does not target, exploit, or attack any systems, networks, or infrastructure. The source code is made available for public audit to ensure transparency and trust within the community of users who rely on these tools for safe and restricted-free connectivity.
+
 ## Key Features
 - **Encrypted Configuration:** Supports pre-configured "Default Servers" that are protected by a native go security layer, preventing the leakage of private infrastructure details in public builds.
 
@@ -170,7 +173,7 @@ Follow these steps to set up and start your secure tunnel:
 4.  **Start the Tunnel**: Return to the main menu and tap **START TUNNEL**. It may take up to **20 seconds** to establish a stable connection.
 5.  **Troubleshooting**: Different configurations use different DNS record types (TXT, NULL, etc.). A resolver that works for one config may not work for another. If you cannot connect, try switching to a different configuration or record type.
 6.  **Performance Expectations**: Please note that DNS tunneling is inherently slower than traditional VPNs due to protocol overhead. Expect speeds ranging from **10 KB/sec to 200 KB/sec**, depending on your network conditions.
-   
+      
 ## Acknowledgments
 
 This project would not be possible without the incredible work of the following open-source repositories:
