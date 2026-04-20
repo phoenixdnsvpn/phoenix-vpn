@@ -2,7 +2,7 @@
 
 [English] | [**فارسی**](README.fa.md)
 
-Copyright © 2026 The VayDNS VPN Project. Licensed under the **VayDNS Source-Available License**.
+Copyright © 2026 The VayDNS VPN Project. Licensed under the **VayDNS VPN Source-Available License**.
 
 VayDNS VPN is a high-performance DNS-based tunneling solution. Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates three powerful Go-based technologies to provide a full-device VPN experience even in highly restrictive network environments.
 
