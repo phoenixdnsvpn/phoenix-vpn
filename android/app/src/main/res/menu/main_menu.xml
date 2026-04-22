@@ -23,13 +23,18 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_update_resolvers"
+        android:title="Update Resolvers"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_dns_scanner"
         android:title="DNS Scanner"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_how_to_use"
-        android:title="How to Use"
+        android:title="How to Use / راهنمای استفاده"
         app:showAsAction="never" />
 
     <item

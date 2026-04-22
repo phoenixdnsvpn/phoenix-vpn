@@ -24,7 +24,9 @@ VayDNS VPN is a transparent, source-available project dedicated to promoting dig
 
 - **Standardized DNST URL Support:**  Now fully compliant with the DNST URL Scheme, enabling seamless configuration sharing across compatible applications.
 
-- **Remote Update Configs:**  Remote Configuration Updates: Users can seamlessly update default configurations over-the-air whenever new servers or optimizations become available, ensuring the app stays ahead of network restrictions.
+- **Remote Update Configs:**  Users can seamlessly update default configurations over-the-air whenever new servers or optimizations become available, ensuring the app stays ahead of network restrictions.
+
+- **Remote Update Resolvers:**  Users can seamlessly update default resolvers over-the-air whenever new updtates for resolvers become available, ensuring the app stays ahead of network restrictions.
 
 ## 🔒 App Verification
 Official builds of VayDNS VPN can be verified using the in-app verification tool. 

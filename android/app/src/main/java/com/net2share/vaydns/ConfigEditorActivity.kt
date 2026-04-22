@@ -64,6 +64,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         val tvUserLabel = findViewById<TextView>(R.id.tv_user_label)
         val tvPassLabel = findViewById<TextView>(R.id.tv_pass_label)
         val tvSsMethodLabel = findViewById<TextView>(R.id.tv_ss_method_label)
+        val swUseDefaultResolvers = findViewById<SwitchCompat>(R.id.sw_use_default_resolvers)
+        swUseDefaultResolvers.visibility = View.GONE
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
 
@@ -158,32 +160,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     Toast.makeText(this, "Error loading resolvers", Toast.LENGTH_SHORT).show()
                 }
             }
-            /**btnLoadSavedResolvers.setOnClickListener {
-                val prefs = getSharedPreferences("SavedResolvers", Context.MODE_PRIVATE)
-                val savedStr = prefs.getString("resolvers_$editingConfigId", "")
 
-                if (savedStr.isNullOrEmpty()) {
-                    Toast.makeText(this, "No saved resolvers for this config.", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                // Split string back into an array
-                val ipArray = savedStr.split(",").toTypedArray()
-
-                MaterialAlertDialogBuilder(this)
-                    .setTitle("Select a Saved Resolver")
-                    .setItems(ipArray) { _, which ->
-                        etDns.setText(ipArray[which])
-                        // Optional: Force it to remember this selection immediately
-                        when (rgMode.checkedRadioButtonId) {
-                            R.id.rb_udp -> lastUdp = ipArray[which]
-                            R.id.rb_tls -> lastDot = ipArray[which]
-                            R.id.rb_https -> lastDoh = ipArray[which]
-                        }
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            }*/
             if (isDefault) {
                 val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
 //                etName.setText(DefaultConfigs.getConfigName(index))
@@ -195,6 +172,41 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 val savedDns = prefs.getString("${editingConfigId}_dns", "8.8.8.8:53")
                 val savedMode = prefs.getString("${editingConfigId}_mode", "udp")
+
+                swUseDefaultResolvers.visibility = View.VISIBLE
+                swUseDefaultResolvers.setOnCheckedChangeListener { _, isChecked ->
+                    if (isChecked) {
+                        val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
+
+                        // Ask Go for the decrypted comma-separated string of resolvers for this config
+                        //val defaultResolversStr = mobile.Mobile.getDefaultConfigResolvers(index)
+                        val defaultResolversStr = mobile.Mobile.getDefaultConfigDisplayResolvers(index)
+
+                        if (defaultResolversStr.isEmpty()) {
+                            Toast.makeText(this, "No default resolvers found. Update from menu.", Toast.LENGTH_SHORT).show()
+                            swUseDefaultResolvers.isChecked = false
+                        } else {
+                            val ipArray = defaultResolversStr.split(",").toTypedArray()
+
+                            MaterialAlertDialogBuilder(this)
+                                .setTitle("Select Official Resolver")
+                                .setItems(ipArray) { _, which ->
+                                    etDns.setText(ipArray[which])
+                                    when (rgMode.checkedRadioButtonId) {
+                                        R.id.rb_udp -> lastUdp = ipArray[which]
+                                        R.id.rb_tls -> lastDot = ipArray[which]
+                                        R.id.rb_https -> lastDoh = ipArray[which]
+                                    }
+                                    // Uncheck toggle so it can be clicked again later if needed
+                                    swUseDefaultResolvers.isChecked = false
+                                }
+                                .setNegativeButton("Cancel") { _, _ ->
+                                    swUseDefaultResolvers.isChecked = false
+                                }
+                                .show()
+                        }
+                    }
+                }
 
                 etDns.setText(savedDns)
                 when(savedMode) {

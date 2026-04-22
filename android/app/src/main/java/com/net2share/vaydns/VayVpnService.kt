@@ -127,6 +127,7 @@ class VayVpnService : VpnService() {
                     Thread.sleep(500)
 
                     // 4. Extract data passed from MainActivity
+                    val isDefaultConfig = intent?.getBooleanExtra("IS_DEFAULT_CONFIG", false) ?: false
                     val domain = intent?.getStringExtra("DOMAIN") ?: ""
                     val pubkey = (intent?.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
                     val dnsAddress = intent?.getStringExtra("UDP") ?: "8.8.8.8:53"
@@ -143,6 +144,20 @@ class VayVpnService : VpnService() {
                     val ssMethod = intent?.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
                     val user = intent?.getStringExtra("USER") ?: ""
                     val pass = intent?.getStringExtra("PASS") ?: ""
+
+                    if (isDefaultConfig) {
+                        val updatePrefs = getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
+
+                        val cachedResolversB64 = updatePrefs.getString("cached_default_resolvers", null)
+                        if (!cachedResolversB64.isNullOrEmpty()) {
+                            mobile.Mobile.setDefaultResolvers(cachedResolversB64)
+                        }
+
+                        val cachedConfigsB64 = updatePrefs.getString("cached_obscured_json", null)
+                        if (!cachedConfigsB64.isNullOrEmpty()) {
+                            mobile.Mobile.setDefaultConfigs(cachedConfigsB64)
+                        }
+                    }
 
                     var udp = ""
                     var doh = ""
@@ -169,9 +184,23 @@ class VayVpnService : VpnService() {
 
                     // Bypass routing for the server itself and the resolver
                     if (serverIp != null && isValidIp(serverIp)) builder.addRoute(serverIp, 32)
-                    if (dnsAddress.contains(":")) {
+                    /*if (dnsAddress.contains(":")) {
                         val resolver = dnsAddress.substringBefore(":")
                         if (isValidIp(resolver)) builder.addRoute(resolver, 32)
+                    }*/
+
+                    // Safely extract the IP for routing bypass (Supports UDP, DoT, and DoH)
+                    var bypassIp = dnsAddress
+                    if (bypassIp.startsWith("http")) {
+                        try {
+                            bypassIp = java.net.URL(bypassIp).host
+                        } catch (e: Exception) {}
+                    } else if (bypassIp.contains(":")) {
+                        bypassIp = bypassIp.substringBefore(":")
+                    }
+
+                    if (isValidIp(bypassIp)) {
+                        builder.addRoute(bypassIp, 32)
                     }
 
                     // App Filtering

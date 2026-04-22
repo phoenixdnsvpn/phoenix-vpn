@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 	"fmt"
+//	"net"
 	"net/http"
 //	"log"
 //	"runtime/debug"
@@ -64,12 +65,72 @@ func StartF35Scan(
 		
 	rawResolvers := strings.Split(resolversList, ",")
     var cleaned []string
-    for _, r := range rawResolvers {
+    
+    // --- SECURITY TRANSLATION: Fake -> Real ---    
+    // We build a local map to quickly translate the results back to fake IPs later
+    realToFake := make(map[string]string) 
+
+	for _, r := range rawResolvers {
+		fakeFull := strings.TrimSpace(r)
+		if fakeFull != "" {
+			// Leverage the helper we already built in mobile.go!
+			// This splits the port, translates the IP, and re-attaches the port.
+			realFull := translateFakeToReal(fakeFull)
+			
+			// Store the reverse mapping for the callback
+			realToFake[realFull] = fakeFull       
+			
+			// Give the engine the REAL IP + PORT to scan
+			cleaned = append(cleaned, realFull) 
+		}
+	}
+	
+    /*for _, r := range rawResolvers {
+		fakeFull := strings.TrimSpace(r) // e.g., "10.255.0.1:53"
+		if fakeFull != "" {
+			
+			// 1. Safely split the IP from the Port
+			var ipPart, portSuffix string
+			host, port, err := net.SplitHostPort(fakeFull)
+			if err != nil {
+				// No port was attached
+				ipPart = fakeFull
+				portSuffix = ""
+			} else {
+				// Port exists
+				ipPart = host
+				portSuffix = ":" + port
+			}
+
+			// 2. Ask default_configs.go for the real IP (using JUST the IP part)
+			realIP := GetRealResolver(ipPart) 
+			
+			// 3. Re-attach the port to the real IP
+			realFull := realIP + portSuffix
+
+			// --- DEBUG PRINTS ---
+//			if ipPart == realIP {
+//				fmt.Printf("VAY_DEBUG_SCAN: 2. [WARNING] No translation found for Fake IP: [%s]. Using as-is.\n", ipPart)
+//			} else {
+//				fmt.Printf("VAY_DEBUG_SCAN: 2. [SUCCESS] Translated Fake IP [%s] -> Real IP [%s]\n", fakeFull, realFull)
+//			}
+
+			// 4. Store the reverse mapping for the callback using the FULL strings (with ports)
+			realToFake[realFull] = fakeFull       
+			
+			// Give the engine the REAL IP + PORT to scan
+			cleaned = append(cleaned, realFull) 
+		}
+	}*/
+	 
+//	fmt.Printf("VAY_DEBUG_SCAN: 3. Final List of IPs sent to Scanner Engine: %v\n", cleaned)
+	 
+    /*for _, r := range rawResolvers {
         trimmed := strings.TrimSpace(r)
         if trimmed != "" {
             cleaned = append(cleaned, trimmed)
         }
-    }
+    }*/
     
 	if len(cleaned) == 0 {
         status, _ := json.Marshal(map[string]string{"status": "error", "message": "No resolvers provided"})
@@ -124,7 +185,28 @@ func StartF35Scan(
 	    return string(status)
 	}
 
-	hooks := f35.Hooks{
+    hooks := f35.Hooks{
+		OnResult: func(res f35.Result) {
+			// Safety: If the scan was cancelled, stop calling Java
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if callback != nil {
+					// --- SECURITY TRANSLATION: Real -> Fake ---
+					// The engine scanned the real IP, but we must hide it from Android
+					if fakeIP, exists := realToFake[res.Resolver]; exists {
+						res.Resolver = fakeIP 
+					}
+
+					b, _ := json.Marshal(res)
+					callback.OnResult(string(b))
+				}
+			}
+		},
+	}
+	
+	/*hooks := f35.Hooks{
 	    OnResult: func(res f35.Result) {
 	        // Safety: If the scan was cancelled, stop calling Java
 	        select {
@@ -137,7 +219,7 @@ func StartF35Scan(
 	            }
 	        }
 	    },
-	}
+	}*/
 	
 // Running scan in a goroutine so it doesn't block the UI thread
 	go func() {	                	

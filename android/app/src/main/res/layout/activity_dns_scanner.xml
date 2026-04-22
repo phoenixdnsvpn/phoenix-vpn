@@ -112,6 +112,15 @@
                 android:thumbTint="?attr/colorPrimary" />
 
             <Switch
+                android:id="@+id/switch_config_resolvers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use default resolvers"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="20dp"
+                android:thumbTint="?attr/colorPrimary" />
+
+            <Switch
                 android:id="@+id/switch_conservative"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

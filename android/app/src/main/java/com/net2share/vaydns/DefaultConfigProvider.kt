@@ -16,6 +16,11 @@ object DefaultConfigProvider {
             mobile.Mobile.setDefaultConfigs(cachedB64)
         }
 
+        val cachedResolversB64 = updatePrefs.getString("cached_default_resolvers", null)
+        if (!cachedResolversB64.isNullOrEmpty()) {
+            mobile.Mobile.setDefaultResolvers(cachedResolversB64)
+        }
+
         // 2. Fetch the count from Go.
         // This triggers ensureParsed() inside the Go library automatically.
         val count = mobile.Mobile.getDefaultConfigCount()

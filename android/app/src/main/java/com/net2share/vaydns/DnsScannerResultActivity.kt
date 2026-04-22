@@ -48,6 +48,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         val btnSort = findViewById<ImageButton>(R.id.btn_sort)
         val btnSave = findViewById<ImageButton>(R.id.btn_save)
 
+        val isDefaultResolvers = intent.getBooleanExtra("IS_DEFAULT_RESOLVERS", false)
         // The new way to handle the back arrow click
         toolbar.setNavigationOnClickListener {
             stopScanProcess()
@@ -132,7 +133,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
             val input = EditText(this)
             input.inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            input.hint = "e.g., 200"
+            input.hint = "e.g., 3000"
 
             MaterialAlertDialogBuilder(this)
                 .setTitle("Save Fast Resolvers")
@@ -235,7 +236,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 // 3. Update UI and restart
                 btnStopResume.text = "STOP"
                 isRunning = true
-//                startScan(domain, pubkey, resolversCommaSeparated, proxyType, isConservative, workers, tunnelWait, probeTimeout, retries)
+
                 startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType,
                     workers, tunnelWait, probeTimeout, retries, user, pass,
                     idleTimeout, keepAlive, clientIdSize)
@@ -271,6 +272,23 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
             // 4. Launch the Android Chooser (WhatsApp, Email, Telegram, etc.)
             startActivity(Intent.createChooser(shareIntent, "Share Resolvers via"))
+        }
+
+        // ---  INJECT MEMORY INTO SANDBOXED PROCESS ---
+        // Because this activity runs in a separate process, Go's memory is blank.
+        // We must re-inject the Base64 strings from SharedPreferences before scanning.
+        if (isDefaultResolvers) {
+            val updatePrefs = getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
+
+            val cachedResolversB64 = updatePrefs.getString("cached_default_resolvers", null)
+            if (!cachedResolversB64.isNullOrEmpty()) {
+                mobile.Mobile.setDefaultResolvers(cachedResolversB64)
+            }
+
+            val cachedConfigsB64 = updatePrefs.getString("cached_obscured_json", null)
+            if (!cachedConfigsB64.isNullOrEmpty()) {
+                mobile.Mobile.setDefaultConfigs(cachedConfigsB64)
+            }
         }
 
         // Start initial scan

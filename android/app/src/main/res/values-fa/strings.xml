@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">vaydns</string>
+
+    <string name="status_connected">وضعیت: متصل</string>
+    <string name="status_disconnected">وضعیت: قطع شد</string>
+    <string name="status_connecting">وضعیت: در حال اتصال...</string>
+    <string name="start_tunnel">شروع اتصال</string>
+    <string name="stop_tunnel">توقف اتصال</string>
+    <string name="stopping_tunnel">در حال توقف...</string>
+
+    <string name="error_select_config">لطفاً ابتدا یک پیکربندی انتخاب کنید</string>
+    <string name="error_invalid_config">پیکربندی نامعتبر است. لطفاً مورد دیگری را انتخاب کنید.</string>
+    <string name="vpn_permission_denied">مجوز VPN رد شد</string>
+    <string name="stop_vpn_before_scan">لطفاً قبل از اسکن، VPN را متوقف کنید.</string>
+</resources>

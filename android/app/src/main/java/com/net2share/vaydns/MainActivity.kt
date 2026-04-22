@@ -724,6 +724,11 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
+            R.id.action_update_resolvers -> {
+                syncResolversWithServer()
+                true
+            }
+
             R.id.action_how_to_use -> {
                 showHowToUseDialog()
                 true
@@ -759,13 +764,85 @@ class MainActivity : AppCompatActivity() {
             else -> super.onOptionsItemSelected(item)
         }
     }
-
     private fun showHowToUseDialog() {
         val instructions = """
             1. Select Apps to Tunnel: Tap on SELECT APPS TO TUNNEL and choose a few specific apps (3–4 recommended) that you want to pass through the tunnel. Only selected apps will be routed; all other traffic will remain on your local network.
 
             2. Add Your Configuration:
-               • To use your own server: Tap the Menu (three dots) and select "Add Config".
+               • To use your own server: Tap the Menu (three dots) and select "Add Config" or "Import Config".
+               • To use built-in servers: Toggle on "Use default configs" and select a server from the list.
+
+            3. Find a Usable Resolver: To establish a tunnel, you must find a functional DNS Resolver for your network.
+               • Open the Menu and select "DNS Scanner".
+               • Use the default parameters and tap "START SCAN".
+               • Look for a resolver with a latency lower than 6000 ms.
+               • Tap the Set (Checkmark) icon to apply the fastest resolver to your config, or the Save icon to store a list of fast resolvers.
+               • Note: If no usable resolvers are found, go back and start a new scan to get a fresh random list.
+
+            4. Start the Tunnel: Return to the main menu and tap START TUNNEL. It may take up to 20 seconds to establish a stable connection.
+
+            5. Troubleshooting: Different configurations use different DNS record types (TXT, NULL, etc.). A resolver that works for one config may not work for another. If you cannot connect, try switching to a different configuration or record type.
+
+            6. Performance Expectations: DNS tunneling is inherently slower than traditional VPNs due to protocol overhead. Expect speeds ranging from 10 KB/sec to 200 KB/sec, depending on your network conditions.
+
+            --------------------------------------------------
+            
+            ۱. انتخاب برنامه‌ها برای تونل (Split Tunneling): روی گزینه SELECT APPS TO TUNNEL تپ کنید و چند برنامه خاص (پیشنهاد می‌شود ۳ تا ۴ برنامه) را برای عبور از تونل انتخاب کنید. فقط ترافیک برنامه‌های انتخاب شده از تونل عبور می‌کند و بقیه برنامه‌ها از اینترنت عادی شما استفاده خواهند کرد.
+
+            ۲. افزودن پیکربندی (Configuration):
+               • برای استفاده از سرور شخصی خود: منو (سه نقطه) را باز کرده و "Add Config" و یا "Import Config" را انتخاب کنید.
+               • برای استفاده از سرورهای پیش‌فرض: گزینه "Use default configs" را فعال کرده و یکی از سرورهای لیست را انتخاب کنید.
+
+            ۳. یافتن یک DNS (Resolver) مناسب: برای برقراری اتصال، باید یک Resolver فعال که با شبکه شما سازگار باشد پیدا کنید.
+               • از منو گزینه "DNS Scanner" را انتخاب کنید.
+               • از پارامترهای پیش‌فرض استفاده کنید و روی "START SCAN" تپ کنید.
+               • پس از اتمام اسکن، به دنبال موردی بگردید که تاخیر (Latency) آن کمتر از 6000 میلی‌ثانیه باشد.
+               • روی آیکون تأیید (Checkmark) تپ کنید تا سریع‌ترین Resolver مستقیماً روی تنظیمات شما اعمال شود، یا از آیکون ذخیره (Save) برای نگهداری لیست استفاده کنید.
+               • نکته: اگر هیچ Resolver مناسبی پیدا نشد، به عقب برگردید و اسکن جدیدی شروع کنید تا لیست تصادفی جدیدی دریافت کنید.
+
+            ۴. شروع اتصال (Start Tunnel): به منوی اصلی برگردید و روی "START TUNNEL" تپ کنید. برقراری اتصال پایدار ممکن است تا ۲۰ ثانیه زمان ببرد.
+
+            ۵. عیب‌یابی: پیکربندی‌های مختلف از انواع رکوردهای DNS (مانند TXT یا NULL) استفاده می‌کنند. ممکن است یک Resolver که برای یک سرور کار می‌کند، برای سرور دیگر مناسب نباشد. در صورت عدم اتصال، سرور یا نوع رکورد را تغییر دهید.
+
+            ۶. انتظارات از عملکرد: لطفاً توجه داشته باشید که تونل‌سازی DNS ذاتا کندتر از VPNهای معمولی است. بسته به شرایط شبکه، انتظار سرعتی بین ۱۰ تا ۲۰۰ کیلوبایت بر ثانیه را داشته باشید.
+        """.trimIndent()
+
+        // Resolve dynamic text color for Day/Night modes
+        val onSurfaceColor = com.google.android.material.color.MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorOnSurface,
+            android.graphics.Color.BLACK
+        )
+
+        val textView = TextView(this).apply {
+            text = instructions
+            textSize = 15f
+            setTextColor(onSurfaceColor)
+
+            // Convert dp to pixels for padding
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, padding)
+
+            // Enable line spacing for better readability
+            setLineSpacing(0f, 1.3f)
+        }
+
+        val scrollView = android.widget.ScrollView(this).apply {
+            addView(textView)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("How to Use / راهنمای استفاده")
+            .setView(scrollView)
+            .setPositiveButton("OK", null)
+            .show()
+    }
+    /**private fun showHowToUseDialog() {
+        val instructions = """
+            1. Select Apps to Tunnel: Tap on SELECT APPS TO TUNNEL and choose a few specific apps (3–4 recommended) that you want to pass through the tunnel. Only selected apps will be routed; all other traffic will remain on your local network.
+
+            2. Add Your Configuration:
+               • To use your own server: Tap the Menu (three dots) and select "Add Config" or "Import Config".
                • To use built-in servers: Toggle on "Use default configs" and select a server from the list.
 
             3. Find a Usable Resolver: To establish a tunnel, you must find a functional DNS Resolver for your network.
@@ -811,7 +888,7 @@ class MainActivity : AppCompatActivity() {
             .setView(scrollView)
             .setPositiveButton("Got it", null)
             .show()
-    }
+    }*/
 
     private fun fetchSecureContent(urlString: String): String {
         val url = java.net.URL(urlString)
@@ -889,6 +966,43 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    private fun syncResolversWithServer() {
+        Thread {
+            try {
+                var baseUrl = mobile.Mobile.getUpdateServerURL()
+                if (baseUrl.isEmpty()) {
+                    runOnUiThread { Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show() }
+                    return@Thread
+                }
+                baseUrl = baseUrl.trimEnd('/')
+
+                runOnUiThread { Toast.makeText(this, "Downloading resolvers...", Toast.LENGTH_SHORT).show() }
+
+                // 1. Fetch the encrypted binary file
+                val configUrl = "$baseUrl/config/default_resolvers.bin"
+                val newResolversB64 = fetchSecureContent(configUrl).trim()
+
+                // 2. Persist locally so it survives app restarts
+                getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("cached_default_resolvers", newResolversB64)
+                    .apply()
+
+                // 3. Pass to the Go engine for decryption and memory mapping
+                mobile.Mobile.setDefaultResolvers(newResolversB64)
+
+                runOnUiThread {
+                    Toast.makeText(this, "Resolvers updated successfully!", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VayDNS_Update", "Crash during resolvers update:", e)
+                runOnUiThread {
+                    Toast.makeText(this, "Resolvers update failed. Check connection.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+
     private fun prepareAndStartVpn() {
         val intent = VpnService.prepare(this)
         if (intent != null) vpnPermissionLauncher.launch(intent) else startVpnService()
@@ -930,8 +1044,22 @@ class MainActivity : AppCompatActivity() {
                 config
             }
             // Now 'config.domain' and 'config.pubkey' contain the real data
+            putExtra("IS_DEFAULT_CONFIG", config.isDefault)
             putExtra("DOMAIN", finalConfig.domain)
             putExtra("PUBKEY", finalConfig.pubkey)
+
+            /*var finalDnsAddress = finalConfig.dnsAddress.trim()
+            // Only append a port if it's an IP (doesn't start with http) and doesn't already have a port
+            if (!finalDnsAddress.contains(":") && !finalDnsAddress.startsWith("http")) {
+                if (finalConfig.mode.lowercase() == "dot") {
+                    finalDnsAddress = "$finalDnsAddress:853" // Append DoT port
+                } else if (finalConfig.mode.lowercase() == "udp") {
+                    finalDnsAddress = "$finalDnsAddress:53"  // Append standard UDP port
+                }
+            }*/
+
+            //val realIp = mobile.Mobile.getRealResolver(finalConfig.dnsAddress)
+            //putExtra("UDP", realIp)
             putExtra("UDP", finalConfig.dnsAddress)
             putExtra("MODE", finalConfig.mode)
             putExtra("RECORD_TYPE", finalConfig.recordType)

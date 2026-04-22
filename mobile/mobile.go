@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 	"os"
+	"net"
 	"strings"
 	"net/http"
 	"net/url"
@@ -43,6 +44,58 @@ func init() {
  * StartVpn: The main entry point for Android System-Wide VPN.
 */
  
+// translateFakeToReal securely translates UI IPs to backend IPs while preserving ports and DoH URLs
+func translateFakeToReal(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
+	}
+
+	// 1. Guardrail for DoH URLs (e.g., https://10.250.0.0/dns-query)
+	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
+		parsedUrl, err := url.Parse(input)
+		if err != nil {
+			// Fallback if URL parsing fails
+			return GetRealResolver(input)
+		}
+
+		// Extract just the IP/Host from the URL
+		host := parsedUrl.Hostname()
+		port := parsedUrl.Port() // Might be empty
+
+		// Translate the Host
+		realHost := GetRealResolver(host)
+
+		// Re-attach the port if it existed in the URL (e.g., https://10.250.0.0:8443/...)
+		if port != "" {
+			parsedUrl.Host = net.JoinHostPort(realHost, port)
+		} else {
+			parsedUrl.Host = realHost
+		}
+
+		finalUrl := parsedUrl.String()
+//		log.Printf("VAY_DEBUG_VPN: [TRANS] DoH URL translated. Fake: [%s] -> Real: [%s]", input, finalUrl)
+		return finalUrl
+	}
+
+	// 2. Try to split standard UDP/DoT IPs and Ports
+	host, port, err := net.SplitHostPort(input)
+	if err != nil {
+		// No port was provided by the user! Translate the raw IP and return it.
+		realHost := GetRealResolver(input)
+//		log.Printf("VAY_DEBUG_VPN: [TRANS] No port found. Raw: [%s] -> Real: [%s]", input, realHost)
+		return realHost
+	}
+
+	// 3. Port was attached, translate the host and strictly preserve the user's port
+	realHost := GetRealResolver(host)
+	finalAddress := net.JoinHostPort(realHost, port)
+
+//	log.Printf("VAY_DEBUG_VPN: [TRANS] Port preserved. Fake: [%s] -> Real: [%s]. Final: [%s]", host, realHost, finalAddress)
+
+	return finalAddress
+}
+ 
 func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey string, recordType string, idleTimeout string, KeepAlive string, clientIDSize int, compatDnstt bool, useAuth bool, protocol string, ssMethod string, user string, pass string, protector SocketProtector) string {
 	mu.Lock()
 
@@ -70,9 +123,17 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 	
 	mu.Unlock()
 
+//	log.Printf("VAY_DEBUG_VPN: [START] Android passed raw UDP: '%s'", udp)
+
+	realUdp := translateFakeToReal(udp)
+	realDoh := translateFakeToReal(doh)
+	realDot := translateFakeToReal(dot)
+	
+//	log.Printf("VAY_DEBUG_VPN: [START] Final Tunnel UDP target: '%s'", realUdp)
+	
 	tCfg := bridge.TunnelConfig{
-		UdpAddr: udp, DohURL: doh, DotAddr: dot, Domain: domain,
-		ListenAddr: internalSocks, LogLevel: "info", UtlsDistribution: "chrome",
+		UdpAddr: realUdp, DohURL: realDoh, DotAddr: realDot, Domain: domain,
+		ListenAddr: internalSocks, LogLevel: "error", UtlsDistribution: "chrome",
 		RecordType: recordType, PubkeyHex: pubkey, Protector: protector,
 		IdleTimeout: idleTimeout, KeepAlive: KeepAlive, UDPTimeout: "2s",
 		ClientIDSize: clientIDSize, CompatDnstt: compatDnstt,
@@ -155,7 +216,8 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 		key := &engine.Key{
 			Proxy:  proxyString,
 			Device: fmt.Sprintf("fd://%d", newFd),
-			MTU:    1232, 
+			MTU:    1232,
+			LogLevel: "silent",
 		}
 		engine.Insert(key)
 		log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d with proxy %s", newFd, proxyString)
@@ -181,6 +243,87 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
 }
 
+func StartVpn_no_auth(fd int, udp string, doh string, dot string, domain string, pubkey string, recordType string, idleTimeout string, KeepAlive string, clientIDSize int, compatDnstt bool, user string, pass string, protector SocketProtector) string {
+	mu.Lock()
+
+	// 1. SIGNAL OLD SESSION TO DIE
+	if activeCancel != nil {
+		log.Printf("VAY_DEBUG: Killing old session context")
+		activeCancel() 
+		time.Sleep(100 * time.Millisecond) //just added 
+	}
+
+	// 2. THE SECRET SAUCE: DUPLICATE THE FD
+	// This prevents the 'fdsan' crash on Android 10+
+	newFd, err := syscall.Dup(fd)
+	if err != nil {
+		mu.Unlock()
+		return "Error: Failed to dup FD"
+	}
+
+//    syscall.Close(fd)
+
+	activeWg = &sync.WaitGroup{}
+	activeCtx, activeCancel = context.WithCancel(context.Background())
+	isRunning = true
+
+	// Capture locals for goroutines
+	wg := activeWg
+	ctx := activeCtx
+	
+	activeSocksPort = 10000 + rand.Intn(40000)
+	internalSocks := fmt.Sprintf("127.0.0.1:%d", activeSocksPort)
+	
+	mu.Unlock()
+
+	tCfg := bridge.TunnelConfig{
+		UdpAddr: udp, DohURL: doh, DotAddr: dot, Domain: domain,
+		ListenAddr: internalSocks, LogLevel: "error", UtlsDistribution: "chrome",
+		RecordType: recordType, PubkeyHex: pubkey, Protector: protector,
+		IdleTimeout: idleTimeout, KeepAlive: KeepAlive, UDPTimeout: "2s",
+		ClientIDSize: clientIDSize, CompatDnstt: compatDnstt,
+	}
+
+	// 3. START THE DNS TUNNEL (The part that was missing!)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
+			log.Printf("VAY_DEBUG: Tunnel Error: %v", err)
+		}
+	}()
+
+	// 4. START TUN2SOCKS ENGINE (Using newFd)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		
+		time.Sleep(300 * time.Millisecond)
+		
+		key := &engine.Key{
+			Proxy:  "socks5://" + internalSocks,
+			Device: fmt.Sprintf("fd://%d", newFd),
+			MTU:    1232, 
+		}
+		engine.Insert(key)
+		log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d", newFd)
+		engine.Start() 
+	}()
+
+	// 5. SHUTDOWN WATCHER
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		log.Printf("VAY_DEBUG: Shutting down engine...")
+		engine.Stop()
+		// Important: We also close the newFd here because Go owns it now
+//		syscall.Close(newFd) 
+		log.Printf("VAY_DEBUG: Native engine fully dead.")		
+	}()
+
+	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
+}
 
 /**
  * StopVpn: Cleans up all resources safely without deadlocks.
@@ -221,7 +364,7 @@ func StopVpn() string {
 
 	return "Stopped"
 }
- 
+
 func VerifyTunnel() string {
 	mu.Lock()
 	port := activeSocksPort

@@ -1,3 +1,15 @@
 <resources>
     <string name="app_name">vaydns</string>
+
+    <string name="status_connected">Status: Connected</string>
+    <string name="status_disconnected">Status: Disconnected</string>
+    <string name="status_connecting">Status: Connecting...</string>
+    <string name="start_tunnel">START TUNNEL</string>
+    <string name="stop_tunnel">STOP TUNNEL</string>
+    <string name="stopping_tunnel">STOPPING...</string>
+
+    <string name="error_select_config">Please select a config first</string>
+    <string name="error_invalid_config">Invalid configuration. Please select another.</string>
+    <string name="vpn_permission_denied">VPN permission denied</string>
+    <string name="stop_vpn_before_scan">Please stop the VPN before running a scan.</string>
 </resources>

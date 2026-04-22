@@ -85,6 +85,17 @@
                 android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="8dp" />
 
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/sw_use_default_resolvers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Use default resolvers"
+                android:textColor="?attr/colorOnSurface"
+                android:checked="false"
+                android:textSize="14sp"
+                app:thumbTint="?attr/colorPrimary" />
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

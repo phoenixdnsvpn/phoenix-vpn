@@ -31,13 +31,13 @@ class DnsScannerActivity : AppCompatActivity() {
     private var selectedIdleTimeout = "10s"
     private var selectedKeepAlive = "2s"
     private var selectedClientIdSize = 2L
-
     private var selectedDomain = ""
     private var selectedPubkey = ""
     private var selectedRecordType = "TXT"
     private var configId = ""
     private var resolversList: List<String> = emptyList()
     private var isDefaultConfig = false
+    private lateinit var switchConfigResolvers: Switch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,7 +91,11 @@ class DnsScannerActivity : AppCompatActivity() {
         etProbeTimeout = findViewById(R.id.et_probe_timeout)
         etRetries = findViewById(R.id.et_retries)
         btnStartScan = findViewById(R.id.btn_start_scan)
+        switchConfigResolvers = findViewById(R.id.switch_config_resolvers)
 
+        if (!isDefaultConfig) {
+            switchConfigResolvers.visibility = android.view.View.GONE
+        }
 
         // Set domain from config
         etDomain = findViewById(R.id.et_domain)
@@ -120,6 +124,52 @@ class DnsScannerActivity : AppCompatActivity() {
                     .show()
             } else {
                 startScan()
+            }
+        }
+
+        switchConfigResolvers.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                // 1. Disable all other resolver sources so they cannot be mixed
+                btnDefaultResolvers.isEnabled = false
+                btnCustomResolvers.isEnabled = false
+                switchPublicDns.isChecked = false
+                switchPublicDns.isEnabled = false
+
+                // 2. Disable the limit (we want to scan ALL official ones)
+                etNumResolvers.isEnabled = false
+                etNumResolvers.alpha = 0.5f
+
+                // 3. Fetch ALL FAKE IPs from ALL configs in Go memory
+                val count = Mobile.getDefaultConfigCount()
+                val allResolvers = mutableSetOf<String>()
+
+                for (i in 0 until count) {
+                    val defaultResolversStr = Mobile.getDefaultConfigDisplayResolvers(i.toLong())
+                    if (defaultResolversStr.isNotEmpty()) {
+                        allResolvers.addAll(defaultResolversStr.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+                    }
+                }
+
+                if (allResolvers.isNotEmpty()) {
+                    resolversList = allResolvers.toList()
+                    tvResolversCount.text = "Loaded all official resolvers: ${resolversList.size}"
+                    Toast.makeText(this, "Isolated to official resolvers only.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "No default resolvers found. Try updating from the main menu.", Toast.LENGTH_LONG).show()
+                    switchConfigResolvers.isChecked = false
+                }
+            } else {
+                // 1. Re-enable all other resolver sources
+                btnDefaultResolvers.isEnabled = true
+                btnCustomResolvers.isEnabled = true
+                switchPublicDns.isEnabled = true
+
+                // 2. Re-enable the limit
+                etNumResolvers.isEnabled = true
+                etNumResolvers.alpha = 1.0f
+
+                // 3. Fallback to the generic assets file
+                loadDefaultResolvers()
             }
         }
 
@@ -175,11 +225,19 @@ class DnsScannerActivity : AppCompatActivity() {
             return
         }
 
-        val numResolvers = etNumResolvers.text.toString().toIntOrNull() ?: 2000
+        val parsedNum = etNumResolvers.text.toString().toIntOrNull() ?: 2000
+        val isUsingConfigResolvers = switchConfigResolvers.isChecked
+
+        val numResolvers = if (isUsingConfigResolvers) resolversList.size else parsedNum
         if (numResolvers < 1 || numResolvers > resolversList.size) {
             Toast.makeText(this, "Number of resolvers must be between 1 and ${resolversList.size}", Toast.LENGTH_LONG).show()
             return
         }
+        /*val numResolvers = etNumResolvers.text.toString().toIntOrNull() ?: 2000
+        if (numResolvers < 1 || numResolvers > resolversList.size) {
+            Toast.makeText(this, "Number of resolvers must be between 1 and ${resolversList.size}", Toast.LENGTH_LONG).show()
+            return
+        }*/
 
         // Hardcoded Public DNS List
         val publicDnsList = listOf(
@@ -250,6 +308,7 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("TUNNEL_WAIT", tunnelWait)
             putExtra("PROBE_TIMEOUT", probeTimeout)
             putExtra("RETRIES", retries)
+            putExtra("IS_DEFAULT_RESOLVERS", isUsingConfigResolvers)
         }
         startActivity(intent)
 
