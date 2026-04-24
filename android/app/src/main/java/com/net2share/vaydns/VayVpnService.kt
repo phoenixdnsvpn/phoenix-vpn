@@ -145,7 +145,7 @@ class VayVpnService : VpnService() {
                     val user = intent?.getStringExtra("USER") ?: ""
                     val pass = intent?.getStringExtra("PASS") ?: ""
 
-                    if (isDefaultConfig) {
+                    /*if (isDefaultConfig) {
                         val updatePrefs = getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
 
                         val cachedResolversB64 = updatePrefs.getString("cached_default_resolvers", null)
@@ -156,6 +156,31 @@ class VayVpnService : VpnService() {
                         val cachedConfigsB64 = updatePrefs.getString("cached_obscured_json", null)
                         if (!cachedConfigsB64.isNullOrEmpty()) {
                             mobile.Mobile.setDefaultConfigs(cachedConfigsB64)
+                        }
+                    }*/
+                    if (isDefaultConfig) {
+                        try {
+                            val resolversFile = java.io.File(filesDir, "cached_default_resolvers.bin")
+                            if (resolversFile.exists()) {
+                                val cachedResolverBytes = resolversFile.readBytes()
+                                if (cachedResolverBytes.isNotEmpty()) {
+                                    mobile.Mobile.setDefaultResolvers(cachedResolverBytes)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("VayDNS", "Failed to load cached resolvers: ${e.message}")
+                        }
+
+                        try {
+                            val configFile = java.io.File(filesDir, "cached_default_configs.bin")
+                            if (configFile.exists()) {
+                                val cachedConfigBytes = configFile.readBytes()
+                                if (cachedConfigBytes.isNotEmpty()) {
+                                    mobile.Mobile.setDefaultConfigs(cachedConfigBytes)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("VayDNS", "Failed to load cached configs: ${e.message}")
                         }
                     }
 

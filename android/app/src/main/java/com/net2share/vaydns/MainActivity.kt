@@ -719,6 +719,11 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
+            R.id.action_check_app_update -> {
+                checkForAppUpdate()
+                true
+            }
+
             R.id.action_update_configs -> {
                 syncConfigsWithServer()
                 true
@@ -837,58 +842,6 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("OK", null)
             .show()
     }
-    /**private fun showHowToUseDialog() {
-        val instructions = """
-            1. Select Apps to Tunnel: Tap on SELECT APPS TO TUNNEL and choose a few specific apps (3–4 recommended) that you want to pass through the tunnel. Only selected apps will be routed; all other traffic will remain on your local network.
-
-            2. Add Your Configuration:
-               • To use your own server: Tap the Menu (three dots) and select "Add Config" or "Import Config".
-               • To use built-in servers: Toggle on "Use default configs" and select a server from the list.
-
-            3. Find a Usable Resolver: To establish a tunnel, you must find a functional DNS Resolver for your network.
-               • Open the Menu and select "DNS Scanner".
-               • Use the default parameters and tap "START SCAN".
-               • Look for a resolver with a latency lower than 6000 ms.
-               • Tap the Set (Checkmark) icon to apply the fastest resolver to your config, or the Save icon to store a list of fast resolvers.
-               • Note: If no usable resolvers are found, go back and start a new scan to get a fresh random list.
-
-            4. Start the Tunnel: Return to the main menu and tap START TUNNEL. It may take up to 20 seconds to establish a stable connection.
-
-            5. Troubleshooting: Different configurations use different DNS record types (TXT, NULL, etc.). A resolver that works for one config may not work for another. If you cannot connect, try switching to a different configuration.
-
-            6. Performance Expectations: DNS tunneling is inherently slower than traditional VPNs due to protocol overhead. Expect speeds ranging from 10 KB/sec to 200 KB/sec, depending on your network conditions.
-        """.trimIndent()
-
-        // Resolve dynamic text color for Day/Night modes
-        val onSurfaceColor = com.google.android.material.color.MaterialColors.getColor(
-            this,
-            com.google.android.material.R.attr.colorOnSurface,
-            android.graphics.Color.BLACK
-        )
-
-        val textView = TextView(this).apply {
-            text = instructions
-            textSize = 15f
-            setTextColor(onSurfaceColor)
-
-            // Convert dp to pixels for padding
-            val padding = (20 * resources.displayMetrics.density).toInt()
-            setPadding(padding, padding, padding, padding)
-
-            // Enable line spacing for better readability
-            setLineSpacing(0f, 1.2f)
-        }
-
-        val scrollView = android.widget.ScrollView(this).apply {
-            addView(textView)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("How to Use VayDNS")
-            .setView(scrollView)
-            .setPositiveButton("Got it", null)
-            .show()
-    }*/
 
     private fun fetchSecureContent(urlString: String): String {
         val url = java.net.URL(urlString)
@@ -901,8 +854,8 @@ class MainActivity : AppCompatActivity() {
         }
         // Set up the connection
         connection.requestMethod = "GET"
-        connection.connectTimeout = 5000 // 5 seconds
-        connection.readTimeout = 5000
+        connection.connectTimeout = 8000 // 5 seconds
+        connection.readTimeout = 8000
 
         // --- ADD YOUR SECRET TOKEN HERE ---
         // This must match exactly what you put in Nginx
@@ -910,9 +863,40 @@ class MainActivity : AppCompatActivity() {
 
         if (connection.responseCode == 200) {
             return connection.inputStream.bufferedReader().use { it.readText() }
+
         } else {
             throw Exception("Server rejected connection: HTTP ${connection.responseCode}")
         }
+    }
+
+    private fun fetchSecureBinaryContent(urlString: String): ByteArray? {
+        val url = java.net.URL(urlString)
+        val connection = url.openConnection() as java.net.HttpURLConnection
+
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+
+            // Ensure the token is clean (no invisible spaces)
+            val token = mobile.Mobile.getAppSecretKey().trim()
+            connection.setRequestProperty("X-VayDNS-Token", token)
+            connection.setRequestProperty("Accept-Encoding", "identity")
+
+            if (connection.responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                // CRITICAL: Use BufferedInputStream and readBytes()
+                // DO NOT use BufferedReader, Scanner, or String()
+                val inputStream = java.io.BufferedInputStream(connection.inputStream)
+                return inputStream.readBytes()
+            } else {
+                android.util.Log.e("VayDNS", "Server returned: ${connection.responseCode}")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("VayDNS", "Download failed: ${e.message}")
+        } finally {
+            connection.disconnect()
+        }
+        return null
     }
 
     private fun syncConfigsWithServer() {
@@ -929,7 +913,7 @@ class MainActivity : AppCompatActivity() {
 
                 baseUrl = baseUrl.trimEnd('/')
 
-                // 1. Fetch version using the secure connection
+                // 1. Fetch version using the standard text fetcher
                 val versionUrl = "$baseUrl/config/version.txt"
                 val latestVersionText = fetchSecureContent(versionUrl).trim()
                 val latestVersion = latestVersionText.toInt()
@@ -937,18 +921,33 @@ class MainActivity : AppCompatActivity() {
                 if (latestVersion > currentVersion) {
                     runOnUiThread { Toast.makeText(this, "New update found (v$latestVersion). Downloading...", Toast.LENGTH_SHORT).show() }
 
-                    // 2. Fetch the Base64 config file using the secure connection
-                    val configUrl = "$baseUrl/config/default_configs.bin"
-                    val newConfigB64 = fetchSecureContent(configUrl).trim()
+                    val timestamp = System.currentTimeMillis()
+                    //val configUrl = "$baseUrl/assets/release_v1.bin?t=${System.currentTimeMillis()}"
+                    val configUrl = "$baseUrl/config/configs.bin?t=${System.currentTimeMillis()}"
 
-                    // 3. Persist the update
-                    getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
-                        .edit()
-                        .putString("cached_obscured_json", newConfigB64)
-                        .apply()
+                    //android.util.Log.d("VayDNS_Debug", "Downloading from: $configUrl")
+                    val newConfigBytes = fetchSecureBinaryContent(configUrl)
 
-                    // 4. Update the Go engine
-                    mobile.Mobile.setDefaultConfigs(newConfigB64)
+                    // 3. Save as a physical binary file in internal storage
+                    val configFile = java.io.File(filesDir, "cached_default_configs.bin")
+                    //val newConfigBytes = fetchSecureBinaryContent(configUrl)
+
+                    // 4. Update the Go engine (See crucial note below!)
+                    if (newConfigBytes != null && newConfigBytes.isNotEmpty()) {
+                        try {
+                            // Save to disk exactly as downloaded
+                            configFile.writeBytes(newConfigBytes)
+
+                            // Push the same raw bytes into the Go Engine
+                            mobile.Mobile.setDefaultConfigs(newConfigBytes)
+
+                            android.util.Log.d("VayDNS_Update", "Successfully saved ${newConfigBytes.size} bytes.")
+                        } catch (e: Exception) {
+                            android.util.Log.e("VayDNS_Update", "Failed to write file: ${e.message}")
+                        }
+                    } else {
+                        android.util.Log.e("VayDNS_Update", "Download failed or returned empty data.")
+                    }
 
                     runOnUiThread {
                         refreshConfigList()
@@ -970,29 +969,48 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 var baseUrl = mobile.Mobile.getUpdateServerURL()
+
                 if (baseUrl.isEmpty()) {
-                    runOnUiThread { Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show() }
+                    runOnUiThread { Toast.makeText(this, "Update server not configured.", Toast.LENGTH_SHORT).show() }
                     return@Thread
                 }
+
                 baseUrl = baseUrl.trimEnd('/')
+                runOnUiThread { Toast.makeText(this, "Updating resolvers...", Toast.LENGTH_SHORT).show() }
 
-                runOnUiThread { Toast.makeText(this, "Downloading resolvers...", Toast.LENGTH_SHORT).show() }
+                val timestamp = System.currentTimeMillis()
+                //val resolverUrl = "$baseUrl/assets/resolvers_v1.bin?t=$timestamp"
+                val resolverUrl = "$baseUrl/config/resolvers.bin?t=$timestamp"
 
-                // 1. Fetch the encrypted binary file
-                val configUrl = "$baseUrl/config/default_resolvers.bin"
-                val newResolversB64 = fetchSecureContent(configUrl).trim()
+                //android.util.Log.d("VayDNS_Debug", "Downloading Resolvers from: $resolverUrl")
 
-                // 2. Persist locally so it survives app restarts
-                getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
-                    .edit()
-                    .putString("cached_default_resolvers", newResolversB64)
-                    .apply()
+                // 2. Fetch using our binary-safe method
+                val newResolversBytes = fetchSecureBinaryContent(resolverUrl)
 
-                // 3. Pass to the Go engine for decryption and memory mapping
-                mobile.Mobile.setDefaultResolvers(newResolversB64)
+                // 3. Persistence and Go Engine Update
+                if (newResolversBytes != null && newResolversBytes.isNotEmpty()) {
+                    try {
+                        val resolversFile = java.io.File(filesDir, "cached_default_resolvers.bin")
 
-                runOnUiThread {
-                    Toast.makeText(this, "Resolvers updated successfully!", Toast.LENGTH_LONG).show()
+                        // Save to internal storage
+                        resolversFile.writeBytes(newResolversBytes)
+
+                        // Push to the Go Engine (which now handles the memory copy safely)
+                        mobile.Mobile.setDefaultResolvers(newResolversBytes)
+
+                        android.util.Log.d("VayDNS_Update", "Successfully updated ${newResolversBytes.size} bytes of resolvers.")
+
+                        runOnUiThread {
+                            Toast.makeText(this, "Resolvers updated successfully!", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("VayDNS_Update", "Failed to write resolver file: ${e.message}")
+                    }
+                } else {
+                    android.util.Log.e("VayDNS_Update", "Resolvers download failed or returned empty data.")
+                    runOnUiThread {
+                        Toast.makeText(this, "Update failed: Server returned no data.", Toast.LENGTH_SHORT).show()
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("VayDNS_Update", "Crash during resolvers update:", e)
@@ -1001,6 +1019,92 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun checkForAppUpdate() {
+        val currentVersion = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+        } catch (e: Exception) {
+            "1.0"
+        }
+
+        runOnUiThread { Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show() }
+
+        Thread {
+            try {
+                var baseUrl = mobile.Mobile.getUpdateServerURL()
+                if (baseUrl.isEmpty()) {
+                    runOnUiThread { Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show() }
+                    return@Thread
+                }
+                baseUrl = baseUrl.trimEnd('/')
+
+                // Fetch app_version.txt securely
+                val versionUrl = "$baseUrl/config/app_version.txt"
+                val fetchedVersionText = fetchSecureContent(versionUrl).trim()
+
+                if (isNewerAppVersion(currentVersion, fetchedVersionText)) {
+                    showUpdateDialog(fetchedVersionText)
+                } else {
+                    runOnUiThread { Toast.makeText(this, "You are using the latest version ($currentVersion).", Toast.LENGTH_SHORT).show() }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VayDNS_Update", "App version check failed:", e)
+                runOnUiThread { Toast.makeText(this, "Failed to check for updates.", Toast.LENGTH_SHORT).show() }
+            }
+        }.start()
+    }
+
+    // Helper to compare "1.7.0" with "v1.7.1" safely
+    private fun isNewerAppVersion(current: String, fetched: String): Boolean {
+        val cleanCurrent = current.replace(Regex("[^0-9.]"), "").split(".")
+        val cleanFetched = fetched.replace(Regex("[^0-9.]"), "").split(".")
+
+        val length = maxOf(cleanCurrent.size, cleanFetched.size)
+        for (i in 0 until length) {
+            val c = cleanCurrent.getOrNull(i)?.toIntOrNull() ?: 0
+            val f = cleanFetched.getOrNull(i)?.toIntOrNull() ?: 0
+            if (f > c) return true
+            if (f < c) return false
+        }
+        return false
+    }
+
+    private fun showUpdateDialog(newVersion: String) {
+        runOnUiThread {
+            // 1. Detect Android Architecture
+            var arch = "arm64-v8a" // Fallback to 64-bit standard
+            for (abi in Build.SUPPORTED_ABIS) {
+                if (abi.contains("arm64-v8a")) {
+                    arch = "arm64-v8a"
+                    break
+                } else if (abi.contains("armeabi-v7a")) {
+                    arch = "armeabi-v7a"
+                    break
+                }
+            }
+
+            // 2. Format Version String (Ensure it starts with 'v' for the URL)
+            val versionStr = if (newVersion.startsWith("v")) newVersion else "v$newVersion"
+
+            // 3. Construct the GitHub Release URL
+            val downloadUrl = "https://github.com/Starling226/vaydns-vpn/releases/download/$versionStr/VaydnsVpn-$versionStr-$arch.apk"
+
+            // 4. Show the Dialog
+            MaterialAlertDialogBuilder(this)
+                .setTitle("App Update Available")
+                .setMessage("A new version of VayDNS ($versionStr) is available.\n\n" +
+//                        "Your device uses the $arch architecture.\n\n" +
+                        "Note: Your browser may say 'File might be harmful' because this is a direct APK download. It is safe to tap 'Download anyway'. If file download progress was not displayed, please check your Downloads directory.\n\n" +
+                        "توجه: از آنجا که این فایل مستقیماً دانلود می‌شود، ممکن است مرورگر هشدار «File might be harmful» را نمایش دهد. این فایل کاملاً امن است؛ با خیال راحت روی «Download anyway» تپ کنید. اگر پیشرفت دانلود نمایش داده نشد، لطفاً پوشه دانلودهای خود را بررسی کنید.")
+                .setPositiveButton("Download") { _, _ ->
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl))
+                    startActivity(intent)
+                }
+                .setNegativeButton("Later", null)
+                .setIcon(R.mipmap.ic_launcher_round)
+                .show()
+        }
     }
 
     private fun prepareAndStartVpn() {
@@ -1047,16 +1151,6 @@ class MainActivity : AppCompatActivity() {
             putExtra("IS_DEFAULT_CONFIG", config.isDefault)
             putExtra("DOMAIN", finalConfig.domain)
             putExtra("PUBKEY", finalConfig.pubkey)
-
-            /*var finalDnsAddress = finalConfig.dnsAddress.trim()
-            // Only append a port if it's an IP (doesn't start with http) and doesn't already have a port
-            if (!finalDnsAddress.contains(":") && !finalDnsAddress.startsWith("http")) {
-                if (finalConfig.mode.lowercase() == "dot") {
-                    finalDnsAddress = "$finalDnsAddress:853" // Append DoT port
-                } else if (finalConfig.mode.lowercase() == "udp") {
-                    finalDnsAddress = "$finalDnsAddress:53"  // Append standard UDP port
-                }
-            }*/
 
             //val realIp = mobile.Mobile.getRealResolver(finalConfig.dnsAddress)
             //putExtra("UDP", realIp)

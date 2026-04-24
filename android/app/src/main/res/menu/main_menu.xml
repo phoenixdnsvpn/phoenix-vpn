@@ -18,6 +18,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_check_app_update"
+        android:title="Check for Update"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_update_configs"
         android:title="Update Configs"
         app:showAsAction="never" />

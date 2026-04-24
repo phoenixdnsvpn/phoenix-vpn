@@ -8,25 +8,72 @@ object DefaultConfigProvider {
 
     fun getDefaultConfigs(context: Context): List<Config> {
         // 1. Check for Over-the-Air updates first.
-        // If the user downloaded a new XORed config from your server, we apply it.
-        val updatePrefs = context.getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
-        val cachedB64 = updatePrefs.getString("cached_obscured_json", null)
+        // We now load the raw binary files directly from internal storage.
 
-        if (!cachedB64.isNullOrEmpty()) {
-            mobile.Mobile.setDefaultConfigs(cachedB64)
-        }
+        /*try {
+            val configFile = java.io.File(context.filesDir, "cached_default_configs.bin")
+            if (configFile.exists()) {
+                val cachedBytes = configFile.readBytes()
+                if (cachedBytes.isNotEmpty()) {
+                    mobile.Mobile.setDefaultConfigs(cachedBytes)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("VayDNS_Init", "Error loading cached configs file:", e)
+        }*/
+        val configFile = java.io.File(context.filesDir, "cached_default_configs.bin")
+        try {
+            //val configFile = java.io.File(context.filesDir, "cached_default_configs.bin")
+            if (configFile.exists()) {
+                val bytes = configFile.readBytes()
+                if (bytes.isNotEmpty()) {
+                    mobile.Mobile.setDefaultConfigs(bytes)
+                }
+            }
 
-        val cachedResolversB64 = updatePrefs.getString("cached_default_resolvers", null)
-        if (!cachedResolversB64.isNullOrEmpty()) {
-            mobile.Mobile.setDefaultResolvers(cachedResolversB64)
+            /*val resolversFile = java.io.File(context.filesDir, "cached_default_resolvers.bin")
+            if (resolversFile.exists()) {
+                val resBytes = resolversFile.readBytes()
+                if (resBytes.isNotEmpty()) {
+                    mobile.Mobile.setDefaultResolvers(resBytes)
+                }
+            }*/
+        } catch (e: Exception) { e.printStackTrace() }
+        /**} catch (e: Exception) {
+            Log.e("VayDNS_Init", "Failed to load cached binary configs: ${e.message}")
+        }*/
+        try {
+            val resolversFile = java.io.File(context.filesDir, "cached_default_resolvers.bin")
+            if (resolversFile.exists()) {
+                val cachedResolverBytes = resolversFile.readBytes()
+                if (cachedResolverBytes.isNotEmpty()) {
+                    mobile.Mobile.setDefaultResolvers(cachedResolverBytes)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("VayDNS_Init", "Error loading cached resolvers file:", e)
         }
 
         // 2. Fetch the count from Go.
         // This triggers ensureParsed() inside the Go library automatically.
-        val count = mobile.Mobile.getDefaultConfigCount()
-        Log.d("VayDNS_Go", "Official configs loaded: $count")
+        var count = mobile.Mobile.getDefaultConfigCount()
+        if (count <= 0 && configFile.exists()) {
+            android.util.Log.w("VayDNS", "Corrupt disk cache detected. Deleting...")
+            configFile.delete()
+            // Now Go will automatically fall back to the working AAR injection
+            count = mobile.Mobile.getDefaultConfigCount()
+        }
+        //val count = mobile.Mobile.getDefaultConfigCount()
+        /*Log.d("VayDNS_Go", "Official configs loaded: $count")
+        if (count <= 0) {
+            // If count is 0, the file on disk was corrupted or invalid.
+            // DELETE the bad file so the app can fall back to the embedded AAR config.
+            java.io.File(context.filesDir, "cached_default_configs.bin").delete()
 
-        if (count == 0L) return emptyList()
+            // Re-check count (Go will now fall back to InjectedConfigs)
+            count = mobile.Mobile.getDefaultConfigCount()
+        }*/
+        //if (count == 0L) return emptyList()
 
         val defaultList = mutableListOf<Config>()
         val overrides = context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)

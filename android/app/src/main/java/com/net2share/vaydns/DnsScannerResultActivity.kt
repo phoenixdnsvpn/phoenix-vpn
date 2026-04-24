@@ -278,6 +278,32 @@ class DnsScannerResultActivity : AppCompatActivity() {
         // Because this activity runs in a separate process, Go's memory is blank.
         // We must re-inject the Base64 strings from SharedPreferences before scanning.
         if (isDefaultResolvers) {
+            try {
+                val resolversFile = java.io.File(filesDir, "cached_default_resolvers.bin")
+                if (resolversFile.exists()) {
+                    val cachedResolverBytes = resolversFile.readBytes()
+                    if (cachedResolverBytes.isNotEmpty()) {
+                        mobile.Mobile.setDefaultResolvers(cachedResolverBytes)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            try {
+                val configFile = java.io.File(filesDir, "cached_default_configs.bin")
+                if (configFile.exists()) {
+                    val cachedConfigBytes = configFile.readBytes()
+                    if (cachedConfigBytes.isNotEmpty()) {
+                        mobile.Mobile.setDefaultConfigs(cachedConfigBytes)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        /*if (isDefaultResolvers) {
             val updatePrefs = getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
 
             val cachedResolversB64 = updatePrefs.getString("cached_default_resolvers", null)
@@ -289,7 +315,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
             if (!cachedConfigsB64.isNullOrEmpty()) {
                 mobile.Mobile.setDefaultConfigs(cachedConfigsB64)
             }
-        }
+        }*/
 
         // Start initial scan
         startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType,
