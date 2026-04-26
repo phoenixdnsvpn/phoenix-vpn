@@ -10,6 +10,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
+import kotlin.random.Random
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import mobile.Mobile
 import mobile.ScanResultCallback
 
@@ -40,6 +42,14 @@ class DnsScannerActivity : AppCompatActivity() {
     private var resolversList: List<String> = emptyList()
     private var isDefaultConfig = false
     private lateinit var switchConfigResolvers: Switch
+
+    private lateinit var switchCidrMode: Switch
+    private lateinit var layoutCidrSelection: LinearLayout
+    private lateinit var tvSelectedCidr: TextView
+    private lateinit var btnSelectCidr: ImageButton
+
+    private var loadedCidrs: List<String> = emptyList()
+    private var selectedCidr: String? = null
 
     private val customResolverPickerLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -105,6 +115,11 @@ class DnsScannerActivity : AppCompatActivity() {
         btnStartScan = findViewById(R.id.btn_start_scan)
         switchConfigResolvers = findViewById(R.id.switch_config_resolvers)
 
+        switchCidrMode = findViewById(R.id.switch_cidr_mode)
+        layoutCidrSelection = findViewById(R.id.layout_cidr_selection)
+        tvSelectedCidr = findViewById(R.id.tv_selected_cidr)
+        btnSelectCidr = findViewById(R.id.btn_select_cidr)
+
         if (!isDefaultConfig) {
             switchConfigResolvers.visibility = android.view.View.GONE
         }
@@ -123,7 +138,10 @@ class DnsScannerActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        btnDefaultResolvers.setOnClickListener { loadDefaultResolvers() }
+        //btnDefaultResolvers.setOnClickListener { loadDefaultResolvers() }
+        btnDefaultResolvers.setOnClickListener {
+            if (switchCidrMode.isChecked) loadDefaultCidrs() else loadDefaultResolvers()
+        }
         btnCustomResolvers.setOnClickListener { chooseCustomResolvers() }
 
         // IMPLEMENTED LOGIC: Guardrail to prevent scanning through a VPN
@@ -139,6 +157,21 @@ class DnsScannerActivity : AppCompatActivity() {
             }
         }
 
+        switchCidrMode.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                layoutCidrSelection.visibility = android.view.View.VISIBLE
+                switchConfigResolvers.isChecked = false
+                switchConfigResolvers.isEnabled = false
+                loadDefaultCidrs()
+            } else {
+                layoutCidrSelection.visibility = android.view.View.GONE
+                switchConfigResolvers.isEnabled = isDefaultConfig
+                loadDefaultResolvers()
+            }
+        }
+
+        btnSelectCidr.setOnClickListener { showCidrSelectionDialog() }
+
         switchConfigResolvers.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 // 1. Disable all other resolver sources so they cannot be mixed
@@ -146,7 +179,7 @@ class DnsScannerActivity : AppCompatActivity() {
                 btnCustomResolvers.isEnabled = false
                 switchPublicDns.isChecked = false
                 switchPublicDns.isEnabled = false
-
+                switchCidrMode.isEnabled = false
                 // 2. Disable the limit (we want to scan ALL official ones)
                 etNumResolvers.isEnabled = false
                 etNumResolvers.alpha = 0.5f
@@ -175,7 +208,7 @@ class DnsScannerActivity : AppCompatActivity() {
                 btnDefaultResolvers.isEnabled = true
                 btnCustomResolvers.isEnabled = true
                 switchPublicDns.isEnabled = true
-
+                switchCidrMode.isEnabled = true
                 // 2. Re-enable the limit
                 etNumResolvers.isEnabled = true
                 etNumResolvers.alpha = 1.0f
@@ -230,14 +263,21 @@ class DnsScannerActivity : AppCompatActivity() {
         try {
             val inputStream = contentResolver.openInputStream(uri)
             if (inputStream != null) {
-                // Read the file and parse exactly like loadDefaultResolvers()
                 val content = inputStream.bufferedReader().use { it.readText() }
-                val parsedResolvers = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                val parsedLines = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
 
-                if (parsedResolvers.isNotEmpty()) {
-                    resolversList = parsedResolvers
-                    tvResolversCount.text = "Loaded custom resolvers: ${resolversList.size}"
-                    Toast.makeText(this, "Loaded ${resolversList.size} custom resolvers", Toast.LENGTH_SHORT).show()
+                if (parsedLines.isNotEmpty()) {
+                    if (switchCidrMode.isChecked) {
+                        loadedCidrs = parsedLines
+                        tvResolversCount.text = "Loaded custom CIDR blocks: ${loadedCidrs.size}"
+                        selectedCidr = null
+                        tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+                        Toast.makeText(this, "Loaded ${loadedCidrs.size} custom CIDR blocks", Toast.LENGTH_SHORT).show()
+                    } else {
+                        resolversList = parsedLines
+                        tvResolversCount.text = "Loaded custom resolvers: ${resolversList.size}"
+                        Toast.makeText(this, "Loaded ${resolversList.size} custom resolvers", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
                     Toast.makeText(this, "File is empty or invalid format.", Toast.LENGTH_SHORT).show()
                 }
@@ -248,6 +288,125 @@ class DnsScannerActivity : AppCompatActivity() {
             Toast.makeText(this, "Error reading file: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
+
+    private fun loadDefaultCidrs() {
+        try {
+            val inputStream = assets.open("ir-cidrs.txt")
+            val content = inputStream.bufferedReader().use { it.readText() }
+            loadedCidrs = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            tvResolversCount.text = "Loaded CIDR blocks: ${loadedCidrs.size}"
+            selectedCidr = null
+            tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to load CIDR blocks (ir-cidrs.txt)", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showCidrSelectionDialog() {
+        if (loadedCidrs.isEmpty()) {
+            Toast.makeText(this, "No CIDR blocks loaded", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val displayList = loadedCidrs.map { cidr ->
+            val size = getCidrInfo(cidr)?.second ?: 0L
+            "$cidr  ($size IPs)"
+        }
+
+        val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, displayList) {
+            override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
+                val view = super.getView(position, convertView, parent) as TextView
+                view.minHeight = 0
+                view.minimumHeight = 0
+                val padHorizontal = (16 * resources.displayMetrics.density).toInt()
+                val padVertical = (10 * resources.displayMetrics.density).toInt()
+                view.setPadding(padHorizontal, padVertical, padHorizontal, padVertical)
+                view.textSize = 15f
+                return view
+            }
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Select a CIDR Block")
+            .setAdapter(adapter) { _, which ->
+                selectedCidr = loadedCidrs[which]
+                val size = getCidrInfo(selectedCidr!!)?.second ?: 0L
+                tvSelectedCidr.text = "$selectedCidr ($size IPs)"
+
+                tvResolversCount.text = "Loaded resolvers: $size"
+
+                // Dynamically adjust requested IPs if CIDR block is smaller
+                val currentRequested = etNumResolvers.text.toString().toIntOrNull() ?: 500
+                if (currentRequested > size) {
+                    etNumResolvers.setText(size.toString())
+                    Toast.makeText(this, "Adjusted requested IPs to block max size ($size)", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun getCidrInfo(cidr: String): Pair<Long, Long>? {
+        try {
+            val parts = cidr.split("/")
+            val ipStr = parts[0]
+            val prefix = if (parts.size == 2) parts[1].toInt() else 32
+            if (prefix !in 0..32) return null
+
+            val ipParts = ipStr.split(".")
+            if (ipParts.size != 4) return null
+
+            var ipLong = 0L
+            for (part in ipParts) {
+                ipLong = (ipLong shl 8) + part.toLong()
+            }
+
+            val size = 1L shl (32 - prefix)
+            val mask = (-1L shl (32 - prefix)) and 0xFFFFFFFFL
+            val baseIp = ipLong and mask
+
+            return Pair(baseIp, size)
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun longToIp(ipLong: Long): String {
+        return "${(ipLong shr 24) and 255}.${(ipLong shr 16) and 255}.${(ipLong shr 8) and 255}.${ipLong and 255}"
+    }
+
+    private fun getIpsFromCidr(cidr: String, limit: Int, random: Boolean): List<String> {
+        val info = getCidrInfo(cidr) ?: return emptyList()
+        val baseIp = info.first
+        val size = info.second
+        val result = mutableListOf<String>()
+
+        val actualLimit = minOf(limit.toLong(), size).toInt()
+
+        if (random) {
+            // Optimization for when limit equals size (return all shuffled)
+            if (actualLimit.toLong() == size) {
+                for (i in 0 until actualLimit) {
+                    result.add(longToIp(baseIp + i.toLong()))
+                }
+                return result.shuffled()
+            }
+
+            val indices = mutableSetOf<Long>()
+            while (indices.size < actualLimit) {
+                indices.add(Random.nextLong(0, size))
+            }
+            for (index in indices) {
+                result.add(longToIp(baseIp + index))
+            }
+        } else {
+            for (i in 0 until actualLimit) {
+                result.add(longToIp(baseIp + i.toLong()))
+            }
+        }
+        return result
+    }
+
     private fun startScan() {
 
         if (isVpnActive()) {
@@ -259,24 +418,35 @@ class DnsScannerActivity : AppCompatActivity() {
             return
         }
 
-        if (resolversList.isEmpty()) {
-            Toast.makeText(this, "Please load resolvers first", Toast.LENGTH_SHORT).show()
-            return
+        if (switchCidrMode.isChecked) {
+            if (selectedCidr == null) {
+                Toast.makeText(this, "Please select a CIDR block first", Toast.LENGTH_SHORT).show()
+                return
+            }
+        } else {
+            if (resolversList.isEmpty()) {
+                Toast.makeText(this, "Please load resolvers first", Toast.LENGTH_SHORT).show()
+                return
+            }
         }
 
         val parsedNum = etNumResolvers.text.toString().toIntOrNull() ?: 2000
         val isUsingConfigResolvers = switchConfigResolvers.isChecked
 
-        val numResolvers = if (isUsingConfigResolvers) resolversList.size else parsedNum
-        if (numResolvers < 1 || numResolvers > resolversList.size) {
-            Toast.makeText(this, "Number of resolvers must be between 1 and ${resolversList.size}", Toast.LENGTH_LONG).show()
-            return
+        val numResolvers = if (isUsingConfigResolvers && !switchCidrMode.isChecked) resolversList.size else parsedNum
+
+        if (!switchCidrMode.isChecked) {
+            if (numResolvers < 1 || numResolvers > resolversList.size) {
+                Toast.makeText(this, "Number of resolvers must be between 1 and ${resolversList.size}", Toast.LENGTH_LONG).show()
+                return
+            }
+        } else {
+            val cidrSize = getCidrInfo(selectedCidr!!)?.second ?: 0L
+            if (numResolvers < 1 || numResolvers > cidrSize) {
+                Toast.makeText(this, "Number must be between 1 and $cidrSize for this block", Toast.LENGTH_LONG).show()
+                return
+            }
         }
-        /*val numResolvers = etNumResolvers.text.toString().toIntOrNull() ?: 2000
-        if (numResolvers < 1 || numResolvers > resolversList.size) {
-            Toast.makeText(this, "Number of resolvers must be between 1 and ${resolversList.size}", Toast.LENGTH_LONG).show()
-            return
-        }*/
 
         // Hardcoded Public DNS List
         val publicDnsList = listOf(
@@ -302,18 +472,22 @@ class DnsScannerActivity : AppCompatActivity() {
         val retries = etRetries.text.toString().toLongOrNull() ?: 0L
 
 
-
-    /*    val baseResolvers = if (useRandom) {
-            resolversList.shuffled().take(numResolvers)
-        } else {
-            resolversList.take(numResolvers)
-        }*/
-
-        val baseResolvers = if (useRandom) {
+        /**val baseResolvers = if (useRandom) {
             resolversList.shuffled().take(numResolvers)
         } else {
             resolversList.take(numResolvers)
         }.map { if (it.contains(":")) it else "$it:53" } // Also handles file-based IPs
+        */
+        // Handle IP generation based on toggle state
+        val baseResolvers = if (switchCidrMode.isChecked) {
+            getIpsFromCidr(selectedCidr!!, numResolvers, useRandom)
+        } else {
+            if (useRandom) {
+                resolversList.shuffled().take(numResolvers)
+            } else {
+                resolversList.take(numResolvers)
+            }
+        }.map { if (it.contains(":")) it else "$it:53" } // Appends port 53 automatically
 
         // Combine lists if switch is ON
         val finalResolvers = if (switchPublicDns.isChecked) {

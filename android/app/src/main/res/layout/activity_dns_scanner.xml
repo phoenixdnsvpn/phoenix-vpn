@@ -129,6 +129,15 @@
                 android:layout_marginTop="20dp"
                 android:thumbTint="?attr/colorPrimary" />
 
+            <Switch
+                android:id="@+id/switch_cidr_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use CIDR Block"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="20dp"
+                android:thumbTint="?attr/colorPrimary" />
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -171,6 +180,34 @@
                 android:text="Loaded resolvers: 0"
                 android:layout_marginTop="8dp"
                 android:textColor="?android:attr/textColorSecondary" />
+
+            <LinearLayout
+                android:id="@+id/layout_cidr_selection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp"
+                android:visibility="gone"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tv_selected_cidr"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="No CIDR Selected"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <ImageButton
+                    android:id="@+id/btn_select_cidr"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@android:drawable/ic_menu_recent_history"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    app:tint="?attr/colorPrimary"
+                    android:contentDescription="Select CIDR Block" />
+            </LinearLayout>
 
             <TextView
                 android:layout_width="wrap_content"
