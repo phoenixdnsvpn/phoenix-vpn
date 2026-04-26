@@ -5,6 +5,7 @@ go 1.25.8
 require (
 	github.com/Starling226/vaydns-vpn/bridge v0.0.0-00010101000000-000000000000
 	github.com/Starling226/vaydns-vpn/f35 v0.0.0-00010101000000-000000000000
+	github.com/Starling226/vaydns-vpn/vaydns v0.0.0-00010101000000-000000000000
 	github.com/xjasonlyu/tun2socks/v2 v2.6.0
 	golang.org/x/mobile v0.0.0-20260312152759-81488f6aeb60
 )
@@ -28,7 +29,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/reedsolomon v1.13.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
-	github.com/net2share/vaydns v0.2.8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
@@ -58,6 +58,9 @@ replace github.com/Starling226/vaydns-vpn/bridge => ../bridge
 
 // Maps the local f35 scanner module
 replace github.com/Starling226/vaydns-vpn/f35 => ../f35
+
+// Maps the local vaydns module
+replace github.com/Starling226/vaydns-vpn/vaydns => ../vaydns
 
 // Forces the use of the optimized KCP fork required for VayDNS performance
 replace github.com/xtaci/kcp-go/v5 => github.com/net2share/kcp-go/v5 v5.0.0-20260325165956-416ba9d3856d
