@@ -125,14 +125,21 @@ class MainActivity : AppCompatActivity() {
         recyclerConfigs = findViewById(R.id.recycler_configs)
         switchDefault = findViewById(R.id.switch_default_configs)
 
-        val defaultConfigs = DefaultConfigProvider.getDefaultConfigs(this)
+        val hasSecretKey = mobile.Mobile.getAppSecretKey().isNotEmpty()
+        if (!hasSecretKey) {
+            // Hide the switch completely for public open-source builds
+            switchDefault.visibility = android.view.View.GONE
+        } else {
+            // existing logic for official build
+            val defaultConfigs = DefaultConfigProvider.getDefaultConfigs(this)
 
-        if (defaultConfigs.isEmpty()) {
-            switchDefault.isChecked = false
-            switchDefault.isEnabled = false
-            // Optional: Update text to show why it's disabled
-            switchDefault.text = "Use default configs (None found)"
+            if (defaultConfigs.isEmpty()) {
+                switchDefault.isChecked = false
+                switchDefault.isEnabled = false
+                switchDefault.text = "Use default configs (None found)"
+            }
         }
+
         // Load saved configs and selected ID
 
 //        Log.i("NativeConfigs", "Loaded $count default configs from JSON")
@@ -519,22 +526,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
-        val savedKey = prefs.getString("verified_public_key", null)
+        // Check if the build contains your private key
+        val hasSecretKey = mobile.Mobile.getAppSecretKey().isNotEmpty()
 
-        val verifyItem = menu.findItem(R.id.action_verify)
+        if (!hasSecretKey) {
+            // Hide all private infrastructure options for public builds
+            menu.findItem(R.id.action_verify)?.isVisible = false
+            menu.findItem(R.id.action_check_app_update)?.isVisible = false
+            menu.findItem(R.id.action_update_configs)?.isVisible = false
+            menu.findItem(R.id.action_update_resolvers)?.isVisible = false
+        } else {
+            // If it IS your official build, run your existing verification logic
+            val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
+            val savedKey = prefs.getString("verified_public_key", null)
 
-        if (savedKey != null && verifyItem != null) {
-            // DON'T just trust the string is there.
-            // Ask the Go library: "Does the CURRENT binary match this saved key?"
-            val stillValid = mobile.Mobile.checkVerification(savedKey)
+            val verifyItem = menu.findItem(R.id.action_verify)
 
-            if (stillValid) {
-                verifyItem.title = "App Verified ✅"
-            } else {
-                // The binary has changed! (Maybe a malicious update)
-                verifyItem.title = "App Not Verified ⚠️"
-                prefs.edit().remove("verified_public_key").apply() // Wipe the fake status
+            if (savedKey != null && verifyItem != null) {
+                // Ask the Go library: "Does the CURRENT binary match this saved key?"
+                val stillValid = mobile.Mobile.checkVerification(savedKey)
+
+                if (stillValid) {
+                    verifyItem.title = "App Verified ✅"
+                } else {
+                    // The binary has changed! (Maybe a malicious update)
+                    verifyItem.title = "App Not Verified ⚠️"
+                    prefs.edit().remove("verified_public_key").apply() // Wipe the fake status
+                }
             }
         }
         return super.onPrepareOptionsMenu(menu)
