@@ -303,20 +303,6 @@ class DnsScannerResultActivity : AppCompatActivity() {
             }
         }
 
-        /*if (isDefaultResolvers) {
-            val updatePrefs = getSharedPreferences("ConfigUpdates", Context.MODE_PRIVATE)
-
-            val cachedResolversB64 = updatePrefs.getString("cached_default_resolvers", null)
-            if (!cachedResolversB64.isNullOrEmpty()) {
-                mobile.Mobile.setDefaultResolvers(cachedResolversB64)
-            }
-
-            val cachedConfigsB64 = updatePrefs.getString("cached_obscured_json", null)
-            if (!cachedConfigsB64.isNullOrEmpty()) {
-                mobile.Mobile.setDefaultConfigs(cachedConfigsB64)
-            }
-        }*/
-
         // Start initial scan
         startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType,
             workers, tunnelWait, probeTimeout, retries, user, pass,
