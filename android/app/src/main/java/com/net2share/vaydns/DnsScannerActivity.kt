@@ -8,6 +8,8 @@ import androidx.appcompat.app.AppCompatActivity
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
+import androidx.activity.result.contract.ActivityResultContracts
 import mobile.Mobile
 import mobile.ScanResultCallback
 
@@ -38,6 +40,16 @@ class DnsScannerActivity : AppCompatActivity() {
     private var resolversList: List<String> = emptyList()
     private var isDefaultConfig = false
     private lateinit var switchConfigResolvers: Switch
+
+    private val customResolverPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            loadCustomResolversFromUri(uri)
+        } else {
+            Toast.makeText(this, "No file selected.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -205,10 +217,37 @@ class DnsScannerActivity : AppCompatActivity() {
     }
 
     private fun chooseCustomResolvers() {
-        Toast.makeText(this, "Custom file picker not implemented yet.\nUsing default for now.", Toast.LENGTH_LONG).show()
-        loadDefaultResolvers()
+        try {
+            // Use "text/*" or "*/*" depending on how broad you want the filter.
+            // "text/*" filters for .txt files.
+            customResolverPickerLauncher.launch("text/*")
+        } catch (e: Exception) {
+            Toast.makeText(this, "No file manager found to pick files.", Toast.LENGTH_SHORT).show()
+        }
     }
 
+    private fun loadCustomResolversFromUri(uri: Uri) {
+        try {
+            val inputStream = contentResolver.openInputStream(uri)
+            if (inputStream != null) {
+                // Read the file and parse exactly like loadDefaultResolvers()
+                val content = inputStream.bufferedReader().use { it.readText() }
+                val parsedResolvers = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
+
+                if (parsedResolvers.isNotEmpty()) {
+                    resolversList = parsedResolvers
+                    tvResolversCount.text = "Loaded custom resolvers: ${resolversList.size}"
+                    Toast.makeText(this, "Loaded ${resolversList.size} custom resolvers", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "File is empty or invalid format.", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this, "Could not open file.", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error reading file: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
     private fun startScan() {
 
         if (isVpnActive()) {
