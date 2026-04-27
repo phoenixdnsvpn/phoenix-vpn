@@ -93,6 +93,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        mobile.Mobile.initVault(filesDir.absolutePath)
+
         window.statusBarColor = Color.TRANSPARENT
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -125,18 +127,27 @@ class MainActivity : AppCompatActivity() {
         recyclerConfigs = findViewById(R.id.recycler_configs)
         switchDefault = findViewById(R.id.switch_default_configs)
 
-        val hasSecretKey = mobile.Mobile.getAppSecretKey().isNotEmpty()
-        if (!hasSecretKey) {
-            // Hide the switch completely for public open-source builds
-            switchDefault.visibility = android.view.View.GONE
-        } else {
-            // existing logic for official build
-            val defaultConfigs = DefaultConfigProvider.getDefaultConfigs(this)
+        val configCount = mobile.Mobile.getDefaultConfigCount()
+        val buildStatus = mobile.Mobile.getBuildStatus()
+        //val isOfficialBuild = mobile.Mobile.getBuildStatus() == "Official Release"
 
-            if (defaultConfigs.isEmpty()) {
-                switchDefault.isChecked = false
-                switchDefault.isEnabled = false
-                switchDefault.text = "Use default configs (None found)"
+        if (configCount > 0) {
+            // Injection worked!
+            switchDefault.visibility = android.view.View.VISIBLE
+            switchDefault.isEnabled = true
+            switchDefault.text = "Use default configs"
+        } else if (buildStatus == "Official Release") {
+            // The build is recognized as official, but data is empty
+            switchDefault.visibility = android.view.View.VISIBLE
+            switchDefault.isEnabled = false
+            switchDefault.text = "Use default configs (None found)"
+        } else {
+            // Fallback for community editions without cached files
+            val configFile = java.io.File(filesDir, "cached_default_configs.bin")
+            if (configFile.exists()) {
+                switchDefault.visibility = android.view.View.VISIBLE
+            } else {
+                switchDefault.visibility = android.view.View.GONE
             }
         }
 
@@ -526,32 +537,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        // Check if the build contains your private key
-        val hasSecretKey = mobile.Mobile.getAppSecretKey().isNotEmpty()
+        // We use GetDefaultConfigCount as a secondary check.
+        // If Go has configs in memory, it MUST be an official build.
+        val buildStatus = mobile.Mobile.getBuildStatus()
+        val configCount = mobile.Mobile.getDefaultConfigCount()
 
-        if (!hasSecretKey) {
+        val isOfficialBuild = buildStatus == "Official Release" || configCount > 0
+
+        if (!isOfficialBuild) {
             // Hide all private infrastructure options for public builds
             menu.findItem(R.id.action_verify)?.isVisible = false
             menu.findItem(R.id.action_check_app_update)?.isVisible = false
             menu.findItem(R.id.action_update_configs)?.isVisible = false
             menu.findItem(R.id.action_update_resolvers)?.isVisible = false
         } else {
-            // If it IS your official build, run your existing verification logic
+            // Ensure these items are visible if it is an official build
+            menu.findItem(R.id.action_verify)?.isVisible = true
+            menu.findItem(R.id.action_check_app_update)?.isVisible = true
+            menu.findItem(R.id.action_update_configs)?.isVisible = true
+            menu.findItem(R.id.action_update_resolvers)?.isVisible = true
+
+            // Verification Logic
             val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
             val savedKey = prefs.getString("verified_public_key", null)
-
             val verifyItem = menu.findItem(R.id.action_verify)
 
             if (savedKey != null && verifyItem != null) {
-                // Ask the Go library: "Does the CURRENT binary match this saved key?"
                 val stillValid = mobile.Mobile.checkVerification(savedKey)
-
                 if (stillValid) {
                     verifyItem.title = "App Verified ✅"
                 } else {
-                    // The binary has changed! (Maybe a malicious update)
                     verifyItem.title = "App Not Verified ⚠️"
-                    prefs.edit().remove("verified_public_key").apply() // Wipe the fake status
+                    prefs.edit().remove("verified_public_key").apply()
                 }
             }
         }
@@ -910,180 +927,29 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun fetchSecureContent(urlString: String): String {
-        val url = java.net.URL(urlString)
-        val connection = url.openConnection() as java.net.HttpURLConnection
-        val mySecretKey = mobile.Mobile.getAppSecretKey()
-
-        if (mySecretKey.isNotEmpty()) {
-            // Use your secret key here
-//            android.util.Log.d("VayDNS_Secret", "Secret key loaded securely!")
-        }
-        // Set up the connection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 8000 // 5 seconds
-        connection.readTimeout = 8000
-
-        // --- ADD YOUR SECRET TOKEN HERE ---
-        // This must match exactly what you put in Nginx
-        connection.setRequestProperty("X-VayDNS-Token", mySecretKey)
-
-        if (connection.responseCode == 200) {
-            return connection.inputStream.bufferedReader().use { it.readText() }
-
-        } else {
-            throw Exception("Server rejected connection: HTTP ${connection.responseCode}")
-        }
-    }
-
-    private fun fetchSecureBinaryContent(urlString: String): ByteArray? {
-        val url = java.net.URL(urlString)
-        val connection = url.openConnection() as java.net.HttpURLConnection
-
-        try {
-            connection.requestMethod = "GET"
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
-
-            // Ensure the token is clean (no invisible spaces)
-            val token = mobile.Mobile.getAppSecretKey().trim()
-            connection.setRequestProperty("X-VayDNS-Token", token)
-            connection.setRequestProperty("Accept-Encoding", "identity")
-
-            if (connection.responseCode == java.net.HttpURLConnection.HTTP_OK) {
-                // CRITICAL: Use BufferedInputStream and readBytes()
-                // DO NOT use BufferedReader, Scanner, or String()
-                val inputStream = java.io.BufferedInputStream(connection.inputStream)
-                return inputStream.readBytes()
-            } else {
-                android.util.Log.e("VayDNS", "Server returned: ${connection.responseCode}")
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("VayDNS", "Download failed: ${e.message}")
-        } finally {
-            connection.disconnect()
-        }
-        return null
-    }
-
     private fun syncConfigsWithServer() {
-        val currentVersion = mobile.Mobile.getDefaultConfigVersion()
-
+        runOnUiThread { Toast.makeText(this, "Checking for configs...", Toast.LENGTH_SHORT).show() }
         Thread {
-            try {
-                var baseUrl = mobile.Mobile.getUpdateServerURL()
+            // NATIVE VAULT: Tell Go to handle the download, decryption, and saving natively.
+            val result = mobile.Mobile.syncConfigs()
 
-                if (baseUrl.isEmpty()) {
-                    runOnUiThread { Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show() }
-                    return@Thread
-                }
-
-                baseUrl = baseUrl.trimEnd('/')
-
-                // 1. Fetch version using the standard text fetcher
-                val versionUrl = "$baseUrl/config/version.txt"
-                val latestVersionText = fetchSecureContent(versionUrl).trim()
-                val latestVersion = latestVersionText.toInt()
-
-                if (latestVersion > currentVersion) {
-                    runOnUiThread { Toast.makeText(this, "New update found (v$latestVersion). Downloading...", Toast.LENGTH_SHORT).show() }
-
-                    val timestamp = System.currentTimeMillis()
-                    //val configUrl = "$baseUrl/assets/release_v1.bin?t=${System.currentTimeMillis()}"
-                    val configUrl = "$baseUrl/config/configs.bin?t=${System.currentTimeMillis()}"
-
-                    //android.util.Log.d("VayDNS_Debug", "Downloading from: $configUrl")
-                    val newConfigBytes = fetchSecureBinaryContent(configUrl)
-
-                    // 3. Save as a physical binary file in internal storage
-                    val configFile = java.io.File(filesDir, "cached_default_configs.bin")
-                    //val newConfigBytes = fetchSecureBinaryContent(configUrl)
-
-                    // 4. Update the Go engine (See crucial note below!)
-                    if (newConfigBytes != null && newConfigBytes.isNotEmpty()) {
-                        try {
-                            // Save to disk exactly as downloaded
-                            configFile.writeBytes(newConfigBytes)
-
-                            // Push the same raw bytes into the Go Engine
-                            mobile.Mobile.setDefaultConfigs(newConfigBytes)
-
-                            android.util.Log.d("VayDNS_Update", "Successfully saved ${newConfigBytes.size} bytes.")
-                        } catch (e: Exception) {
-                            android.util.Log.e("VayDNS_Update", "Failed to write file: ${e.message}")
-                        }
-                    } else {
-                        android.util.Log.e("VayDNS_Update", "Download failed or returned empty data.")
-                    }
-
-                    runOnUiThread {
-                        refreshConfigList()
-                        Toast.makeText(this, "Configurations updated to v$latestVersion!", Toast.LENGTH_LONG).show()
-                    }
-                } else {
-                    runOnUiThread { Toast.makeText(this, "Configurations are already up to date.", Toast.LENGTH_SHORT).show() }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("VayDNS_Update", "Crash during update process:", e)
-                runOnUiThread {
-                    Toast.makeText(this, "Update failed: Check your connection.", Toast.LENGTH_SHORT).show()
+            runOnUiThread {
+                Toast.makeText(this, result, Toast.LENGTH_LONG).show()
+                if (result.startsWith("Success")) {
+                    refreshConfigList()
                 }
             }
         }.start()
     }
 
     private fun syncResolversWithServer() {
+        runOnUiThread { Toast.makeText(this, "Updating resolvers...", Toast.LENGTH_SHORT).show() }
         Thread {
-            try {
-                var baseUrl = mobile.Mobile.getUpdateServerURL()
+            // NATIVE VAULT: Tell Go to handle the download, decryption, and saving natively.
+            val result = mobile.Mobile.syncResolvers()
 
-                if (baseUrl.isEmpty()) {
-                    runOnUiThread { Toast.makeText(this, "Update server not configured.", Toast.LENGTH_SHORT).show() }
-                    return@Thread
-                }
-
-                baseUrl = baseUrl.trimEnd('/')
-                runOnUiThread { Toast.makeText(this, "Updating resolvers...", Toast.LENGTH_SHORT).show() }
-
-                val timestamp = System.currentTimeMillis()
-                //val resolverUrl = "$baseUrl/assets/resolvers_v1.bin?t=$timestamp"
-                val resolverUrl = "$baseUrl/config/resolvers.bin?t=$timestamp"
-
-                //android.util.Log.d("VayDNS_Debug", "Downloading Resolvers from: $resolverUrl")
-
-                // 2. Fetch using our binary-safe method
-                val newResolversBytes = fetchSecureBinaryContent(resolverUrl)
-
-                // 3. Persistence and Go Engine Update
-                if (newResolversBytes != null && newResolversBytes.isNotEmpty()) {
-                    try {
-                        val resolversFile = java.io.File(filesDir, "cached_default_resolvers.bin")
-
-                        // Save to internal storage
-                        resolversFile.writeBytes(newResolversBytes)
-
-                        // Push to the Go Engine (which now handles the memory copy safely)
-                        mobile.Mobile.setDefaultResolvers(newResolversBytes)
-
-                        android.util.Log.d("VayDNS_Update", "Successfully updated ${newResolversBytes.size} bytes of resolvers.")
-
-                        runOnUiThread {
-                            Toast.makeText(this, "Resolvers updated successfully!", Toast.LENGTH_SHORT).show()
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("VayDNS_Update", "Failed to write resolver file: ${e.message}")
-                    }
-                } else {
-                    android.util.Log.e("VayDNS_Update", "Resolvers download failed or returned empty data.")
-                    runOnUiThread {
-                        Toast.makeText(this, "Update failed: Server returned no data.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("VayDNS_Update", "Crash during resolvers update:", e)
-                runOnUiThread {
-                    Toast.makeText(this, "Resolvers update failed. Check connection.", Toast.LENGTH_SHORT).show()
-                }
+            runOnUiThread {
+                Toast.makeText(this, result, Toast.LENGTH_LONG).show()
             }
         }.start()
     }
@@ -1095,46 +961,23 @@ class MainActivity : AppCompatActivity() {
             "1.0"
         }
 
-        runOnUiThread { Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show() }
+        runOnUiThread { Toast.makeText(this, "Checking for app updates...", Toast.LENGTH_SHORT).show() }
 
         Thread {
-            try {
-                var baseUrl = mobile.Mobile.getUpdateServerURL()
-                if (baseUrl.isEmpty()) {
-                    runOnUiThread { Toast.makeText(this, "Update server is not configured.", Toast.LENGTH_SHORT).show() }
-                    return@Thread
-                }
-                baseUrl = baseUrl.trimEnd('/')
+            // NATIVE VAULT: Go handles the network request
+            val result = mobile.Mobile.checkForAppUpdate(currentVersion)
 
-                // Fetch app_version.txt securely
-                val versionUrl = "$baseUrl/config/app_version.txt"
-                val fetchedVersionText = fetchSecureContent(versionUrl).trim()
-
-                if (isNewerAppVersion(currentVersion, fetchedVersionText)) {
-                    showUpdateDialog(fetchedVersionText)
+            runOnUiThread {
+                if (result.startsWith("UPDATE_AVAILABLE|")) {
+                    val newVersion = result.split("|")[1]
+                    showUpdateDialog(newVersion)
+                } else if (result == "NO_UPDATE") {
+                    Toast.makeText(this, "You are using the latest version ($currentVersion).", Toast.LENGTH_SHORT).show()
                 } else {
-                    runOnUiThread { Toast.makeText(this, "You are using the latest version ($currentVersion).", Toast.LENGTH_SHORT).show() }
+                    Toast.makeText(this, result, Toast.LENGTH_SHORT).show()
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("VayDNS_Update", "App version check failed:", e)
-                runOnUiThread { Toast.makeText(this, "Failed to check for updates.", Toast.LENGTH_SHORT).show() }
             }
         }.start()
-    }
-
-    // Helper to compare "1.7.0" with "v1.7.1" safely
-    private fun isNewerAppVersion(current: String, fetched: String): Boolean {
-        val cleanCurrent = current.replace(Regex("[^0-9.]"), "").split(".")
-        val cleanFetched = fetched.replace(Regex("[^0-9.]"), "").split(".")
-
-        val length = maxOf(cleanCurrent.size, cleanFetched.size)
-        for (i in 0 until length) {
-            val c = cleanCurrent.getOrNull(i)?.toIntOrNull() ?: 0
-            val f = cleanFetched.getOrNull(i)?.toIntOrNull() ?: 0
-            if (f > c) return true
-            if (f < c) return false
-        }
-        return false
     }
 
     private fun showUpdateDialog(newVersion: String) {
@@ -1185,7 +1028,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
             return
         }
-        val config = configList.find { it.id == selectedConfigId }
+        val config = configList.find { it.id == selectedConfigId } ?: return
 
         if (config == null) {
             Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
@@ -1208,6 +1051,11 @@ class MainActivity : AppCompatActivity() {
 
             action = "ACTION_START_VPN"
 
+            val nativeIndex = if (config.isDefault) {
+                config.id.removePrefix("default_").toLongOrNull() ?: 0L
+            } else {
+                -1L // Not a default config
+            }
             // Use DefaultConfigProvider for masked default configs
             val finalConfig = if (config.isDefault) {
                 DefaultConfigProvider.getActualConfig(this@MainActivity, config)
@@ -1216,6 +1064,8 @@ class MainActivity : AppCompatActivity() {
             }
             // Now 'config.domain' and 'config.pubkey' contain the real data
             putExtra("IS_DEFAULT_CONFIG", config.isDefault)
+            putExtra("CONFIG_ID", config.id)
+            putExtra("CONFIG_INDEX", nativeIndex)
             putExtra("DOMAIN", finalConfig.domain)
             putExtra("PUBKEY", finalConfig.pubkey)
 

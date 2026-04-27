@@ -96,18 +96,39 @@ func translateFakeToReal(input string) string {
 	return finalAddress
 }
  
-func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey string, recordType string, idleTimeout string, KeepAlive string, clientIDSize int, compatDnstt bool, useAuth bool, protocol string, ssMethod string, user string, pass string, protector SocketProtector) string {
+// StartVpn: The main entry point for Android System-Wide VPN.
+func StartVpn(
+	fd int, 
+	isDefault bool, 
+	configIndex int64, 
+	udp string, 
+	doh string, 
+	dot string, 
+	customDomain string, 
+	customPubkey string, 
+	recordType string, 
+	idleTimeout string, 
+	KeepAlive string, 
+	clientIDSize int, 
+	compatDnstt bool, 
+	useAuth bool, 
+	protocol string, 
+	ssMethod string, 
+	user string, 
+	pass string, 
+	protector SocketProtector,
+) string {
 	mu.Lock()
 
 	if activeCancel != nil {
 		log.Printf("VAY_DEBUG: Killing old session context")
-		activeCancel() 
-		time.Sleep(100 * time.Millisecond) 
+		activeCancel()
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	newFd, err := syscall.Dup(fd)
 	if err != nil {
-		mu.Lock() 
+		mu.Unlock()
 		return "Error: Failed to dup FD"
 	}
 
@@ -117,26 +138,56 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 
 	wg := activeWg
 	ctx := activeCtx
-	
+
 	activeSocksPort = 10000 + rand.Intn(40000)
 	internalSocks := fmt.Sprintf("127.0.0.1:%d", activeSocksPort)
-	
+
 	mu.Unlock()
 
-//	log.Printf("VAY_DEBUG_VPN: [START] Android passed raw UDP: '%s'", udp)
+	// --- THE NATIVE VAULT LOGIC ---
+	domainToUse := customDomain
+	pubkeyToUse := customPubkey
+
+	if isDefault {
+		domainToUse = getDefaultConfigDomain(configIndex)
+		pubkeyToUse = getDefaultConfigPubkey(configIndex)
+		
+		recordType = GetDefaultConfigRecordType(configIndex)
+		idleTimeout = GetDefaultConfigIdleTimeout(configIndex)
+		KeepAlive = GetDefaultConfigKeepAlive(configIndex)
+		clientIDSize = int(GetDefaultConfigClientIdSize(configIndex))
+		compatDnstt = GetDefaultConfigDnsttCompatible(configIndex)
+		
+		// Fetch actual credentials from vault using internal lowercase getters
+		user = getDefaultConfigUser(configIndex)
+		pass = getDefaultConfigPass(configIndex)
+		protocol = GetDefaultConfigProtocol(configIndex)
+		ssMethod = GetDefaultConfigMethod(configIndex)
+		
+		// Re-evaluate auth boolean based on vault contents
+		useAuth = (user != "" || pass != "")
+	}
 
 	realUdp := translateFakeToReal(udp)
 	realDoh := translateFakeToReal(doh)
 	realDot := translateFakeToReal(dot)
-	
-//	log.Printf("VAY_DEBUG_VPN: [START] Final Tunnel UDP target: '%s'", realUdp)
-	
+
 	tCfg := bridge.TunnelConfig{
-		UdpAddr: realUdp, DohURL: realDoh, DotAddr: realDot, Domain: domain,
-		ListenAddr: internalSocks, LogLevel: "error", UtlsDistribution: "chrome",
-		RecordType: recordType, PubkeyHex: pubkey, Protector: protector,
-		IdleTimeout: idleTimeout, KeepAlive: KeepAlive, UDPTimeout: "2s",
-		ClientIDSize: clientIDSize, CompatDnstt: compatDnstt,
+		UdpAddr:          realUdp,
+		DohURL:           realDoh,
+		DotAddr:          realDot,
+		Domain:           domainToUse,
+		ListenAddr:       internalSocks,
+		LogLevel:         "error",
+		UtlsDistribution: "chrome",
+		RecordType:       recordType,
+		PubkeyHex:        pubkeyToUse,
+		Protector:        protector,
+		IdleTimeout:      idleTimeout,
+		KeepAlive:        KeepAlive,
+		UDPTimeout:       "2s",
+		ClientIDSize:     clientIDSize,
+		CompatDnstt:      compatDnstt,
 	}
 
 	wg.Add(1)
@@ -148,8 +199,8 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 	}()
 
 	// 4. BUILD THE PROXY URL WITH AUTHENTICATION
-	
-	// 🚨 MASTER GUARDRAIL: If authentication is disabled, SSH and Shadowsocks 
+
+	// 🚨 MASTER GUARDRAIL: If authentication is disabled, SSH and Shadowsocks
 	// are impossible. Force fallback to plain SOCKS5.
 	if !useAuth || protocol == "" || protocol == "socks" {
 		protocol = "socks5"
@@ -169,7 +220,7 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 		Host:   internalSocks,
 	}
 
-	var sshKeyPath string 
+	var sshKeyPath string
 
 	// ONLY process credentials if Authorization is actually toggled ON
 	if useAuth {
@@ -180,16 +231,16 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 			proxyURL.User = url.UserPassword(ssMethod, pass)
 
 		} else if user != "" && user != "none" {
-			
+
 			if protocol == "ssh" && strings.Contains(pass, "-----BEGIN") {
-				proxyURL.User = url.User(user) 
-				
+				proxyURL.User = url.User(user)
+
 				tmpFile, err := os.CreateTemp("", "vaydns_ssh_key_*")
 				if err == nil {
-					tmpFile.Write([]byte(pass)) 
+					tmpFile.Write([]byte(pass))
 					tmpFile.Close()
 					sshKeyPath = tmpFile.Name()
-					
+
 					q := proxyURL.Query()
 					q.Set("privateKeyFile", sshKeyPath)
 					proxyURL.RawQuery = q.Encode()
@@ -210,18 +261,18 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		
+
 		time.Sleep(300 * time.Millisecond)
-		
+
 		key := &engine.Key{
-			Proxy:  proxyString,
-			Device: fmt.Sprintf("fd://%d", newFd),
-			MTU:    1232,
+			Proxy:    proxyString,
+			Device:   fmt.Sprintf("fd://%d", newFd),
+			MTU:      1232,
 			LogLevel: "silent",
 		}
 		engine.Insert(key)
 		log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d with proxy %s", newFd, proxyString)
-		engine.Start() 
+		engine.Start()
 	}()
 
 	// 6. SHUTDOWN WATCHER
@@ -231,99 +282,18 @@ func StartVpn(fd int, udp string, doh string, dot string, domain string, pubkey 
 		<-ctx.Done()
 		log.Printf("VAY_DEBUG: Shutting down engine...")
 		engine.Stop()
-		
+
 		if sshKeyPath != "" {
 			os.Remove(sshKeyPath)
 			log.Printf("VAY_DEBUG: Removed temporary SSH key file.")
 		}
-		
-		log.Printf("VAY_DEBUG: Native engine fully dead.")		
+
+		log.Printf("VAY_DEBUG: Native engine fully dead.")
 	}()
 
 	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
 }
 
-func StartVpn_no_auth(fd int, udp string, doh string, dot string, domain string, pubkey string, recordType string, idleTimeout string, KeepAlive string, clientIDSize int, compatDnstt bool, user string, pass string, protector SocketProtector) string {
-	mu.Lock()
-
-	// 1. SIGNAL OLD SESSION TO DIE
-	if activeCancel != nil {
-		log.Printf("VAY_DEBUG: Killing old session context")
-		activeCancel() 
-		time.Sleep(100 * time.Millisecond) //just added 
-	}
-
-	// 2. THE SECRET SAUCE: DUPLICATE THE FD
-	// This prevents the 'fdsan' crash on Android 10+
-	newFd, err := syscall.Dup(fd)
-	if err != nil {
-		mu.Unlock()
-		return "Error: Failed to dup FD"
-	}
-
-//    syscall.Close(fd)
-
-	activeWg = &sync.WaitGroup{}
-	activeCtx, activeCancel = context.WithCancel(context.Background())
-	isRunning = true
-
-	// Capture locals for goroutines
-	wg := activeWg
-	ctx := activeCtx
-	
-	activeSocksPort = 10000 + rand.Intn(40000)
-	internalSocks := fmt.Sprintf("127.0.0.1:%d", activeSocksPort)
-	
-	mu.Unlock()
-
-	tCfg := bridge.TunnelConfig{
-		UdpAddr: udp, DohURL: doh, DotAddr: dot, Domain: domain,
-		ListenAddr: internalSocks, LogLevel: "error", UtlsDistribution: "chrome",
-		RecordType: recordType, PubkeyHex: pubkey, Protector: protector,
-		IdleTimeout: idleTimeout, KeepAlive: KeepAlive, UDPTimeout: "2s",
-		ClientIDSize: clientIDSize, CompatDnstt: compatDnstt,
-	}
-
-	// 3. START THE DNS TUNNEL (The part that was missing!)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
-			log.Printf("VAY_DEBUG: Tunnel Error: %v", err)
-		}
-	}()
-
-	// 4. START TUN2SOCKS ENGINE (Using newFd)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		
-		time.Sleep(300 * time.Millisecond)
-		
-		key := &engine.Key{
-			Proxy:  "socks5://" + internalSocks,
-			Device: fmt.Sprintf("fd://%d", newFd),
-			MTU:    1232, 
-		}
-		engine.Insert(key)
-		log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d", newFd)
-		engine.Start() 
-	}()
-
-	// 5. SHUTDOWN WATCHER
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		<-ctx.Done()
-		log.Printf("VAY_DEBUG: Shutting down engine...")
-		engine.Stop()
-		// Important: We also close the newFd here because Go owns it now
-//		syscall.Close(newFd) 
-		log.Printf("VAY_DEBUG: Native engine fully dead.")		
-	}()
-
-	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
-}
 
 /**
  * StopVpn: Cleans up all resources safely without deadlocks.

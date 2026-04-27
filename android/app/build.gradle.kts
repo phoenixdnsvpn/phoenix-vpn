@@ -17,8 +17,8 @@ android {
         applicationId = "com.net2share.vaydns"
         minSdk = 24
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.7.4"
+        versionCode = 21
+        versionName = "1.7.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

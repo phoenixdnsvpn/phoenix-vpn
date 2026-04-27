@@ -6,10 +6,6 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
-// InjectedPrivateKey is populated at build time via:
-// -ldflags="-X 'github.com/Starling226/vaydns-vpn/mobile.InjectedPrivateKey=HEX_HASH_HERE'"
-// This variable holds the 64-character hex string derived from your passphrase.
-var InjectedPrivateKey string
 
 /**
  * CheckVerification:
@@ -51,6 +47,8 @@ func CheckVerification(pastedPubKey string) bool {
  * Returns a simple string describing the build type.
  */
 func GetBuildStatus() string {
+	ensureParsed()
+	
 	if InjectedPrivateKey == "" {
 		return "Community Build"
 	}

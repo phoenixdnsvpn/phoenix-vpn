@@ -55,7 +55,10 @@ class DnsScannerResultActivity : AppCompatActivity() {
             finish()
         }
 
-        val configId = intent.getStringExtra("CONFIG_ID") ?: "unknown_config"
+        val configId = intent.getStringExtra("CONFIG_ID") ?: ""
+        val isDefaultConfig = configId.startsWith("default_")
+        val configIndex = if (isDefaultConfig) configId.removePrefix("default_").toLongOrNull() ?: 0L else 0L
+
         val btnSet = findViewById<ImageButton>(R.id.btn_set)
         btnSet.setOnClickListener {
             // 1. Find the fastest successful resolver
@@ -237,7 +240,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 btnStopResume.text = "STOP"
                 isRunning = true
 
-                startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType,
+                startScan(isDefaultConfig, configIndex, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
                     workers, tunnelWait, probeTimeout, retries, user, pass,
                     idleTimeout, keepAlive, clientIdSize)
             }
@@ -277,34 +280,10 @@ class DnsScannerResultActivity : AppCompatActivity() {
         // ---  INJECT MEMORY INTO SANDBOXED PROCESS ---
         // Because this activity runs in a separate process, Go's memory is blank.
         // We must re-inject the Base64 strings from SharedPreferences before scanning.
-        if (isDefaultResolvers) {
-            try {
-                val resolversFile = java.io.File(filesDir, "cached_default_resolvers.bin")
-                if (resolversFile.exists()) {
-                    val cachedResolverBytes = resolversFile.readBytes()
-                    if (cachedResolverBytes.isNotEmpty()) {
-                        mobile.Mobile.setDefaultResolvers(cachedResolverBytes)
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            try {
-                val configFile = java.io.File(filesDir, "cached_default_configs.bin")
-                if (configFile.exists()) {
-                    val cachedConfigBytes = configFile.readBytes()
-                    if (cachedConfigBytes.isNotEmpty()) {
-                        mobile.Mobile.setDefaultConfigs(cachedConfigBytes)
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        mobile.Mobile.initVault(filesDir.absolutePath)
 
         // Start initial scan
-        startScan(domain, pubkey, resolversCommaSeparated, proxyType, recordType,
+        startScan(isDefaultConfig, configIndex, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
             workers, tunnelWait, probeTimeout, retries, user, pass,
             idleTimeout, keepAlive, clientIdSize)
     }
@@ -322,6 +301,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
     }
 
     private fun startScan(
+        isDefaultConfig: Boolean,
+        configIndex: Long,
         domain: String,
         pubkey: String,
         resolvers: String,
@@ -389,6 +370,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
         try {
             Mobile.startF35Scan(
+                isDefaultConfig,
+                configIndex,
                 domain,
                 pubkey,
                 resolvers,

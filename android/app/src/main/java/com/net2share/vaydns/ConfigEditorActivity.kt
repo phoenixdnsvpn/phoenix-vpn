@@ -166,8 +166,8 @@ class ConfigEditorActivity : AppCompatActivity() {
 //                etName.setText(DefaultConfigs.getConfigName(index))
 
                 etName.setText(mobile.Mobile.getDefaultConfigName(index))
-                etDomain.setText(mobile.Mobile.getDefaultConfigDomain(index))
-                etPubkey.setText(mobile.Mobile.getDefaultConfigPubkey(index))
+                etDomain.setText("----------")
+                etPubkey.setText("----------")
 
                 val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 val savedDns = prefs.getString("${editingConfigId}_dns", "8.8.8.8:53")
@@ -226,8 +226,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swDnstt.isChecked = mobile.Mobile.getDefaultConfigDnsttCompatible(index)
 
                 val ssMethod = mobile.Mobile.getDefaultConfigMethod(index)
-                val user = mobile.Mobile.getDefaultConfigUser(index)
-                val pass = mobile.Mobile.getDefaultConfigPass(index)
+                val user = "********"
+                val pass = "********"
                 val protocol = mobile.Mobile.getDefaultConfigProtocol(index) // e.g. "socks", "ssh"
                 val useSshKey = mobile.Mobile.getDefaultConfigUseSshKey(index)
 

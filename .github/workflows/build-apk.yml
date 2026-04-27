@@ -42,12 +42,14 @@ jobs:
         run: |
           cd mobile
           go mod tidy
-          # Generate hash from the raw private key secret
           HEX_HASH=$(echo -n "${{ secrets.APP_PRIVATE_KEY }}" | sha256sum | awk '{print $1}')
           
           mkdir -p ../android/app/libs
           
-          # Inject Private Key and Scrambled Configs via LDFLAGS
+        - name: Inject Real Native Vault
+          run: |
+            echo "${{ secrets.REAL_DEFAULT_CONFIGS_GO }}" > mobile/default_configs.go
+                    
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
@@ -68,7 +70,9 @@ jobs:
           mkdir -p ../release-artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
-          cp app/libs/vaydns-arm64.aar ../release-artifacts/
+          
+          # CLEANUP: Remove the AAR immediately after it is bundled into the APK
+          rm ../android/app/libs/vaydns-arm64.aar
 
       - name: Build ARMv7 Version
         run: |
@@ -78,7 +82,9 @@ jobs:
           
           mkdir -p ../android/app/libs
           
-          # Build 32-bit version
+        - name: Inject Real Native Vault
+          run: |
+                    
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
             -androidapi 24 \
@@ -87,7 +93,7 @@ jobs:
             -o ../android/app/libs/vaydns-armeabi.aar .
           
           cd ../android
-          rm -rf app/build # Clean previous architecture build
+          rm -rf app/build
           ./gradlew assembleRelease \
             -Pandroid.injected.abi=armeabi-v7a \
             -PtargetAar=vaydns-armeabi.aar \
@@ -98,7 +104,9 @@ jobs:
           
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-armeabi-v7a.apk
-          cp app/libs/vaydns-armeabi.aar ../release-artifacts/
+          
+          # CLEANUP: Remove the AAR immediately after it is bundled into the APK
+          rm ../android/app/libs/vaydns-armeabi.aar
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
@@ -106,7 +114,7 @@ jobs:
         with:
           files: |
             release-artifacts/VaydnsVpn-*.apk
-            release-artifacts/vaydns-*.aar
+
           draft: false
           prerelease: false
         env:

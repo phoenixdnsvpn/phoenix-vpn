@@ -30,7 +30,7 @@ VayDNS VPN is a transparent, source-available project dedicated to promoting dig
 
 ## 🔒 App Verification
 Official builds of VayDNS VPN can be verified using the in-app verification tool. 
-**Official Public Key:** `f7eb9ede225433ff8b9d22a61fe72b6b81b18ec9cb3bc70e7706b57f6e0fed7b`
+**Official Public Key:** `4ce41a228fd340bdee5aa6bbd453ebd1b407a36349019a1d4e62fc33364aa534`
 
 
 ### Screenshot of the VayDNS VPN 

@@ -71,7 +71,7 @@ class ConfigAdapter(
         holder.delete.alpha = iconAlpha
 
         holder.export.setOnClickListener {
-            if (isSelected) {
+            if (config.isDefault) {
                 Toast.makeText(holder.itemView.context, "Built-in configs cannot be exported.", Toast.LENGTH_SHORT).show()
             } else {
                 onExportClicked(config)
