@@ -46,9 +46,8 @@ jobs:
           
           mkdir -p ../android/app/libs
           
-        - name: Inject Real Native Vault
-          run: |
-            echo "${{ secrets.REAL_DEFAULT_CONFIGS_GO }}" > mobile/default_configs.go
+          # Inject Real Native Vault (Path fixed to default_configs.go since we are in /mobile)
+          echo "${{ secrets.REAL_DEFAULT_CONFIGS_GO }}" > default_configs.go
                     
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
@@ -82,8 +81,8 @@ jobs:
           
           mkdir -p ../android/app/libs
           
-        - name: Inject Real Native Vault
-          run: |
+          # Inject Real Native Vault (Path fixed to default_configs.go since we are in /mobile)
+          echo "${{ secrets.REAL_DEFAULT_CONFIGS_GO }}" > default_configs.go
                     
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
@@ -114,7 +113,6 @@ jobs:
         with:
           files: |
             release-artifacts/VaydnsVpn-*.apk
-
           draft: false
           prerelease: false
         env:
