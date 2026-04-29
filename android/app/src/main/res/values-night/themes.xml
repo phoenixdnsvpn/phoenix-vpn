@@ -17,6 +17,7 @@
 
     <style name="Theme.Vaydns.Dialog.Night" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
         <item name="colorPrimary">@android:color/white</item>
+        <item name="colorControlActivated">#5E85B5</item>
         <item name="colorOnSurface">@android:color/white</item>
     </style>
 

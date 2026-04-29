@@ -12,6 +12,7 @@
 
     <style name="Theme.Vaydns.Dialog.Day" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
         <item name="colorPrimary">#2F4A6F</item>
+        <item name="colorControlActivated">#2F4A6F</item>
     </style>
 
     <style name="CompactMenuTheme" parent="ThemeOverlay.AppCompat.Light">

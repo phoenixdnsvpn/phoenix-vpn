@@ -49,7 +49,7 @@ class DnsScannerActivity : AppCompatActivity() {
     private lateinit var btnSelectCidr: ImageButton
 
     private var loadedCidrs: List<String> = emptyList()
-    private var selectedCidr: String? = null
+    private var selectedCidrs = mutableSetOf<String>()
 
     private val customResolverPickerLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -258,7 +258,6 @@ class DnsScannerActivity : AppCompatActivity() {
             Toast.makeText(this, "No file manager found to pick files.", Toast.LENGTH_SHORT).show()
         }
     }
-
     private fun loadCustomResolversFromUri(uri: Uri) {
         try {
             val inputStream = contentResolver.openInputStream(uri)
@@ -270,8 +269,11 @@ class DnsScannerActivity : AppCompatActivity() {
                     if (switchCidrMode.isChecked) {
                         loadedCidrs = parsedLines
                         tvResolversCount.text = "Loaded custom CIDR blocks: ${loadedCidrs.size}"
-                        selectedCidr = null
+
+                        // Clear the set instead of nulling a single string
+                        selectedCidrs.clear()
                         tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+
                         Toast.makeText(this, "Loaded ${loadedCidrs.size} custom CIDR blocks", Toast.LENGTH_SHORT).show()
                     } else {
                         resolversList = parsedLines
@@ -295,56 +297,237 @@ class DnsScannerActivity : AppCompatActivity() {
             val content = inputStream.bufferedReader().use { it.readText() }
             loadedCidrs = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
             tvResolversCount.text = "Loaded CIDR blocks: ${loadedCidrs.size}"
-            selectedCidr = null
+
+            // Clear the set instead of nulling a single string
+            selectedCidrs.clear()
             tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+
         } catch (e: Exception) {
             Toast.makeText(this, "Failed to load CIDR blocks (ir-cidrs.txt)", Toast.LENGTH_SHORT).show()
         }
     }
-
     private fun showCidrSelectionDialog() {
         if (loadedCidrs.isEmpty()) {
             Toast.makeText(this, "No CIDR blocks loaded", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val displayList = loadedCidrs.map { cidr ->
+        // 1. Removed " IPs" from the string so it easily fits on one line
+        val displayArray = loadedCidrs.map { cidr ->
             val size = getCidrInfo(cidr)?.second ?: 0L
-            "$cidr  ($size IPs)"
+            "$cidr  ($size)"
+        }.toTypedArray()
+
+        // 2. Custom Title Layout (Holds Main Title + Live Status)
+        val customTitleLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padHorizontal = (24 * resources.displayMetrics.density).toInt()
+            val padTop = (24 * resources.displayMetrics.density).toInt()
+            val padBottom = (8 * resources.displayMetrics.density).toInt()
+            setPadding(padHorizontal, padTop, padHorizontal, padBottom)
         }
 
-        val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, displayList) {
+        val mainTitle = TextView(this).apply {
+            text = "Select CIDR Blocks"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            val textColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.textColorPrimary, android.graphics.Color.BLACK)
+            setTextColor(textColor)
+        }
+
+        val statusLabel = TextView(this).apply {
+            text = "Total selected: 0"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            val primaryColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
+            setTextColor(primaryColor)
+            setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, 0)
+        }
+
+        customTitleLayout.addView(mainTitle)
+        customTitleLayout.addView(statusLabel)
+
+        fun updateStatusLabel() {
+            var totalSize = 0L
+            for (cidr in selectedCidrs) {
+                totalSize += getCidrInfo(cidr)?.second ?: 0L
+            }
+            statusLabel.text = "Total selected: $totalSize"
+        }
+
+        updateStatusLabel() // Initialize with current states
+
+        // 3. Create a custom ListView to control the vertical spacing precisely
+        val customListView = ListView(this).apply {
+            choiceMode = ListView.CHOICE_MODE_MULTIPLE
+            val listPad = (8 * resources.displayMetrics.density).toInt()
+            setPadding(0, listPad, 0, listPad)
+            clipToPadding = false
+            divider = null // Removes the default grey lines between the squashed items
+        }
+
+        val adapter = object : ArrayAdapter<String>(this, android.R.layout.select_dialog_multichoice, displayArray) {
             override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
-                val view = super.getView(position, convertView, parent) as TextView
+                val view = super.getView(position, convertView, parent) as CheckedTextView
+
+                // Eliminate default minimum heights
                 view.minHeight = 0
                 view.minimumHeight = 0
-                val padHorizontal = (16 * resources.displayMetrics.density).toInt()
-                val padVertical = (10 * resources.displayMetrics.density).toInt()
+
+                // Set our own squashed padding (6dp top & bottom)
+                val padHorizontal = (24 * resources.displayMetrics.density).toInt()
+                val padVertical = (6 * resources.displayMetrics.density).toInt()
                 view.setPadding(padHorizontal, padVertical, padHorizontal, padVertical)
+
                 view.textSize = 15f
+
+                val brandColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
+                view.checkMarkTintList = android.content.res.ColorStateList.valueOf(brandColor)
+
                 return view
             }
         }
+        customListView.adapter = adapter
 
+        // Sync ListView checkmarks with our selectedCidrs set
+        for (i in loadedCidrs.indices) {
+            if (selectedCidrs.contains(loadedCidrs[i])) {
+                customListView.setItemChecked(i, true)
+            }
+        }
+
+// Handle clicks manually since we aren't using the default dialog builder logic
+        customListView.setOnItemClickListener { _, _, position, _ ->
+            val clickedCidr = loadedCidrs[position]
+            // Get the actual boolean checked state directly from the ListView
+            val isChecked = customListView.isItemChecked(position)
+
+            if (isChecked) {
+                selectedCidrs.add(clickedCidr)
+            } else {
+                selectedCidrs.remove(clickedCidr)
+            }
+            updateStatusLabel()
+        }
+
+        // 4. Build and show the dialog
         MaterialAlertDialogBuilder(this)
-            .setTitle("Select a CIDR Block")
-            .setAdapter(adapter) { _, which ->
-                selectedCidr = loadedCidrs[which]
-                val size = getCidrInfo(selectedCidr!!)?.second ?: 0L
-                tvSelectedCidr.text = "$selectedCidr ($size IPs)"
+            .setCustomTitle(customTitleLayout)
+            .setView(customListView) // Inject our custom squashed list!
+            .setPositiveButton("OK") { _, _ ->
+                if (selectedCidrs.isEmpty()) {
+                    tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+                    tvResolversCount.text = "Loaded resolvers: 0"
+                } else {
+                    var totalSize = 0L
+                    for (cidr in selectedCidrs) {
+                        totalSize += getCidrInfo(cidr)?.second ?: 0L
+                    }
+                    tvSelectedCidr.text = "${selectedCidrs.size} blocks selected"
+                    tvResolversCount.text = "Available IPs: $totalSize"
 
-                tvResolversCount.text = "Loaded resolvers: $size"
-
-                // Dynamically adjust requested IPs if CIDR block is smaller
-                val currentRequested = etNumResolvers.text.toString().toIntOrNull() ?: 500
-                if (currentRequested > size) {
-                    etNumResolvers.setText(size.toString())
-                    Toast.makeText(this, "Adjusted requested IPs to block max size ($size)", Toast.LENGTH_SHORT).show()
+                    // Automatically update the input field to the TOTAL size
+                    // so it scans every IP in the selected blocks
+                    etNumResolvers.setText(totalSize.toString())
                 }
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
+    /**private fun showCidrSelectionDialog() {
+        if (loadedCidrs.isEmpty()) {
+            Toast.makeText(this, "No CIDR blocks loaded", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val displayArray = loadedCidrs.map { cidr ->
+            val size = getCidrInfo(cidr)?.second ?: 0L
+            "$cidr  ($size IPs)"
+        }.toTypedArray()
+
+        // Track which items are currently checked
+        val checkedItems = BooleanArray(loadedCidrs.size) { loadedCidrs[it] in selectedCidrs }
+
+        // 1. Create a Custom Title View to hold both the Main Title and the Live Status
+        val customTitleLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+
+            // Standard Material Dialog Title Padding
+            val padHorizontal = (24 * resources.displayMetrics.density).toInt()
+            val padTop = (24 * resources.displayMetrics.density).toInt()
+            val padBottom = (8 * resources.displayMetrics.density).toInt()
+            setPadding(padHorizontal, padTop, padHorizontal, padBottom)
+        }
+
+        // The Main Title
+        val mainTitle = TextView(this).apply {
+            text = "Select CIDR Blocks"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            val textColor = com.google.android.material.color.MaterialColors.getColor(this, android.R.attr.textColorPrimary, android.graphics.Color.BLACK)
+            setTextColor(textColor)
+        }
+
+        // The Live Status Label (Colored with your Primary Brand Color)
+        val statusLabel = TextView(this).apply {
+            text = "Total selected IPs: 0"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            val primaryColor = com.google.android.material.color.MaterialColors.getColor(this, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
+            setTextColor(primaryColor)
+            setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, 0)
+        }
+
+        customTitleLayout.addView(mainTitle)
+        customTitleLayout.addView(statusLabel)
+
+        // 2. Helper function to calculate and update the label live
+        fun updateStatusLabel() {
+            var totalSize = 0L
+            for (cidr in selectedCidrs) {
+                totalSize += getCidrInfo(cidr)?.second ?: 0L
+            }
+            statusLabel.text = "Total selected IPs: $totalSize"
+        }
+
+        // Initialize label with current selections
+        updateStatusLabel()
+
+        // 3. Build and show the dialog directly
+        MaterialAlertDialogBuilder(this)
+            .setCustomTitle(customTitleLayout) // <-- Inject our custom dual-title here
+            .setMultiChoiceItems(displayArray, checkedItems) { _, which, isChecked ->
+                val clickedCidr = loadedCidrs[which]
+                if (isChecked) {
+                    selectedCidrs.add(clickedCidr)
+                } else {
+                    selectedCidrs.remove(clickedCidr)
+                }
+                // Update the label in real-time as the user taps!
+                updateStatusLabel()
+            }
+            .setPositiveButton("OK") { _, _ ->
+                if (selectedCidrs.isEmpty()) {
+                    tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+                    tvResolversCount.text = "Loaded resolvers: 0"
+                } else {
+                    var totalSize = 0L
+                    for (cidr in selectedCidrs) {
+                        totalSize += getCidrInfo(cidr)?.second ?: 0L
+                    }
+                    tvSelectedCidr.text = "${selectedCidrs.size} blocks selected"
+                    tvResolversCount.text = "Available IPs: $totalSize"
+
+                    val currentRequested = etNumResolvers.text.toString().toIntOrNull() ?: 500
+                    if (currentRequested > totalSize) {
+                        etNumResolvers.setText(totalSize.toString())
+                        Toast.makeText(this, "Adjusted requested IPs to total block max size ($totalSize)", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show() // Back to standard .show(), no hacky ListView modifications needed!
+    }*/
 
     private fun getCidrInfo(cidr: String): Pair<Long, Long>? {
         try {
@@ -419,8 +602,8 @@ class DnsScannerActivity : AppCompatActivity() {
         }
 
         if (switchCidrMode.isChecked) {
-            if (selectedCidr == null) {
-                Toast.makeText(this, "Please select a CIDR block first", Toast.LENGTH_SHORT).show()
+            if (selectedCidrs.isEmpty()) {
+                Toast.makeText(this, "Please select at least one CIDR block", Toast.LENGTH_SHORT).show()
                 return
             }
         } else {
@@ -441,9 +624,14 @@ class DnsScannerActivity : AppCompatActivity() {
                 return
             }
         } else {
-            val cidrSize = getCidrInfo(selectedCidr!!)?.second ?: 0L
-            if (numResolvers < 1 || numResolvers > cidrSize) {
-                Toast.makeText(this, "Number must be between 1 and $cidrSize for this block", Toast.LENGTH_LONG).show()
+            // --- NEW MULTI-CIDR SIZE CALCULATION ---
+            var totalCidrSize = 0L
+            for (cidr in selectedCidrs) {
+                totalCidrSize += getCidrInfo(cidr)?.second ?: 0L
+            }
+
+            if (numResolvers < 1 || numResolvers > totalCidrSize) {
+                Toast.makeText(this, "Number must be between 1 and $totalCidrSize for selected blocks", Toast.LENGTH_LONG).show()
                 return
             }
         }
@@ -480,14 +668,28 @@ class DnsScannerActivity : AppCompatActivity() {
         */
         // Handle IP generation based on toggle state
         val baseResolvers = if (switchCidrMode.isChecked) {
-            getIpsFromCidr(selectedCidr!!, numResolvers, useRandom)
+            val allGeneratedIps = mutableListOf<String>()
+
+            // Loop through every selected block and generate all of their IPs
+            for (cidr in selectedCidrs) {
+                // Pass Int.MAX_VALUE to generate ALL IPs in the block for pooling
+                val size = getCidrInfo(cidr)?.second?.toInt() ?: 0
+                allGeneratedIps.addAll(getIpsFromCidr(cidr, size, false))
+            }
+
+            // Now apply the user's scan limit and randomizer to the massive pooled list
+            if (useRandom) {
+                allGeneratedIps.shuffled().take(numResolvers)
+            } else {
+                allGeneratedIps.take(numResolvers)
+            }
         } else {
             if (useRandom) {
                 resolversList.shuffled().take(numResolvers)
             } else {
                 resolversList.take(numResolvers)
             }
-        }.map { if (it.contains(":")) it else "$it:53" } // Appends port 53 automatically
+        }.map { if (it.contains(":")) it else "$it:53" }
 
         // Combine lists if switch is ON
         val finalResolvers = if (switchPublicDns.isChecked) {
