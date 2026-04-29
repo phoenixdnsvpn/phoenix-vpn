@@ -9,6 +9,7 @@ import (
 //	"fmt"
 	"os"
 	"path/filepath"
+//	"bytes"
 )
 
 // =====================================================================
@@ -26,6 +27,9 @@ import (
 var InjectedConfigs string
 var InjectedResolvers string 
 var InjectedPrivateKey string
+
+var RuntimeConfigs []byte
+var RuntimeResolvers []byte
 
 type DefaultConfig struct {
 	Name            string `json:"name"`
@@ -380,4 +384,135 @@ func getDefaultConfigPass(index int64) string {
 	return defaultConfigs[index].Pass
 }
 
+// ImportResolversManual mimics the exact logic of your old SetDefaultResolvers, with a structural check
+func ImportResolversManual(data []byte) string {
+	if len(data) == 0 {
+		return "ERROR|Received 0 bytes from Android."
+	}
 
+	// 1. Ghost Buster: Deep copy memory to prevent JNI corruption
+	safeData := make([]byte, len(data))
+	copy(safeData, data)
+
+	// 2. Decrypt a temporary copy to validate the structure
+	tempData := make([]byte, len(safeData))
+	copy(tempData, safeData)
+
+	mask, _ := hex.DecodeString(InjectedPrivateKey)
+	if len(mask) > 0 && len(tempData) > 0 {
+		for i := 0; i < len(tempData); i++ {
+			tempData[i] ^= mask[i%len(mask)]
+		}
+	}
+
+	// 3. Define the expected structure
+	var entries []struct {
+		Name         string `json:"name"`
+		Resolver     string `json:"resolver"`
+		RandResolver string `json:"rand_resolver"`
+	}
+
+	// 4. Parse the temporary JSON
+	if err := json.Unmarshal(tempData, &entries); err != nil {
+		// SANITIZED ERROR
+		return "ERROR|Invalid file. Please ensure you selected a valid resolvers file."
+	}
+
+	// --- STRUCTURAL VALIDATION CHECK ---
+	validCount := 0
+	for _, entry := range entries {
+		if entry.Resolver != "" && entry.RandResolver != "" {
+			validCount++
+		}
+	}
+	if validCount == 0 {
+		// SANITIZED ERROR
+		return "ERROR|Invalid file format. Did you accidentally upload the configs file?"
+	}
+
+	// 5. Save directly to Vault without pre-parsing
+	configMu.Lock()
+	dir := vaultStorageDir
+	configMu.Unlock()
+
+	if dir != "" {
+		savePath := filepath.Join(dir, "cached_default_resolvers.bin")
+		os.WriteFile(savePath, safeData, 0644)
+	}
+
+	// 6. Inject into active memory and clear caches
+	resolverMu.Lock()
+	RuntimeResolvers = make([]byte, len(safeData))
+	copy(RuntimeResolvers, safeData)
+	defaultDisplayResolvers = nil // Force re-parse on next UI request
+	realIpMap = nil
+	resolverMu.Unlock()
+
+	return "SUCCESS|Resolvers upload successful!"
+}
+
+// ImportConfigsManual mimics the exact logic of manual resolver imports but for configs, with a version check.
+func ImportConfigsManual(data []byte) string {
+	if len(data) == 0 {
+		return "ERROR|Received 0 bytes from Android."
+	}
+
+	// 1. Ensure active configs are parsed so 'currentVersion' is accurate
+	ensureParsed()
+
+	// 2. Ghost Buster: Deep copy memory to prevent JNI corruption
+	safeData := make([]byte, len(data))
+	copy(safeData, data)
+
+	// 3. Decrypt a temporary copy to peek at the version
+	tempData := make([]byte, len(safeData))
+	copy(tempData, safeData)
+
+	mask, _ := hex.DecodeString(InjectedPrivateKey)
+	if len(mask) > 0 && len(tempData) > 0 {
+		for i := 0; i < len(tempData); i++ {
+			tempData[i] ^= mask[i%len(mask)]
+		}
+	}
+
+	// 4. Parse the temporary JSON to extract the incoming version
+	var tempWrapper ConfigWrapper
+	if err := json.Unmarshal(tempData, &tempWrapper); err != nil {
+		// SANITIZED ERROR
+		return "ERROR|Invalid file. Please ensure you selected a valid configs file."
+	}
+
+	// --- STRUCTURAL VALIDATION CHECK ---
+	if len(tempWrapper.Configs) == 0 {
+		// SANITIZED ERROR
+		return "ERROR|Invalid file format. Did you accidentally upload the resolvers file?"
+	}
+
+	// 5. Version Check
+	configMu.Lock()
+	activeVersion := currentVersion
+	configMu.Unlock()
+
+	if tempWrapper.Version <= activeVersion {
+		return "UP_TO_DATE|Configs are already updated."
+	}
+
+	// 6. Save the ENCRYPTED bytes directly to Vault
+	configMu.Lock()
+	dir := vaultStorageDir
+	configMu.Unlock()
+
+	if dir != "" {
+		savePath := filepath.Join(dir, "cached_default_configs.bin")
+		os.WriteFile(savePath, safeData, 0644)
+	}
+
+	// 7. Inject into active memory and clear caches
+	configMu.Lock()
+	RuntimeConfigs = make([]byte, len(safeData))
+	copy(RuntimeConfigs, safeData)
+	defaultConfigs = nil // Force re-parse on next UI request
+	configMu.Unlock()
+
+	return "SUCCESS|Config upload successful!"
+}

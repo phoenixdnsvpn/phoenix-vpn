@@ -13,4 +13,9 @@
     <style name="Theme.Vaydns.Dialog.Day" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
         <item name="colorPrimary">#2F4A6F</item>
     </style>
+
+    <style name="CompactMenuTheme" parent="ThemeOverlay.AppCompat.Light">
+        <item name="android:listPreferredItemHeightSmall">36dp</item>
+        <item name="android:textSize">15sp</item>
+    </style>
 </resources>

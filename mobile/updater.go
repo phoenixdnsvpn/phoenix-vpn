@@ -183,3 +183,4 @@ func isNewerAppVersion(current, fetched string) bool {
 	}
 	return false
 }
+

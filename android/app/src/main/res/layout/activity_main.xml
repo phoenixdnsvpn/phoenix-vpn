@@ -5,7 +5,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true"
-    android:background="?android:attr/windowBackground"> <com.google.android.material.appbar.AppBarLayout
+    android:background="?android:attr/windowBackground">
+    <com.google.android.material.appbar.AppBarLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="?attr/colorSurface"
@@ -17,7 +18,8 @@
         android:layout_height="?attr/actionBarSize"
         app:title="VayDNS"
         app:titleTextColor="?attr/colorOnSurface"
-        app:popupTheme="?attr/toolbarStyle" /> </com.google.android.material.appbar.AppBarLayout>
+        app:popupTheme="@style/CompactMenuTheme" />
+    </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"

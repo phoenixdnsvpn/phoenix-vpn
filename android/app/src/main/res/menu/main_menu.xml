@@ -33,6 +33,16 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_upload_configs"
+        android:title="Upload Configs"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_upload_resolvers"
+        android:title="Upload Resolvers"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_dns_scanner"
         android:title="DNS Scanner"
         app:showAsAction="never" />

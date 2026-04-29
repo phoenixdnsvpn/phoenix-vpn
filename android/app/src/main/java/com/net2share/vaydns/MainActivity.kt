@@ -82,6 +82,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val configFilePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            importConfigBinary(uri)
+        }
+    }
+    private val resolverFilePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            importResolverBinary(uri)
+        }
+    }
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -550,12 +564,16 @@ class MainActivity : AppCompatActivity() {
             menu.findItem(R.id.action_check_app_update)?.isVisible = false
             menu.findItem(R.id.action_update_configs)?.isVisible = false
             menu.findItem(R.id.action_update_resolvers)?.isVisible = false
+            menu.findItem(R.id.action_upload_resolvers)?.isVisible = false
+            menu.findItem(R.id.action_upload_configs)?.isVisible = false
         } else {
             // Ensure these items are visible if it is an official build
             menu.findItem(R.id.action_verify)?.isVisible = true
             menu.findItem(R.id.action_check_app_update)?.isVisible = true
             menu.findItem(R.id.action_update_configs)?.isVisible = true
             menu.findItem(R.id.action_update_resolvers)?.isVisible = true
+            menu.findItem(R.id.action_upload_resolvers)?.isVisible = true
+            menu.findItem(R.id.action_upload_configs)?.isVisible = true
 
             // Verification Logic
             val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
@@ -769,6 +787,23 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
+            R.id.action_update_resolvers -> {
+                syncResolversWithServer()
+                true
+            }
+
+            R.id.action_upload_configs -> {
+                configFilePickerLauncher.launch(arrayOf("*/*"))
+                true
+            }
+
+            R.id.action_upload_resolvers -> {
+                // Using "*/*" because Android's SAF can be extremely strict
+                // about selecting custom extensions like .bin
+                resolverFilePickerLauncher.launch(arrayOf("*/*"))
+                true
+            }
+
             R.id.action_how_to_use -> {
                 showHowToUseDialog()
                 true
@@ -925,6 +960,103 @@ class MainActivity : AppCompatActivity() {
             .setView(scrollView)
             .setPositiveButton("OK", null)
             .show()
+    }
+
+    private fun importConfigBinary(uri: android.net.Uri) {
+        Thread {
+            try {
+                contentResolver.openInputStream(uri)?.let { rawStream ->
+                    java.io.BufferedInputStream(rawStream).use { bufferedStream ->
+                        val bytes = bufferedStream.readBytes()
+
+                        if (bytes.isEmpty()) {
+                            runOnUiThread { Toast.makeText(this@MainActivity, "Error: File is empty.", Toast.LENGTH_LONG).show() }
+                            return@Thread
+                        }
+
+                        val maxSizeBytes = 2 * 1024 * 1024
+                        if (bytes.size > maxSizeBytes) {
+                            runOnUiThread { Toast.makeText(this@MainActivity, "Error: File is too large. Limit is 2 MB.", Toast.LENGTH_LONG).show() }
+                            return@Thread
+                        }
+
+                        // NATIVE VAULT: Pass raw bytes directly to Go.
+                        val result = mobile.Mobile.importConfigsManual(bytes)
+
+                        runOnUiThread {
+                            if (result.startsWith("SUCCESS")) {
+                                // Will show "Config upload successful!"
+                                Toast.makeText(this@MainActivity, result.substringAfter("|"), Toast.LENGTH_SHORT).show()
+                                switchDefault.isChecked = true
+                                refreshConfigList()
+                            } else if (result.startsWith("UP_TO_DATE")) {
+                                // Will show "Configs are already updated."
+                                Toast.makeText(this@MainActivity, result.substringAfter("|"), Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(this@MainActivity, result, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                } ?: runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Error: Android could not open this file.", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VAY_DEBUG_kotlin", "Exception: ${e.message}", e)
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Failed to import: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun importResolverBinary(uri: android.net.Uri) {
+        Thread {
+            try {
+                contentResolver.openInputStream(uri)?.let { rawStream ->
+                    java.io.BufferedInputStream(rawStream).use { bufferedStream ->
+                        val bytes = bufferedStream.readBytes()
+
+                        // 1. Check if empty
+                        if (bytes.isEmpty()) {
+                            runOnUiThread {
+                                Toast.makeText(this@MainActivity, "Error: File is empty.", Toast.LENGTH_LONG).show()
+                            }
+                            return@Thread
+                        }
+
+                        // 2. Prevent abuse: Restrict to 2 MB (2 * 1024 * 1024 bytes)
+                        val maxSizeBytes = 2 * 1024 * 1024
+                        if (bytes.size > maxSizeBytes) {
+                            runOnUiThread {
+                                Toast.makeText(this@MainActivity, "Error: File is too large. Limit is 2 MB.", Toast.LENGTH_LONG).show()
+                            }
+                            return@Thread
+                        }
+
+                        // 3. NATIVE VAULT: Pass raw bytes directly to Go.
+                        val result = mobile.Mobile.importResolversManual(bytes)
+
+                        runOnUiThread {
+                            // 4. Show success toast if Go accepted it
+                            if (result.startsWith("SUCCESS")) {
+                                Toast.makeText(this@MainActivity, "Upload successful!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                // Show any error messages returned by Go
+                                Toast.makeText(this@MainActivity, result, Toast.LENGTH_LONG).show()
+                            }
+                            refreshConfigList()
+                        }
+                    }
+                } ?: runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Error: Android could not open this file.", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VAY_DEBUG_kotlin", "Exception: ${e.message}", e)
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Failed to import: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
     }
 
     private fun syncConfigsWithServer() {
