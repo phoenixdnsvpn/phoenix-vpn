@@ -305,6 +305,8 @@ func ParseExtraArgs(args []string) bridge.TunnelConfig {
 			config.ListenAddr = value
 		case "-pubkey":
 			config.PubkeyHex = value
+		case "-mtu":
+			config.MTU, _ = strconv.Atoi(value)
 		case "-utls":
 			config.UtlsDistribution = value
 		case "-record-type":

@@ -185,7 +185,7 @@ func StartVpn(
 		Protector:        protector,
 		IdleTimeout:      idleTimeout,
 		KeepAlive:        KeepAlive,
-		UDPTimeout:       "2s",
+		UDPTimeout:       "1s",
 		ClientIDSize:     clientIDSize,
 		CompatDnstt:      compatDnstt,
 	}

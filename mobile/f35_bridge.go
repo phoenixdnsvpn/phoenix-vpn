@@ -41,8 +41,9 @@ func StartF35Scan(
 	keepAlive string,
 	clientIdSize int,
 	workers int,          
-	tunnelWait int,       
-	probeTimeout int,     
+	tunnelWait int,   
+	udpTimeout int,        
+	probeTimeout int, 
 	retries int,          
 	callback ScanResultCallback,
 ) string {
@@ -140,7 +141,8 @@ func StartF35Scan(
 		"-utls", "chrome",
 		"-keepalive", keepAlive,
 		"-idle-timeout", idleTimeout,
-		"-udp-timeout", "2s",
+		"-mtu", "50",
+		"-udp-timeout", fmt.Sprintf("%dms", udpTimeout),
 	}
 
 	cfg.Pubkey = pubkeyToUse 

@@ -8,7 +8,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/Starling226/vaydns-vpn/vaydns/client"
+//	"github.com/net2share/vaydns/client"
+    "github.com/Starling226/vaydns-vpn/vaydns/client"
 )
 
 // SocketProtector is an interface that Android will implement
@@ -28,6 +29,7 @@ type TunnelConfig struct {
 	UDPTimeout                                   string
 	CompatDnstt                                  bool
 	ClientIDSize                                 int
+	MTU                                          int
 	Protector SocketProtector
 }
 
@@ -68,6 +70,8 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 		idleTimeout = client.DnsttIdleTimeout
 		keepAlive = client.DnsttKeepAlive
 		c.MaxQnameLen = 253
+	} else {
+		c.MaxQnameLen = 101
 	}
 
 	if keepAlive > idleTimeout / 5 {
@@ -121,6 +125,45 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	    })
 	}
 
+	/*resolver.DialerControl = func(network, address string, rawConn syscall.RawConn) error {
+	    if err := ctx.Err(); err != nil {
+	        // Return a specific error that the library recognizes as "Permanent"
+	        return fmt.Errorf("engine shutdown initiated")
+	    }
+
+	    return rawConn.Control(func(fd uintptr) {
+	        select {
+	        case <-ctx.Done():
+	            return 
+	        default:
+	            c.Protector.Protect(int(fd))
+	        }
+	    })
+	}*/
+	
+	/*resolver.DialerControl = func(network, address string, rawConn syscall.RawConn) error {
+		// 1. If context is cancelled, kill the dialer immediately.
+		// This stops the Noise Handshake reconnect loop.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("shutting down")
+		}
+
+		if c.Protector == nil {
+			return nil 
+		}
+
+		return rawConn.Control(func(fd uintptr) {
+			select {
+			case <-ctx.Done():
+				// 2. Context cancelled: Exit without calling JNI/Protector
+				return 
+			default:
+				// 3. ONLY call the JNI bridge if the tunnel is alive
+				c.Protector.Protect(int(fd))
+			}
+		})
+	}*/
+
 	utlsID, _ := client.SampleUTLSDistribution(c.UtlsDistribution)
 	resolver.UTLSClientHelloID = utlsID
 	resolver.UDPTimeout = udpTimeout
@@ -133,11 +176,13 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	ts.DnsttCompat = c.CompatDnstt
 	ts.RecordType = strings.ToLower(c.RecordType)
 	ts.RPS = c.RpsLimit
-	ts.MaxQnameLen = 253
-	ts.MaxNumLabels = 45
+//	ts.MaxQnameLen = 253
+	ts.MaxQnameLen = c.MaxQnameLen
+//	ts.MaxNumLabels = 45
+	ts.MaxNumLabels = 0
 //	ts.ClientIDSize = 2
     ts.ClientIDSize = c.ClientIDSize
-
+	ts.MTU = 0
 
 	// 6. Assemble the final Tunnel
 	tunnel, err := client.NewTunnel(resolver, ts)

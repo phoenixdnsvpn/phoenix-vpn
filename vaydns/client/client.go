@@ -657,8 +657,8 @@ func (t *Tunnel) ListenAndServe(listenAddr string) error {
 		return fmt.Errorf("MTU %d is too small (minimum 25); try increasing -max-qname-len (currently %d), increasing -max-num-labels (currently %d), using a shorter domain, or decreasing -clientid-size (currently %d)",
 			mtu, maxQnameLen, t.TunnelServer.MaxNumLabels, t.wireConfig.ClientIDSize)
 	}
-	log.Infof("effective MTU %d", mtu)
-
+	log.Infof("VAY_DEBUG effective MTU %d", mtu)
+    
 	ln, err := net.ListenTCP("tcp", localAddr)
 	if err != nil {
 		return fmt.Errorf("opening local listener: %v", err)
