@@ -28,6 +28,7 @@ class DnsScannerActivity : AppCompatActivity() {
     private lateinit var switchRandom: Switch
     private lateinit var etWorkers: EditText
     private lateinit var etTunnelWait: EditText
+    private lateinit var etUdpTimeout: EditText
     private lateinit var etProbeTimeout: EditText
     private lateinit var etRetries: EditText
     private lateinit var btnStartScan: Button
@@ -110,6 +111,7 @@ class DnsScannerActivity : AppCompatActivity() {
         switchRandom = findViewById(R.id.switch_random)
         etWorkers = findViewById(R.id.et_workers)
         etTunnelWait = findViewById(R.id.et_tunnel_wait)
+        etUdpTimeout = findViewById(R.id.et_udp_timeout)
         etProbeTimeout = findViewById(R.id.et_probe_timeout)
         etRetries = findViewById(R.id.et_retries)
         btnStartScan = findViewById(R.id.btn_start_scan)
@@ -224,12 +226,14 @@ class DnsScannerActivity : AppCompatActivity() {
                 // Safer, slower settings for restrictive firewalls
                 etWorkers.setText("10")
                 etTunnelWait.setText("2000")
+                etUdpTimeout.setText("2000")
                 etProbeTimeout.setText("8")
                 etRetries.setText("1")
             } else {
                 // High-performance settings
                 etWorkers.setText("10")
                 etTunnelWait.setText("1000")
+                etUdpTimeout.setText("1000")
                 etProbeTimeout.setText("15")
                 etRetries.setText("0")
             }
@@ -434,100 +438,6 @@ class DnsScannerActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .show()
     }
-    /**private fun showCidrSelectionDialog() {
-        if (loadedCidrs.isEmpty()) {
-            Toast.makeText(this, "No CIDR blocks loaded", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val displayArray = loadedCidrs.map { cidr ->
-            val size = getCidrInfo(cidr)?.second ?: 0L
-            "$cidr  ($size IPs)"
-        }.toTypedArray()
-
-        // Track which items are currently checked
-        val checkedItems = BooleanArray(loadedCidrs.size) { loadedCidrs[it] in selectedCidrs }
-
-        // 1. Create a Custom Title View to hold both the Main Title and the Live Status
-        val customTitleLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-
-            // Standard Material Dialog Title Padding
-            val padHorizontal = (24 * resources.displayMetrics.density).toInt()
-            val padTop = (24 * resources.displayMetrics.density).toInt()
-            val padBottom = (8 * resources.displayMetrics.density).toInt()
-            setPadding(padHorizontal, padTop, padHorizontal, padBottom)
-        }
-
-        // The Main Title
-        val mainTitle = TextView(this).apply {
-            text = "Select CIDR Blocks"
-            textSize = 20f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            val textColor = com.google.android.material.color.MaterialColors.getColor(this, android.R.attr.textColorPrimary, android.graphics.Color.BLACK)
-            setTextColor(textColor)
-        }
-
-        // The Live Status Label (Colored with your Primary Brand Color)
-        val statusLabel = TextView(this).apply {
-            text = "Total selected IPs: 0"
-            textSize = 14f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            val primaryColor = com.google.android.material.color.MaterialColors.getColor(this, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
-            setTextColor(primaryColor)
-            setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, 0)
-        }
-
-        customTitleLayout.addView(mainTitle)
-        customTitleLayout.addView(statusLabel)
-
-        // 2. Helper function to calculate and update the label live
-        fun updateStatusLabel() {
-            var totalSize = 0L
-            for (cidr in selectedCidrs) {
-                totalSize += getCidrInfo(cidr)?.second ?: 0L
-            }
-            statusLabel.text = "Total selected IPs: $totalSize"
-        }
-
-        // Initialize label with current selections
-        updateStatusLabel()
-
-        // 3. Build and show the dialog directly
-        MaterialAlertDialogBuilder(this)
-            .setCustomTitle(customTitleLayout) // <-- Inject our custom dual-title here
-            .setMultiChoiceItems(displayArray, checkedItems) { _, which, isChecked ->
-                val clickedCidr = loadedCidrs[which]
-                if (isChecked) {
-                    selectedCidrs.add(clickedCidr)
-                } else {
-                    selectedCidrs.remove(clickedCidr)
-                }
-                // Update the label in real-time as the user taps!
-                updateStatusLabel()
-            }
-            .setPositiveButton("OK") { _, _ ->
-                if (selectedCidrs.isEmpty()) {
-                    tvSelectedCidr.text = "Tap right icon to select CIDR ->"
-                    tvResolversCount.text = "Loaded resolvers: 0"
-                } else {
-                    var totalSize = 0L
-                    for (cidr in selectedCidrs) {
-                        totalSize += getCidrInfo(cidr)?.second ?: 0L
-                    }
-                    tvSelectedCidr.text = "${selectedCidrs.size} blocks selected"
-                    tvResolversCount.text = "Available IPs: $totalSize"
-
-                    val currentRequested = etNumResolvers.text.toString().toIntOrNull() ?: 500
-                    if (currentRequested > totalSize) {
-                        etNumResolvers.setText(totalSize.toString())
-                        Toast.makeText(this, "Adjusted requested IPs to total block max size ($totalSize)", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show() // Back to standard .show(), no hacky ListView modifications needed!
-    }*/
 
     private fun getCidrInfo(cidr: String): Pair<Long, Long>? {
         try {
@@ -656,6 +566,7 @@ class DnsScannerActivity : AppCompatActivity() {
 
         val workers = etWorkers.text.toString().toLongOrNull() ?: 10L
         val tunnelWait = etTunnelWait.text.toString().toLongOrNull() ?: 2000L
+        val udpTimeout = etUdpTimeout.text.toString().toLongOrNull() ?: 1000L
         val probeTimeout = etProbeTimeout.text.toString().toLongOrNull() ?: 15L
         val retries = etRetries.text.toString().toLongOrNull() ?: 0L
 
@@ -721,6 +632,7 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("TOTAL_RESOLVERS", finalResolvers.size)
             putExtra("WORKERS", workers)
             putExtra("TUNNEL_WAIT", tunnelWait)
+            putExtra("UDP_TIMEOUT", udpTimeout)
             putExtra("PROBE_TIMEOUT", probeTimeout)
             putExtra("RETRIES", retries)
             putExtra("IS_DEFAULT_RESOLVERS", isUsingConfigResolvers)

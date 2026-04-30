@@ -196,6 +196,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
 //        val isConservative = intent.getBooleanExtra("CONSERVATIVE", false)
         val workers = intent.getLongExtra("WORKERS", 10L)
         val tunnelWait = intent.getLongExtra("TUNNEL_WAIT", 2000L)
+        val udpTimeout = intent.getLongExtra("UDP_TIMEOUT", 1000L)
         val probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 15L)
         val retries = intent.getLongExtra("RETRIES", 0L)
         totalResolvers = intent.getIntExtra("TOTAL_RESOLVERS", 500)
@@ -241,7 +242,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 isRunning = true
 
                 startScan(isDefaultConfig, configIndex, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
-                    workers, tunnelWait, probeTimeout, retries, user, pass,
+                    workers, tunnelWait, udpTimeout, probeTimeout, retries, user, pass,
                     idleTimeout, keepAlive, clientIdSize)
             }
         }
@@ -284,7 +285,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
         // Start initial scan
         startScan(isDefaultConfig, configIndex, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
-            workers, tunnelWait, probeTimeout, retries, user, pass,
+            workers, tunnelWait, udpTimeout, probeTimeout, retries, user, pass,
             idleTimeout, keepAlive, clientIdSize)
     }
 
@@ -310,6 +311,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         recordType: String,
         workers: Long,
         tunnelWait: Long,
+        udpTimeout: Long,
         probeTimeout: Long,
         retries: Long,
         user: String,
@@ -384,6 +386,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 clientIdSize,
                 workers,
                 tunnelWait,
+                udpTimeout,
                 probeTimeout,
                 retries,
                 scanCallback!!

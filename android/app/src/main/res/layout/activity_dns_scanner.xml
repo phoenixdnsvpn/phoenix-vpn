@@ -223,7 +223,7 @@
                 android:layout_height="wrap_content"
                 android:inputType="number"
                 android:textColor="?attr/colorOnSurface"
-                android:text="500" />
+                android:text="1000" />
 
             <Switch
                 android:id="@+id/switch_random"
@@ -249,7 +249,7 @@
                 android:layout_height="wrap_content"
                 android:inputType="number"
                 android:textColor="?attr/colorOnSurface"
-                android:text="10" />
+                android:text="20" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -282,6 +282,22 @@
                 android:inputType="number"
                 android:textColor="?attr/colorOnSurface"
                 android:text="15" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="UDP Timeout (ms):"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="20dp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_udp_timeout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:textColor="?attr/colorOnSurface"
+                android:text="1000" />
 
             <TextView
                 android:layout_width="wrap_content"
