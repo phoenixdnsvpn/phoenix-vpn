@@ -40,6 +40,9 @@ private lateinit var btnToggle: Button
 private var isVpnConnected = false // Track state locally for the toggle logic
 private lateinit var recyclerConfigs: RecyclerView
 private lateinit var switchDefault: androidx.appcompat.widget.SwitchCompat
+private lateinit var layoutNetworkStats: LinearLayout
+private lateinit var tvSpeed: TextView
+private lateinit var tvTotal: TextView
 private var selectedConfigId: String? = null   // which config is active for START
 private val configList = mutableListOf<Config>() // Class-level list to hold User + Default configs
 class MainActivity : AppCompatActivity() {
@@ -47,6 +50,14 @@ class MainActivity : AppCompatActivity() {
     private var configAdapter: ConfigAdapter? = null
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            // Catch the stats broadcast and update text instantly
+            if (intent?.action == "VPN_STATS_UPDATE") {
+                tvSpeed.text = intent.getStringExtra("speed") ?: ""
+                tvTotal.text = intent.getStringExtra("total") ?: ""
+                return
+            }
+
+            // Original status handling
             val status = intent?.getStringExtra("status")
             when (status) {
                 "CONNECTED" -> {
@@ -70,6 +81,7 @@ class MainActivity : AppCompatActivity() {
                 btnToggle.text = "STOP TUNNEL"
                 // Sleek Red for Stop state
                 btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#4F7F84"))
+                layoutNetworkStats.visibility = android.view.View.VISIBLE
             } else {
                 tvStatus.text = "Status: Disconnected"
                 tvStatus.setTextColor(Color.parseColor("#2F4A6F")) // Original theme color
@@ -77,6 +89,9 @@ class MainActivity : AppCompatActivity() {
                 btnToggle.text = "START TUNNEL"
                 // Original Sleek Blue/Gray for Start state
                 btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
+                layoutNetworkStats.visibility = android.view.View.GONE
+                tvSpeed.text = "▼ 0 B/s  ▲ 0 B/s"
+                tvTotal.text = "Total: 0 B ↓  0 B ↑"
             }
             btnToggle.isEnabled = true
         }
@@ -135,7 +150,9 @@ class MainActivity : AppCompatActivity() {
 
         tvStatus = findViewById(R.id.tv_status)
         btnToggle = findViewById(R.id.btn_toggle)
-
+        layoutNetworkStats = findViewById(R.id.layout_network_stats)
+        tvSpeed = findViewById(R.id.tv_speed)
+        tvTotal = findViewById(R.id.tv_total)
         //btnStart = findViewById(R.id.btn_start)
         //btnStop = findViewById(R.id.btn_stop)
         recyclerConfigs = findViewById(R.id.recycler_configs)
@@ -195,7 +212,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Register receiver
-        val filter = IntentFilter("VPN_STATE_CHANGED")
+        val filter = IntentFilter()
+        filter.addAction("VPN_STATE_CHANGED")
+        filter.addAction("VPN_STATS_UPDATE")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(vpnStateReceiver, filter, RECEIVER_EXPORTED)
         } else {

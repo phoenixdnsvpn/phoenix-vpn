@@ -1,15 +1,16 @@
 package mobile
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"strings"
-	"sync"
-//	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
-//	"bytes"
+	"strings"
+	"sync"
 )
 
 // =====================================================================
@@ -20,12 +21,12 @@ import (
 // left blank in this source code to protect production infrastructure.
 // 
 // For official builds, these variables are injected at compile-time 
-// via CI/CD using -ldflags. For local community builds, the app will 
+// via CI/CD using -ldflags. For community builds, the app will 
 // gracefully fall back to "Custom Configs Only" mode.
 // =====================================================================
 
 var InjectedConfigs string
-var InjectedResolvers string 
+var InjectedResolvers string
 var InjectedPrivateKey string
 
 var RuntimeConfigs []byte
@@ -61,8 +62,8 @@ var (
 	currentSecretKey  string
 	configMu          sync.Mutex
 
-	defaultDisplayResolvers map[string]string 
-	realIpMap               map[string]string 
+	defaultDisplayResolvers map[string]string
+	realIpMap               map[string]string
 	resolverMu              sync.Mutex
 
 	vaultStorageDir string
@@ -75,56 +76,93 @@ func InitVault(storageDir string) {
 	configMu.Unlock()
 }
 
+// --- NEW: AES-GCM Decryption Helper ---
+func decryptAESGCM(data []byte, hexKey string) ([]byte, error) {
+	key, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, err
+	}
+	if len(key) != 32 {
+		return nil, errors.New("AES-256 requires a 32-byte key")
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return nil, errors.New("ciphertext too short")
+	}
+
+	// Split the prepended nonce from the ciphertext
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+
+	// Open will automatically authenticate and decrypt
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return plaintext, nil
+}
+// ---------------------------------------
+
 func ensureParsed() {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	if len(defaultConfigs) > 0 { return }
-    
+	if len(defaultConfigs) > 0 {
+		return
+	}
+
 	var data []byte
 	var err error
 
 	// 1. Try reading directly from Android's internal storage
 	if vaultStorageDir != "" {
 		filePath := filepath.Join(vaultStorageDir, "cached_default_configs.bin")
-		data, err = os.ReadFile(filePath)		
-//		fmt.Printf("VAY_DEBUG_VAULT: Read from disk. Err: %v, Bytes: %d\n", err, len(data))
+		data, err = os.ReadFile(filePath)
 	}
 
 	// 2. Fallback to injected CI build
 	if err != nil || len(data) == 0 {
 		if InjectedConfigs != "" {
 			data, _ = base64.StdEncoding.DecodeString(InjectedConfigs)
-//			fmt.Printf("VAY_DEBUG_VAULT: Read from InjectedConfigs. Bytes: %d\n", len(data))
 		} else {
-//			fmt.Printf("VAY_DEBUG_VAULT: No data found anywhere!\n")
 			return // Community build: No data injected, remain empty
 		}
 	}
 
-	// Decrypt the payload
-	mask, _ := hex.DecodeString(InjectedPrivateKey)
-
-	if len(mask) > 0 && len(data) > 0 {
-		for i := 0; i < len(data); i++ {
-			data[i] ^= mask[i%len(mask)]
+	// 3. Decrypt the payload
+	if len(data) > 0 && InjectedPrivateKey != "" {
+		decrypted, err := decryptAESGCM(data, InjectedPrivateKey)
+		if err == nil {
+			data = decrypted
+		} else {
+			return // Decryption failed, abort loading
 		}
 	}
 
 	parseConfigData(data)
-
 }
 
 func parseConfigData(data []byte) {
-	var wrapper ConfigWrapper	
+	var wrapper ConfigWrapper
 	err := json.Unmarshal(data, &wrapper)
-		
+
 	if err == nil && len(wrapper.Configs) > 0 {
 		defaultConfigs = wrapper.Configs
 		currentVersion = wrapper.Version
 		currentServerURLs = wrapper.ServerURLs
 		currentSecretKey = wrapper.AppSecretKey
-					
+
 	} else {
 		// Fallback for older JSON formats
 		json.Unmarshal(data, &defaultConfigs)
@@ -135,7 +173,9 @@ func ensureResolversParsed() {
 	resolverMu.Lock()
 	defer resolverMu.Unlock()
 
-	if defaultDisplayResolvers != nil { return }
+	if defaultDisplayResolvers != nil {
+		return
+	}
 
 	var data []byte
 	var err error
@@ -153,10 +193,13 @@ func ensureResolversParsed() {
 		}
 	}
 
-	mask, _ := hex.DecodeString(InjectedPrivateKey)
-	if len(mask) > 0 && len(data) > 0 {
-		for i := 0; i < len(data); i++ {
-			data[i] ^= mask[i%len(mask)]
+	// Decrypt the payload
+	if len(data) > 0 && InjectedPrivateKey != "" {
+		decrypted, err := decryptAESGCM(data, InjectedPrivateKey)
+		if err == nil {
+			data = decrypted
+		} else {
+			return // Decryption failed
 		}
 	}
 
@@ -179,7 +222,9 @@ func ensureResolversParsed() {
 				for i := 0; i < len(fakeIps) && i < len(realIps); i++ {
 					fakeClean := strings.TrimSpace(fakeIps[i])
 					realClean := strings.TrimSpace(realIps[i])
-					if fakeClean == "" || realClean == "" { continue }
+					if fakeClean == "" || realClean == "" {
+						continue
+					}
 
 					realIpMap[fakeClean] = realClean
 					displayFake = append(displayFake, fakeClean+":53")
@@ -204,8 +249,10 @@ func ClearCaches() {
 func GetDefaultConfigDisplayResolvers(index int64) string {
 	ensureParsed()
 	ensureResolversParsed()
-	if index < 0 || index >= int64(len(defaultConfigs)) { return "" }
-	
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+
 	configName := defaultConfigs[index].Name
 
 	resolverMu.Lock()
@@ -332,7 +379,6 @@ func GetDefaultConfigMethod(index int64) string {
 }
 
 // --- SAFE PUBLIC UI HELPERS ---
-// This lets Kotlin know if it should mask the UI, without exposing the actual credentials.
 func HasDefaultConfigAuth(index int64) bool {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
@@ -357,17 +403,20 @@ func getUpdateServerURLs() []string {
 
 func getDefaultConfigDomain(index int64) string {
 	ensureParsed()
-	if index < 0 || index >= int64(len(defaultConfigs)) { return "" }
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
 	return defaultConfigs[index].Domain
 }
 
 func getDefaultConfigPubkey(index int64) string {
 	ensureParsed()
-	if index < 0 || index >= int64(len(defaultConfigs)) { return "" }
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
 	return defaultConfigs[index].Pubkey
 }
 
-// HACKER BLOCKED: These are now lowercase. Kotlin cannot access them.
 func getDefaultConfigUser(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
@@ -384,41 +433,35 @@ func getDefaultConfigPass(index int64) string {
 	return defaultConfigs[index].Pass
 }
 
-// ImportResolversManual mimics the exact logic of your old SetDefaultResolvers, with a structural check
 func ImportResolversManual(data []byte) string {
 	if len(data) == 0 {
 		return "ERROR|Received 0 bytes from Android."
 	}
 
-	// 1. Ghost Buster: Deep copy memory to prevent JNI corruption
 	safeData := make([]byte, len(data))
 	copy(safeData, data)
 
-	// 2. Decrypt a temporary copy to validate the structure
 	tempData := make([]byte, len(safeData))
 	copy(tempData, safeData)
 
-	mask, _ := hex.DecodeString(InjectedPrivateKey)
-	if len(mask) > 0 && len(tempData) > 0 {
-		for i := 0; i < len(tempData); i++ {
-			tempData[i] ^= mask[i%len(mask)]
+	if len(tempData) > 0 && InjectedPrivateKey != "" {
+		decrypted, err := decryptAESGCM(tempData, InjectedPrivateKey)
+		if err != nil {
+			return "ERROR|Decryption failed. Please ensure you selected a valid VayDNS resolvers file."
 		}
+		tempData = decrypted
 	}
 
-	// 3. Define the expected structure
 	var entries []struct {
 		Name         string `json:"name"`
 		Resolver     string `json:"resolver"`
 		RandResolver string `json:"rand_resolver"`
 	}
 
-	// 4. Parse the temporary JSON
 	if err := json.Unmarshal(tempData, &entries); err != nil {
-		// SANITIZED ERROR
-		return "ERROR|Invalid file. Please ensure you selected a valid resolvers file."
+		return "ERROR|Invalid file structure."
 	}
 
-	// --- STRUCTURAL VALIDATION CHECK ---
 	validCount := 0
 	for _, entry := range entries {
 		if entry.Resolver != "" && entry.RandResolver != "" {
@@ -426,11 +469,9 @@ func ImportResolversManual(data []byte) string {
 		}
 	}
 	if validCount == 0 {
-		// SANITIZED ERROR
 		return "ERROR|Invalid file format. Did you accidentally upload the configs file?"
 	}
 
-	// 5. Save directly to Vault without pre-parsing
 	configMu.Lock()
 	dir := vaultStorageDir
 	configMu.Unlock()
@@ -440,55 +481,46 @@ func ImportResolversManual(data []byte) string {
 		os.WriteFile(savePath, safeData, 0644)
 	}
 
-	// 6. Inject into active memory and clear caches
 	resolverMu.Lock()
 	RuntimeResolvers = make([]byte, len(safeData))
 	copy(RuntimeResolvers, safeData)
-	defaultDisplayResolvers = nil // Force re-parse on next UI request
+	defaultDisplayResolvers = nil
 	realIpMap = nil
 	resolverMu.Unlock()
 
 	return "SUCCESS|Resolvers upload successful!"
 }
 
-// ImportConfigsManual mimics the exact logic of manual resolver imports but for configs, with a version check.
 func ImportConfigsManual(data []byte) string {
 	if len(data) == 0 {
 		return "ERROR|Received 0 bytes from Android."
 	}
 
-	// 1. Ensure active configs are parsed so 'currentVersion' is accurate
 	ensureParsed()
 
-	// 2. Ghost Buster: Deep copy memory to prevent JNI corruption
 	safeData := make([]byte, len(data))
 	copy(safeData, data)
 
-	// 3. Decrypt a temporary copy to peek at the version
 	tempData := make([]byte, len(safeData))
 	copy(tempData, safeData)
 
-	mask, _ := hex.DecodeString(InjectedPrivateKey)
-	if len(mask) > 0 && len(tempData) > 0 {
-		for i := 0; i < len(tempData); i++ {
-			tempData[i] ^= mask[i%len(mask)]
+	if len(tempData) > 0 && InjectedPrivateKey != "" {
+		decrypted, err := decryptAESGCM(tempData, InjectedPrivateKey)
+		if err != nil {
+			return "ERROR|Decryption failed. Please ensure you selected a valid VayDNS configs file."
 		}
+		tempData = decrypted
 	}
 
-	// 4. Parse the temporary JSON to extract the incoming version
 	var tempWrapper ConfigWrapper
 	if err := json.Unmarshal(tempData, &tempWrapper); err != nil {
-		// SANITIZED ERROR
-		return "ERROR|Invalid file. Please ensure you selected a valid configs file."
+		return "ERROR|Invalid file structure."
 	}
 
-	// --- STRUCTURAL VALIDATION CHECK ---
 	if len(tempWrapper.Configs) == 0 {
-		// SANITIZED ERROR
 		return "ERROR|Invalid file format. Did you accidentally upload the resolvers file?"
 	}
 
-	// 5. Version Check
 	configMu.Lock()
 	activeVersion := currentVersion
 	configMu.Unlock()
@@ -497,7 +529,6 @@ func ImportConfigsManual(data []byte) string {
 		return "UP_TO_DATE|Configs are already updated."
 	}
 
-	// 6. Save the ENCRYPTED bytes directly to Vault
 	configMu.Lock()
 	dir := vaultStorageDir
 	configMu.Unlock()
@@ -507,11 +538,10 @@ func ImportConfigsManual(data []byte) string {
 		os.WriteFile(savePath, safeData, 0644)
 	}
 
-	// 7. Inject into active memory and clear caches
 	configMu.Lock()
 	RuntimeConfigs = make([]byte, len(safeData))
 	copy(RuntimeConfigs, safeData)
-	defaultConfigs = nil // Force re-parse on next UI request
+	defaultConfigs = nil
 	configMu.Unlock()
 
 	return "SUCCESS|Config upload successful!"

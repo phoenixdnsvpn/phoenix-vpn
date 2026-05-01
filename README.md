@@ -136,10 +136,12 @@ gomobile init
 ```
 # Build for ARM64
 cd mobile
+export PING_DOMAIN="example.com"
+# replace example.com with a high traffic url inside the country
 gomobile bind -v \
     -target=android/arm64 \
     -androidapi 24 \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
     -trimpath \
     -o ../vaydns-arm64.aar \
     .

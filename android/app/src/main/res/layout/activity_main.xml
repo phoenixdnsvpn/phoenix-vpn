@@ -92,6 +92,34 @@
                 android:text="Status: Disconnected"
                 android:textColor="?attr/colorOnSurface"
                 android:textSize="16sp" />
+            <LinearLayout
+                android:id="@+id/layout_network_stats"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:id="@+id/tv_speed"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="▼ 0 B/s  ▲ 0 B/s"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_total"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="Total: 0 B ↓  0 B ↑"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp" />
+            </LinearLayout>
 
             <Button
                 android:id="@+id/btn_toggle"

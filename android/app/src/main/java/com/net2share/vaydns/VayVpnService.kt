@@ -22,6 +22,8 @@ import androidx.core.app.NotificationCompat
 import mobile.Mobile
 import mobile.SocketProtector
 import java.net.InetAddress
+import android.net.TrafficStats
+import java.util.Locale
 
 // The Protector implementation that Go will call for every UDP/TCP socket
 
@@ -37,7 +39,61 @@ class VayVpnService : VpnService() {
     companion object {
         private val goLock = Any()
     }
+    private val statsHandler = Handler(Looper.getMainLooper())
+    private var initialRxBytes = 0L
+    private var initialTxBytes = 0L
+    private var previousRxBytes = 0L
+    private var previousTxBytes = 0L
 
+    private val statsRunnable = object : Runnable {
+        override fun run() {
+            if (isStopping) return
+
+            val uid = android.os.Process.myUid()
+            val currentRx = TrafficStats.getUidRxBytes(uid)
+            val currentTx = TrafficStats.getUidTxBytes(uid)
+
+            if (currentRx == TrafficStats.UNSUPPORTED.toLong()) return
+
+            // Initialize on first tick
+            if (initialRxBytes == 0L && initialTxBytes == 0L) {
+                initialRxBytes = currentRx
+                initialTxBytes = currentTx
+                previousRxBytes = currentRx
+                previousTxBytes = currentTx
+            }
+
+            val rxSpeed = currentRx - previousRxBytes
+            val txSpeed = currentTx - previousTxBytes
+            val rxTotal = currentRx - initialRxBytes
+            val txTotal = currentTx - initialTxBytes
+
+            previousRxBytes = currentRx
+            previousTxBytes = currentTx
+
+            val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
+            val totalStr = "Total: ${formatBytes(rxTotal)} ↓   ${formatBytes(txTotal)} ↑"
+
+            sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
+                putExtra("speed", speedStr)
+                putExtra("total", totalStr)
+                setPackage(packageName)
+            })
+
+            // Run again in 1 second
+            statsHandler.postDelayed(this, 1000)
+        }
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format(Locale.US, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format(Locale.US, "%.2f MB", mb)
+        val gb = mb / 1024.0
+        return String.format(Locale.US, "%.2f GB", gb)
+    }
     private class AndroidProtector(private var service: VpnService?) : SocketProtector {
         @Volatile
         private var active = true
@@ -293,6 +349,9 @@ class VayVpnService : VpnService() {
                     setPackage(packageName)
                 })
                 updateNotification("Status: Connected")
+                initialRxBytes = 0L
+                initialTxBytes = 0L
+                statsHandler.post(statsRunnable)
             } else {
                 Log.e("VayDNS", "Go-Level verification failed: $verifyResult")
 
@@ -368,6 +427,7 @@ class VayVpnService : VpnService() {
         isStopping = true
 
         Log.e("VAY_DEBUG", "PURGE: Killing network resources...")
+        statsHandler.removeCallbacks(statsRunnable)
 
         synchronized(goLock) {
             try {
@@ -390,6 +450,15 @@ class VayVpnService : VpnService() {
                 stopSelf()
             }
         }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.i("VayDNS", "App swiped away from recent tasks. Shutting down VPN...")
+
+        // Trigger your existing safe shutdown logic
+        cleanupAndStop()
+
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

@@ -17,7 +17,7 @@ import (
 )
 
 var globalDynamicPort int32
-
+var InjectedPingDomain string
 var dynamicPort int32 = 20000
 
 // 🚨 CRITICAL FIX: The Global Tunnel Registry
@@ -175,7 +175,18 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 //	activeTunnels = append(activeTunnels, cancelTunnel)
 //	tunnelMu.Unlock()
 
-	
+
+// --- NEW: FAST FAIL DNS PING ---
+	// If the server doesn't respond to a basic DNS query for aparat.com within 800ms, it's dead.
+	if !quickDNSCheck(ctx, resolver.addr, 800*time.Millisecond) {
+		return Result{
+			Resolver:  resolver.addr,
+			Probe:     "dead",
+			LatencyMS: 99999,
+		}, false
+	}
+	// --- END FAST FAIL ---
+		
 	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 
 	tCfg := ParseExtraArgs(cfg.ExtraArgs)
@@ -343,3 +354,73 @@ func ParseExtraArgs(args []string) bridge.TunnelConfig {
 
 	return config
 }
+
+// encodeDNSName converts a string like "aparat.com" into DNS wire format
+func encodeDNSName(domain string) []byte {
+
+	// Strips any accidental spaces, tabs, or newlines injected by the CI environment
+	cleanDomain := strings.TrimSpace(domain)
+	
+	var buf []byte
+	for _, part := range strings.Split(cleanDomain, ".") {
+		buf = append(buf, byte(len(part)))
+		buf = append(buf, []byte(part)...)
+	}
+	buf = append(buf, 0x00)
+	return buf
+}
+
+// quickDNSCheck sends a raw UDP DNS query to check if the IP is answering on port 53.
+func quickDNSCheck(ctx context.Context, addr string, timeout time.Duration) bool {
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var d net.Dialer
+	conn, err := d.DialContext(dialCtx, "udp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	// 1. Determine which domain to use (Fallback to aparat.com if not injected)
+	domain := InjectedPingDomain
+	if domain == "" {
+		domain = "google.com"  // you need to replace google.com with a url from inside the country
+	}
+
+	// 2. Build the DNS Query dynamically
+	header := []byte{
+		0xab, 0xcd, // Transaction ID
+		0x01, 0x00, // Flags: Standard query
+		0x00, 0x01, // Questions: 1
+		0x00, 0x00, // Answer RRs: 0
+		0x00, 0x00, // Authority RRs: 0
+		0x00, 0x00, // Additional RRs: 0
+	}
+	
+	qname := encodeDNSName(domain)
+	
+	footer := []byte{
+		0x00, 0x01, // Type A
+		0x00, 0x01, // Class IN
+	}
+
+	// 3. Assemble the full payload
+	query := append(header, qname...)
+	query = append(query, footer...)
+
+	conn.SetWriteDeadline(time.Now().Add(timeout))
+	if _, err := conn.Write(query); err != nil {
+		return false
+	}
+
+	// Wait for any response. If we get bytes back, a DNS server is listening.
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	buf := make([]byte, 512)
+	if _, err := conn.Read(buf); err != nil {
+		return false
+	}
+
+	return true
+}
+
