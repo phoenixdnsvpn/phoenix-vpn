@@ -48,7 +48,7 @@ jobs:
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
-            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.XORED_B64_JSON }}'" \
+            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.XORED_B64_JSON }}' -X 'github.com/Starling226/vaydns-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
             -trimpath \
             -o ../android/app/libs/vaydns-arm64.aar .
          
@@ -79,7 +79,7 @@ jobs:
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
             -androidapi 24 \
-            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.XORED_B64_JSON }}'" \
+            -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/Starling226/vaydns-vpn.InjectedConfigs=${{ secrets.XORED_B64_JSON }}' -X 'github.com/Starling226/vaydns-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
             -trimpath \
             -o ../android/app/libs/vaydns-armeabi.aar .
          
