@@ -194,7 +194,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
         val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
 //        val isConservative = intent.getBooleanExtra("CONSERVATIVE", false)
-        val workers = intent.getLongExtra("WORKERS", 10L)
+        val workers = intent.getLongExtra("WORKERS", 20L)
         val tunnelWait = intent.getLongExtra("TUNNEL_WAIT", 2000L)
         val udpTimeout = intent.getLongExtra("UDP_TIMEOUT", 1000L)
         val probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 15L)

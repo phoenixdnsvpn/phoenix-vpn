@@ -231,7 +231,7 @@ class DnsScannerActivity : AppCompatActivity() {
                 etRetries.setText("1")
             } else {
                 // High-performance settings
-                etWorkers.setText("10")
+                etWorkers.setText("20")
                 etTunnelWait.setText("1000")
                 etUdpTimeout.setText("1000")
                 etProbeTimeout.setText("15")

@@ -223,7 +223,7 @@
                 android:layout_height="wrap_content"
                 android:inputType="number"
                 android:textColor="?attr/colorOnSurface"
-                android:text="1000" />
+                android:text="5000" />
 
             <Switch
                 android:id="@+id/switch_random"
