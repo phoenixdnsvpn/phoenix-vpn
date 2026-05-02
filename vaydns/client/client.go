@@ -29,6 +29,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"sync/atomic"
 
 	"github.com/net2share/vaydns/dns"
 	"github.com/net2share/vaydns/noise"
@@ -91,6 +92,37 @@ type Resolver struct {
 	UDPTimeout      time.Duration // per-query response timeout (0 = DefaultUDPResponseTimeout)
 	UDPAcceptErrors bool          // pass through non-NOERROR responses (default: filter)
 }
+
+// --- PROXY STATS TRACKING ---
+
+var (
+	ProxyRxBytes uint64
+	ProxyTxBytes uint64
+)
+
+// StatsConn wraps a net.Conn to count bytes as they flow through.
+type StatsConn struct {
+	net.Conn
+}
+
+// Read counts bytes going OUT to the internet (Upload / TX)
+func (c *StatsConn) Read(b []byte) (n int, err error) {
+	n, err = c.Conn.Read(b)
+	if n > 0 {
+		atomic.AddUint64(&ProxyTxBytes, uint64(n))
+	}
+	return
+}
+
+// Write counts bytes coming IN from the internet (Download / RX)
+func (c *StatsConn) Write(b []byte) (n int, err error) {
+	n, err = c.Conn.Write(b)
+	if n > 0 {
+		atomic.AddUint64(&ProxyRxBytes, uint64(n))
+	}
+	return
+}
+
 
 // NewResolver creates a Resolver with the given type and address.
 func NewResolver(resolverType ResolverType, resolverAddr string) (Resolver, error) {
@@ -568,11 +600,15 @@ func (t *Tunnel) Handle(lconn *net.TCPConn) error {
 	}
 	defer stream.Close()
 
+	// --- NEW: Wrap the local connection ---
+	statsLocal := &StatsConn{Conn: lconn}
+	
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, err := io.Copy(stream, lconn)
+		//_, err := io.Copy(stream, lconn)
+		_, err := io.Copy(stream, statsLocal)
 		if shouldLogCopyError(err) {
 			log.Warnf("copy stream←local: %v", err)
 		}
@@ -581,7 +617,8 @@ func (t *Tunnel) Handle(lconn *net.TCPConn) error {
 	}()
 	go func() {
 		defer wg.Done()
-		_, err := io.Copy(lconn, stream)
+		//_, err := io.Copy(lconn, stream)
+		_, err := io.Copy(statsLocal, stream)
 		if shouldLogCopyError(err) {
 			log.Warnf("copy local←stream: %v", err)
 		}
@@ -812,11 +849,15 @@ func (t *Tunnel) handleConn(local *net.TCPConn, sess *smux.Session, conv uint32)
 	}()
 	log.Infof("stream %08x:%d ready", conv, stream.ID())
 
+	// --- NEW: Wrap the local connection ---
+	statsLocal := &StatsConn{Conn: local}
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, err := io.Copy(stream, local)
+//		_, err := io.Copy(stream, local)
+		_, err := io.Copy(stream, statsLocal)
 		if shouldLogCopyError(err) {
 			log.Warnf("stream %08x:%d copy stream←local: %v", conv, stream.ID(), err)
 		}
@@ -825,7 +866,8 @@ func (t *Tunnel) handleConn(local *net.TCPConn, sess *smux.Session, conv uint32)
 	}()
 	go func() {
 		defer wg.Done()
-		_, err := io.Copy(local, stream)
+		//_, err := io.Copy(local, stream)
+		_, err := io.Copy(statsLocal, stream)
 		if shouldLogCopyError(err) {
 			log.Warnf("stream %08x:%d copy local←stream: %v", conv, stream.ID(), err)
 		}
