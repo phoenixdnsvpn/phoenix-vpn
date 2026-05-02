@@ -77,7 +77,6 @@ func translateFakeToReal(input string) string {
 		}
 
 		finalUrl := parsedUrl.String()
-//		log.Printf("VAY_DEBUG_VPN: [TRANS] DoH URL translated. Fake: [%s] -> Real: [%s]", input, finalUrl)
 		return finalUrl
 	}
 
@@ -86,15 +85,12 @@ func translateFakeToReal(input string) string {
 	if err != nil {
 		// No port was provided by the user! Translate the raw IP and return it.
 		realHost := GetRealResolver(input)
-//		log.Printf("VAY_DEBUG_VPN: [TRANS] No port found. Raw: [%s] -> Real: [%s]", input, realHost)
 		return realHost
 	}
 
 	// 3. Port was attached, translate the host and strictly preserve the user's port
 	realHost := GetRealResolver(host)
 	finalAddress := net.JoinHostPort(realHost, port)
-
-//	log.Printf("VAY_DEBUG_VPN: [TRANS] Port preserved. Fake: [%s] -> Real: [%s]. Final: [%s]", host, realHost, finalAddress)
 
 	return finalAddress
 }
