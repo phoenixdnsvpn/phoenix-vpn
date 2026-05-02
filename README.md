@@ -170,7 +170,7 @@ Follow these steps to set up and start your secure tunnel:
     * To use built-in servers: Toggle on **Use default configs** and select a server from the list.
 3.  **Find a Usable Resolver**: To establish a tunnel, you must find a functional DNS Resolver for your current network.
     * Open the **Menu** and select **DNS Scanner**. 
-    * Use the default parameters and tap **START SCAN**.
+    * There are several options to choose from. You may use the default parameters and tap **START SCAN**.
     * Once the scan finishes, look for a resolver with a latency lower than **6000 ms**.
     * Tap the **Set (Checkmark)** icon to apply the fastest resolver to your config, or the **Save** icon to store a list of fast resolvers for later use. 
     * *Note: If no usable resolvers are found, go back and start a new scan to get a fresh random list.*
