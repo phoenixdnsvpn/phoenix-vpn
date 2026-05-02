@@ -45,28 +45,62 @@ private lateinit var tvSpeed: TextView
 private lateinit var tvTotal: TextView
 private var selectedConfigId: String? = null   // which config is active for START
 private val configList = mutableListOf<Config>() // Class-level list to hold User + Default configs
+private var isProxyMode = false
+private lateinit var layoutVpnControls: LinearLayout
+private lateinit var layoutProxyControls: LinearLayout
+//private lateinit var tvProxyAddress: TextView
+private lateinit var etProxyPort: EditText
+private var selectedApps = mutableSetOf<String>()
 class MainActivity : AppCompatActivity() {
 
     private var configAdapter: ConfigAdapter? = null
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            // Catch the stats broadcast and update text instantly
+            // ... (VPN_STATS_UPDATE block stays the same) ...
+
             if (intent?.action == "VPN_STATS_UPDATE") {
-                tvSpeed.text = intent.getStringExtra("speed") ?: ""
-                tvTotal.text = intent.getStringExtra("total") ?: ""
+                val speed = intent.getStringExtra("speed") ?: ""
+                val total = intent.getStringExtra("total") ?: ""
+
+                // --- 🔴 PROVE THE UI IS RECEIVING IT ---
+//                android.util.Log.d("VAY_UI_DEBUG", "Received in UI: $speed")
+
+                tvSpeed.text = speed
+                tvTotal.text = total
                 return
             }
 
-            // Original status handling
             val status = intent?.getStringExtra("status")
             when (status) {
                 "CONNECTED" -> {
                     isVpnConnected = true
                     updateUIState(true)
+
+                    // Lock the port field while running
+                    if (isProxyMode && ::etProxyPort.isInitialized) {
+                        etProxyPort.isEnabled = false
+                    }
+                }
+                "ERROR" -> {
+                    isVpnConnected = false
+                    updateUIState(false)
+
+                    // Unlock the port field so they can try a new one
+                    if (isProxyMode && ::etProxyPort.isInitialized) {
+                        etProxyPort.isEnabled = true
+                    }
+
+                    val msg = intent.getStringExtra("message") ?: "Failed to start proxy"
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
                 }
                 "DISCONNECTED", "STOPPED" -> {
                     isVpnConnected = false
                     updateUIState(false)
+
+                    // Unlock the port field
+                    if (isProxyMode && ::etProxyPort.isInitialized) {
+                        etProxyPort.isEnabled = true
+                    }
                 }
             }
         }
@@ -97,6 +131,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun loadSelectedApps() {
+        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        selectedApps = (sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()).toMutableSet()
+    }
     private val configFilePickerLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -121,6 +159,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        loadSelectedApps()
 
         mobile.Mobile.initVault(filesDir.absolutePath)
 
@@ -157,6 +196,10 @@ class MainActivity : AppCompatActivity() {
         //btnStop = findViewById(R.id.btn_stop)
         recyclerConfigs = findViewById(R.id.recycler_configs)
         switchDefault = findViewById(R.id.switch_default_configs)
+        layoutVpnControls = findViewById(R.id.layout_vpn_controls)
+        layoutProxyControls = findViewById(R.id.layout_proxy_controls)
+        //tvProxyAddress = findViewById(R.id.tv_proxy_address)
+        etProxyPort = findViewById(R.id.et_proxy_port)
 
         val configCount = mobile.Mobile.getDefaultConfigCount()
         val buildStatus = mobile.Mobile.getBuildStatus()
@@ -202,6 +245,25 @@ class MainActivity : AppCompatActivity() {
             if (isVpnConnected) {
                 stopVpnService()
             } else {
+                if (!isProxyMode) {
+                    // Safety check: Prevent starting VPN with no apps selected
+                    if (selectedApps.isEmpty()) {
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                            .setTitle("No Apps Selected / هیچ برنامه‌ای انتخاب نشده است")
+                            .setMessage("""
+                                Please select at least one app to tunnel before starting VPN mode. Alternatively, switch to Proxy Mode to use the tunnel with apps like Telegram.
+                                
+                                لطفاً قبل از شروع حالت VPN، حداقل یک برنامه را برای عبور از تونل انتخاب کنید. در غیر این صورت، می‌توانید برای استفاده از برنامه‌هایی مانند تلگرام، به حالت پروکسی (Proxy Mode) تغییر دهید.
+                            """.trimIndent())
+                            .setPositiveButton("SELECT APPS / انتخاب برنامه‌ها") { _, _ ->
+                                // Navigate to your App Selector
+                                startActivity(Intent(this, AppSelectorActivity::class.java))
+                            }
+                            .setNegativeButton("CANCEL / لغو", null)
+                            .show()
+                        return@setOnClickListener // Stop the process here
+                    }
+                }
                 startVpnService()
             }
         }
@@ -771,6 +833,7 @@ class MainActivity : AppCompatActivity() {
                         putExtra("IS_DEFAULT", config.isDefault)
                         putExtra("IDLE_TIMEOUT", config.idleTimeout)
                         putExtra("CLIENT_ID_SIZE", config.clientIdSize)
+                        putExtra("MODE", config.mode)
                     }
                     startActivity(intent)
                 }
@@ -825,6 +888,31 @@ class MainActivity : AppCompatActivity() {
 
             R.id.action_how_to_use -> {
                 showHowToUseDialog()
+                true
+            }
+
+            R.id.action_toggle_mode -> {
+                if (isVpnConnected) {
+                    Toast.makeText(this, "Please stop the current connection first.", Toast.LENGTH_SHORT).show()
+                    return true
+                }
+
+                isProxyMode = !isProxyMode
+                if (isProxyMode) {
+                    item.title = "Switch to VPN Mode"
+                    layoutVpnControls.visibility = android.view.View.GONE
+                    layoutProxyControls.visibility = android.view.View.VISIBLE
+                    //tvProxyAddress.text = "SOCKS5: Waiting for connection..."
+                    if (::etProxyPort.isInitialized) {
+                        etProxyPort.isEnabled = true
+                    }
+                    //Toast.makeText(this, "Proxy Mode Enabled", Toast.LENGTH_SHORT).show()
+                } else {
+                    item.title = "Switch to Proxy Mode"
+                    layoutVpnControls.visibility = android.view.View.VISIBLE
+                    layoutProxyControls.visibility = android.view.View.GONE
+                    //Toast.makeText(this, "VPN Mode Enabled", Toast.LENGTH_SHORT).show()
+                }
                 true
             }
 
@@ -1202,6 +1290,10 @@ class MainActivity : AppCompatActivity() {
 
             action = "ACTION_START_VPN"
 
+            //val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+            //val selectedApps = sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
+            putStringArrayListExtra("ALLOWED_APPS_LIST", ArrayList(selectedApps))
+
             val nativeIndex = if (config.isDefault) {
                 config.id.removePrefix("default_").toLongOrNull() ?: 0L
             } else {
@@ -1250,7 +1342,36 @@ class MainActivity : AppCompatActivity() {
             putExtra("PASS", finalPass)
         }
 
-        val vpnIntent = VpnService.prepare(this)
+        if (isProxyMode) {
+            var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
+            // Guardrail: Android prevents binding to ports under 1024 without root
+            if (proxyPort < 1024 || proxyPort > 65535) {
+                proxyPort = 1080
+                etProxyPort.setText("1080")
+                Toast.makeText(this, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
+            }
+            intent.putExtra("PROXY_PORT", proxyPort.toLong()) // Gomobile expects Long
+
+            intent.setClass(this, VayProxyService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } else {
+            // VPN MODE: Use standard Android VpnService logic
+            val vpnIntent = VpnService.prepare(this)
+            if (vpnIntent != null) {
+                vpnPermissionLauncher.launch(vpnIntent)
+            } else {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
+        }
+        /**val vpnIntent = VpnService.prepare(this)
         if (vpnIntent != null) {
             vpnPermissionLauncher.launch(vpnIntent)
         } else {
@@ -1259,15 +1380,17 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startService(intent)
             }
-        }
+        }*/
 
     }
 
     private fun stopVpnService() {
-        val stopIntent = Intent(this, VayVpnService::class.java).apply {
-            action = "ACTION_STOP_VPN"
-        }
-        startService(stopIntent)
+        //val stopIntent = Intent(this, VayVpnService::class.java).apply {
+        //    action = "ACTION_STOP_VPN"
+        //}
+        //startService(stopIntent)
+        startService(Intent(this, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
+        startService(Intent(this, VayProxyService::class.java).apply { action = "ACTION_STOP_VPN" })
 
         // 1. Reset tracking variable
         isVpnConnected = false
@@ -1289,21 +1412,16 @@ class MainActivity : AppCompatActivity() {
             btnToggle.text = "START TUNNEL"
             btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
             tvStatus.text = "Status: Disconnected"
+
+            if (isProxyMode && ::etProxyPort.isInitialized) {
+                etProxyPort.isEnabled = true
+            }
         }, 1000)
-    }
-
-    private fun stopVpnService_x() {
-        val stopIntent = Intent(this, VayVpnService::class.java).apply {
-            action = "ACTION_STOP_VPN"
-        }
-        startService(stopIntent)
-
-        tvStatus.text = "Status: Disconnected"
-        tvStatus.setTextColor(Color.parseColor("#424242"))
     }
 
     override fun onResume() {
         super.onResume()
+        loadSelectedApps()
         checkForPendingDnsUpdates()
         refreshConfigList()   // refresh after returning from editor
     }

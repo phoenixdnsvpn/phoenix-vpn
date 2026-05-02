@@ -53,6 +53,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_toggle_mode"
+        android:title="Switch to Proxy Mode"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_about"
         android:title="About"
         app:showAsAction="never" />

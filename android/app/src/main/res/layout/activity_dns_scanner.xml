@@ -173,6 +173,15 @@
                     android:layout_marginStart="8dp" />
             </LinearLayout>
 
+            <Button
+                android:id="@+id/btn_paste_resolvers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Paste Resolvers"
+                android:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
+                android:layout_marginTop="8dp" />
+
             <TextView
                 android:id="@+id/tv_resolvers_count"
                 android:layout_width="match_parent"

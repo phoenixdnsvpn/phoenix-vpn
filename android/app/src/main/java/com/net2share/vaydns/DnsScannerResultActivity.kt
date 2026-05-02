@@ -193,6 +193,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
         val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
         val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
+        val selectedMode = intent.getStringExtra("MODE") ?: "udp"
 //        val isConservative = intent.getBooleanExtra("CONSERVATIVE", false)
         val workers = intent.getLongExtra("WORKERS", 20L)
         val tunnelWait = intent.getLongExtra("TUNNEL_WAIT", 2000L)
@@ -241,7 +242,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 btnStopResume.text = "STOP"
                 isRunning = true
 
-                startScan(isDefaultConfig, configIndex, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
+                startScan(isDefaultConfig, configIndex, selectedMode, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
                     workers, tunnelWait, udpTimeout, probeTimeout, retries, user, pass,
                     idleTimeout, keepAlive, clientIdSize)
             }
@@ -284,7 +285,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         mobile.Mobile.initVault(filesDir.absolutePath)
 
         // Start initial scan
-        startScan(isDefaultConfig, configIndex, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
+        startScan(isDefaultConfig, configIndex, selectedMode, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
             workers, tunnelWait, udpTimeout, probeTimeout, retries, user, pass,
             idleTimeout, keepAlive, clientIdSize)
     }
@@ -304,6 +305,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private fun startScan(
         isDefaultConfig: Boolean,
         configIndex: Long,
+        selectedMode: String,
         domain: String,
         pubkey: String,
         resolvers: String,
@@ -374,6 +376,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
             Mobile.startF35Scan(
                 isDefaultConfig,
                 configIndex,
+                selectedMode,
                 domain,
                 pubkey,
                 resolvers,

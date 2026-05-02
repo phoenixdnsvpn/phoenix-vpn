@@ -45,7 +45,7 @@ class VayVpnService : VpnService() {
     private var previousRxBytes = 0L
     private var previousTxBytes = 0L
 
-    private val statsRunnable = object : Runnable {
+    /*private val statsRunnable = object : Runnable {
         override fun run() {
             if (isStopping) return
 
@@ -81,6 +81,49 @@ class VayVpnService : VpnService() {
             })
 
             // Run again in 1 second
+            statsHandler.postDelayed(this, 1000)
+        }
+    }*/
+    private val statsRunnable = object : Runnable {
+        override fun run() {
+            if (isStopping) return
+
+            try {
+                // 1. Fetch exact bytes from the Go Engine
+                // (It works for both VPN and Proxy since it tracks the core tunnel!)
+                val stats = mobile.Mobile.getProxyStats()
+                val parts = stats.split("|")
+
+                if (parts.size == 2) {
+                    val currentRx = parts[0].toLong()
+                    val currentTx = parts[1].toLong()
+
+                    // 2. Safe Math: Prevent Kotlin background crashes
+                    val diffRx = currentRx - previousRxBytes
+                    val diffTx = currentTx - previousTxBytes
+
+                    val rxSpeed = if (diffRx < 0) 0L else diffRx
+                    val txSpeed = if (diffTx < 0) 0L else diffTx
+
+                    previousRxBytes = currentRx
+                    previousTxBytes = currentTx
+
+                    // 3. Format strings
+                    val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
+                    val totalStr = "Total: ${formatBytes(currentRx)} ↓   ${formatBytes(currentTx)} ↑"
+
+                    // 4. Broadcast to MainActivity
+                    sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
+                        putExtra("speed", speedStr)
+                        putExtra("total", totalStr)
+                        setPackage(packageName)
+                    })
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VAY_VPN", "Error parsing Go stats: ${e.message}")
+            }
+
+            // 5. Always schedule the next tick
             statsHandler.postDelayed(this, 1000)
         }
     }
@@ -253,7 +296,25 @@ class VayVpnService : VpnService() {
                     }
 
                     // App Filtering
-                    val sharedPref = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
+                    val selectedApps = intent?.getStringArrayListExtra("ALLOWED_APPS_LIST")?.toSet() ?: emptySet()
+
+                    if (selectedApps.isNotEmpty()) {
+                        for (pkg in selectedApps) {
+                            try {
+                                builder.addAllowedApplication(pkg)
+                            } catch (e: PackageManager.NameNotFoundException) {
+                                Log.e("VayDNS", "App not found (might be uninstalled): $pkg")
+                            } catch (e: Exception) {
+                                Log.e("VayDNS", "Could not tunnel app: $pkg")
+                            }
+                        }
+                    } else {
+                        // Default: If nothing is selected, only tunnel VayDNS itself
+                        try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
+                    }
+
+                    // App Filtering
+                    /*val sharedPref = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
                     val selectedApps = sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
                     if (selectedApps.isNotEmpty()) {
                         for (pkg in selectedApps) {
@@ -261,7 +322,7 @@ class VayVpnService : VpnService() {
                         }
                     } else {
                         try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
-                    }
+                    }*/
 
                     protector = AndroidProtector(this@VayVpnService)
                     tunInterface = builder.establish()

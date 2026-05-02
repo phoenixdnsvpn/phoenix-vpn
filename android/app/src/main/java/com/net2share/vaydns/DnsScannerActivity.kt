@@ -14,6 +14,7 @@ import kotlin.random.Random
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import mobile.Mobile
 import mobile.ScanResultCallback
+import android.util.Log
 
 class DnsScannerActivity : AppCompatActivity() {
 
@@ -33,12 +34,14 @@ class DnsScannerActivity : AppCompatActivity() {
     private lateinit var etRetries: EditText
     private lateinit var btnStartScan: Button
 
+    private lateinit var btnPasteResolvers: Button
     private var selectedIdleTimeout = "10s"
     private var selectedKeepAlive = "2s"
     private var selectedClientIdSize = 2L
     private var selectedDomain = ""
     private var selectedPubkey = ""
     private var selectedRecordType = "TXT"
+    private var selectedMode = "udp"
     private var configId = ""
     private var resolversList: List<String> = emptyList()
     private var isDefaultConfig = false
@@ -79,6 +82,7 @@ class DnsScannerActivity : AppCompatActivity() {
         selectedIdleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
         selectedKeepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
         selectedClientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
+        selectedMode = intent.getStringExtra("MODE") ?: "udp"
 
         toolbar.title = "DNS Resolver Scanner"
 //        toolbar.subtitle = if (selectedDomain.contains("-")) "Protected Config" else selectedDomain
@@ -121,6 +125,7 @@ class DnsScannerActivity : AppCompatActivity() {
         layoutCidrSelection = findViewById(R.id.layout_cidr_selection)
         tvSelectedCidr = findViewById(R.id.tv_selected_cidr)
         btnSelectCidr = findViewById(R.id.btn_select_cidr)
+        btnPasteResolvers = findViewById(R.id.btn_paste_resolvers)
 
         if (!isDefaultConfig) {
             switchConfigResolvers.visibility = android.view.View.GONE
@@ -145,6 +150,7 @@ class DnsScannerActivity : AppCompatActivity() {
             if (switchCidrMode.isChecked) loadDefaultCidrs() else loadDefaultResolvers()
         }
         btnCustomResolvers.setOnClickListener { chooseCustomResolvers() }
+        btnPasteResolvers.setOnClickListener { showPasteResolversDialog() }
 
         // IMPLEMENTED LOGIC: Guardrail to prevent scanning through a VPN
         btnStartScan.setOnClickListener {
@@ -176,17 +182,7 @@ class DnsScannerActivity : AppCompatActivity() {
 
         switchConfigResolvers.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
-                // 1. Disable all other resolver sources so they cannot be mixed
-                btnDefaultResolvers.isEnabled = false
-                btnCustomResolvers.isEnabled = false
-                switchPublicDns.isChecked = false
-                switchPublicDns.isEnabled = false
-                switchCidrMode.isEnabled = false
-                // 2. Disable the limit (we want to scan ALL official ones)
-                etNumResolvers.isEnabled = false
-                etNumResolvers.alpha = 0.5f
-
-                // 3. Fetch ALL FAKE IPs from ALL configs in Go memory
+                // --- 1. PROACTIVE DATA CHECK (No UI changes yet) ---
                 val count = Mobile.getDefaultConfigCount()
                 val allResolvers = mutableSetOf<String>()
 
@@ -197,25 +193,42 @@ class DnsScannerActivity : AppCompatActivity() {
                     }
                 }
 
-                if (allResolvers.isNotEmpty()) {
-                    resolversList = allResolvers.toList()
-                    tvResolversCount.text = "Loaded all official resolvers: ${resolversList.size}"
-                    Toast.makeText(this, "Isolated to official resolvers only.", Toast.LENGTH_SHORT).show()
-                } else {
+                // --- 2. ABORT IF EMPTY (Before locking anything) ---
+                if (allResolvers.isEmpty()) {
                     Toast.makeText(this, "No default resolvers found. Try updating from the main menu.", Toast.LENGTH_LONG).show()
+
+                    // Resetting to false will skip the rest of this 'if' block
+                    // and trigger the 'else' branch to ensure the UI is in its default state.
                     switchConfigResolvers.isChecked = false
+                    return@setOnCheckedChangeListener
                 }
+
+                // --- 3. LOCK UI (Only if data was found) ---
+                btnDefaultResolvers.isEnabled = false
+                btnCustomResolvers.isEnabled = false
+                btnPasteResolvers.isEnabled = false
+                switchPublicDns.isChecked = false
+                switchPublicDns.isEnabled = false
+                switchCidrMode.isEnabled = false
+
+                etNumResolvers.isEnabled = false
+                etNumResolvers.alpha = 0.5f
+
+                resolversList = allResolvers.toList()
+                tvResolversCount.text = "Loaded all official resolvers: ${resolversList.size}"
+                Toast.makeText(this, "Isolated to official resolvers only.", Toast.LENGTH_SHORT).show()
+
             } else {
-                // 1. Re-enable all other resolver sources
+                // --- 4. UNLOCK UI ---
                 btnDefaultResolvers.isEnabled = true
                 btnCustomResolvers.isEnabled = true
+                btnPasteResolvers.isEnabled = true
                 switchPublicDns.isEnabled = true
                 switchCidrMode.isEnabled = true
-                // 2. Re-enable the limit
+
                 etNumResolvers.isEnabled = true
                 etNumResolvers.alpha = 1.0f
 
-                // 3. Fallback to the generic assets file
                 loadDefaultResolvers()
             }
         }
@@ -267,7 +280,14 @@ class DnsScannerActivity : AppCompatActivity() {
             val inputStream = contentResolver.openInputStream(uri)
             if (inputStream != null) {
                 val content = inputStream.bufferedReader().use { it.readText() }
-                val parsedLines = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                //android.util.Log.d("VAY_SCANNER", "RAW CONTENT READ:\n$content")
+                //val parsedLines = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                val parsedLines = content.split(Regex("[\\s,;]+"))
+                    .map { it.replace("\"", "").trim() }
+                    .filter { it.isNotEmpty() }
+
+                //android.util.Log.d("VAY_SCANNER", "PARSED LINES FOUND: ${parsedLines.size}")
+                //android.util.Log.d("VAY_SCANNER", "PARSED DATA: $parsedLines")
 
                 if (parsedLines.isNotEmpty()) {
                     if (switchCidrMode.isChecked) {
@@ -282,6 +302,10 @@ class DnsScannerActivity : AppCompatActivity() {
                     } else {
                         resolversList = parsedLines
                         tvResolversCount.text = "Loaded custom resolvers: ${resolversList.size}"
+                        val currentThreshold = etNumResolvers.text.toString().toIntOrNull() ?: 5000
+                        if (parsedLines.size < currentThreshold) {
+                            etNumResolvers.setText(parsedLines.size.toString())
+                        }
                         Toast.makeText(this, "Loaded ${resolversList.size} custom resolvers", Toast.LENGTH_SHORT).show()
                     }
                 } else {
@@ -351,12 +375,30 @@ class DnsScannerActivity : AppCompatActivity() {
         customTitleLayout.addView(mainTitle)
         customTitleLayout.addView(statusLabel)
 
+        // Inside showCidrSelectionDialog in DnsScannerActivity.kt
         fun updateStatusLabel() {
             var totalSize = 0L
             for (cidr in selectedCidrs) {
                 totalSize += getCidrInfo(cidr)?.second ?: 0L
             }
             statusLabel.text = "Total selected: $totalSize"
+
+            // Determine the ceiling based on the protocol
+            val modeLimit = when (selectedMode.lowercase()) {
+                "doh" -> 1024
+                "dot" -> 4096
+                else -> 16384 // UDP
+            }
+
+            // Turn red if current mode limit is reached or exceeded
+            if (totalSize > modeLimit) {
+                statusLabel.setTextColor(android.graphics.Color.RED)
+            } else {
+                val primaryColor = com.google.android.material.color.MaterialColors.getColor(
+                    this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE
+                )
+                statusLabel.setTextColor(primaryColor)
+            }
         }
 
         updateStatusLabel() // Initialize with current states
@@ -439,6 +481,249 @@ class DnsScannerActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showPasteResolversDialog() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val etInput = EditText(this).apply {
+            hint = "Paste IPs or CIDRs here (separated by spaces, commas, semicolons, or lines)..."
+            minLines = 8
+            maxLines = 12
+            gravity = android.view.Gravity.TOP
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = (12 * resources.displayMetrics.density).toInt()
+            }
+        }
+
+        // --- Custom Action Buttons Layout ---
+        val actionLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+
+        val primaryColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
+        val onPrimaryColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, com.google.android.material.R.attr.colorOnPrimary, android.graphics.Color.WHITE)
+
+        val btnClean = Button(this).apply {
+            text = "Clean"
+            backgroundTintList = android.content.res.ColorStateList.valueOf(primaryColor)
+            setTextColor(onPrimaryColor)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 8 }
+        }
+
+        val btnSave = Button(this).apply {
+            text = "Save"
+            backgroundTintList = android.content.res.ColorStateList.valueOf(primaryColor)
+            setTextColor(onPrimaryColor)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 8 }
+        }
+
+        actionLayout.addView(btnClean)
+        actionLayout.addView(btnSave)
+        container.addView(etInput)
+        container.addView(actionLayout)
+
+        val titleText = if (switchCidrMode.isChecked) "Paste CIDR Blocks" else "Paste Static Resolvers"
+
+        // Create the Dialog but DO NOT show it yet
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(titleText)
+            .setView(container)
+            .setPositiveButton("Import", null) // Set to null so we can override the auto-close behavior
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        // --- Override the Import Button behavior to prevent auto-closing ---
+        dialog.setOnShowListener {
+            val btnImport = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
+            btnImport.setOnClickListener {
+                val rawText = etInput.text.toString()
+
+                // 🚨 1. THE CIDR GUARDRAIL 🚨
+                val hasCidr = rawText.split(Regex("[\\s,;]+")).any { it.contains("/") }
+
+                if (!switchCidrMode.isChecked && hasCidr) {
+                    // Block the import, warn the user, and keep the main dialog open!
+                    MaterialAlertDialogBuilder(this@DnsScannerActivity)
+                        .setTitle("CIDR Block Detected / بلوک CIDR شناسایی شد")
+                        .setMessage("""
+                            You pasted a CIDR block, but the scanner is in 'Static Resolvers' mode.
+                            Please tap 'Save' to save this list, then enable the 'Use CIDR Block' option and import your saved file.
+                            
+                            شما یک بلوک CIDR را جای‌گذاری کرده‌اید، اما اسکنر در حالت 'Static Resolvers' (آی‌پی‌های ثابت) قرار دارد.
+                            لطفاً برای ذخیره این لیست روی 'Save' تپ کنید، سپس گزینه 'Use CIDR Block' را فعال کرده و فایل ذخیره شده خود را وارد کنید.
+                        """.trimIndent())
+                        .setPositiveButton("OK / تأیید", null)
+                        .show()
+                    return@setOnClickListener // Abort the import!
+                }
+
+                // 2. Proceed with normal import logic
+                val cleanedList = processPastedText(rawText)
+
+                if (cleanedList.isNotEmpty()) {
+                    if (switchCidrMode.isChecked) {
+                        loadedCidrs = cleanedList
+                        tvResolversCount.text = "Loaded pasted CIDR blocks: ${loadedCidrs.size}"
+                        selectedCidrs.clear()
+                        tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+                        Toast.makeText(this@DnsScannerActivity, "Imported ${loadedCidrs.size} CIDR blocks", Toast.LENGTH_SHORT).show()
+                    } else {
+                        resolversList = cleanedList
+                        tvResolversCount.text = "Loaded pasted resolvers: ${resolversList.size}"
+
+                        val currentThreshold = etNumResolvers.text.toString().toIntOrNull() ?: 5000
+                        if (cleanedList.size < currentThreshold) {
+                            etNumResolvers.setText(cleanedList.size.toString())
+                        }
+                        Toast.makeText(this@DnsScannerActivity, "Imported ${resolversList.size} resolvers", Toast.LENGTH_SHORT).show()
+                    }
+                    dialog.dismiss() // Data is safe, NOW we can close the dialog
+                } else {
+                    Toast.makeText(this@DnsScannerActivity, "No valid entries found to import.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        // --- CLEAN BUTTON LOGIC ---
+        btnClean.setOnClickListener {
+            val rawText = etInput.text.toString()
+            val cleanedList = processPastedText(rawText)
+            etInput.setText(cleanedList.joinToString("\n")) // Formats into strict 1-per-line
+            Toast.makeText(this@DnsScannerActivity, "Found ${cleanedList.size} valid, unique entries.", Toast.LENGTH_SHORT).show()
+        }
+
+        // --- SAVE BUTTON LOGIC ---
+// --- SAVE BUTTON LOGIC ---
+        btnSave.setOnClickListener {
+            val rawText = etInput.text.toString()
+            if (rawText.isBlank()) {
+                Toast.makeText(this, "Nothing to save.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val fileNameInput = EditText(this).apply {
+                hint = "my_custom_resolvers"
+                inputType = android.text.InputType.TYPE_CLASS_TEXT
+            }
+
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Save File")
+                .setMessage("Enter a name for this text file:")
+                .setView(fileNameInput)
+                .setPositiveButton("Save") { _, _ ->
+                    val name = fileNameInput.text.toString().trim()
+                    if (name.isNotEmpty()) {
+
+                        // We format the text (1-per-line, no duplicates)
+                        // but DO NOT strip out CIDR blocks so they are preserved in the saved file
+                        val cleanedForSave = rawText.split(Regex("[\\s,;]+"))
+                            .map { it.replace("\"", "").trim() }
+                            .filter { it.isNotEmpty() }
+                            .distinct()
+
+                        val finalContent = cleanedForSave.joinToString("\n")
+
+                        // Push directly to the public Downloads folder
+                        saveToDownloads(name, finalContent)
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        dialog.show()
+    }
+
+    private fun saveToDownloads(fileName: String, content: String) {
+        try {
+            val safeName = if (fileName.endsWith(".txt")) fileName else "$fileName.txt"
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                // Modern Android (API 29+): Uses MediaStore, NO storage permissions required!
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, safeName)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    // Groups them neatly in a VayDNS folder inside Downloads
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/VayDNS")
+                }
+
+                val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri != null) {
+                    contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        outputStream.write(content.toByteArray())
+                    }
+                    Toast.makeText(this, "Saved to Downloads/VayDNS/$safeName", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Failed to create file in Downloads", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // Legacy Android (Android 9 and below)
+                // Note: This requires <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" /> in your Manifest
+                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                val vayDnsDir = java.io.File(downloadsDir, "VayDNS")
+                if (!vayDnsDir.exists()) vayDnsDir.mkdirs()
+
+                val file = java.io.File(vayDnsDir, safeName)
+                file.writeText(content)
+                Toast.makeText(this, "Saved to Downloads/VayDNS/$safeName", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
+            android.util.Log.e("VAY_SCANNER", "Error saving to Downloads", e)
+        }
+    }
+
+    private fun processPastedText(rawText: String): List<String> {
+        // 1. Flexible split (spaces, commas, tabs, lines)
+        // 2. Remove quotes
+        // 3. Remove duplicates natively
+        val parsedLines = rawText.split(Regex("[\\s,;]+"))
+            .map { it.replace("\"", "").trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
+        // 4. Run through strict structural validation
+        return if (switchCidrMode.isChecked) {
+            parsedLines.filter { isValidCidr(it) }
+        } else {
+            // Uses your existing validation logic for Static IPs and Ports
+            validateAndFilterResolvers(parsedLines, selectedMode)
+        }
+    }
+
+    // Checks if the IP is exactly 4 octets, all between 0 and 255
+    private fun isValidIpv4(ip: String): Boolean {
+        val parts = ip.split(".")
+        if (parts.size != 4) return false
+        return parts.all { it.toIntOrNull() in 0..255 }
+    }
+
+    // Checks if it's a valid IP, and if it has a port, checks if the port is 1-65535
+    private fun isValidIpv4WithOptionalPort(input: String): Boolean {
+        if (input.contains(":")) {
+            val parts = input.split(":")
+            if (parts.size != 2) return false
+            val port = parts[1].toIntOrNull()
+            return isValidIpv4(parts[0]) && port != null && port in 1..65535
+        }
+        return isValidIpv4(input)
+    }
+
+    // Checks if the IP is valid AND the subnet mask is between 0 and 32
+    private fun isValidCidr(cidr: String): Boolean {
+        val parts = cidr.split("/")
+        if (parts.size != 2) return false
+        val prefix = parts[1].toIntOrNull()
+        return isValidIpv4(parts[0]) && prefix != null && prefix in 0..32
+    }
     private fun getCidrInfo(cidr: String): Pair<Long, Long>? {
         try {
             val parts = cidr.split("/")
@@ -501,7 +786,6 @@ class DnsScannerActivity : AppCompatActivity() {
     }
 
     private fun startScan() {
-
         if (isVpnActive()) {
             AlertDialog.Builder(this)
                 .setTitle("VPN Active")
@@ -510,135 +794,149 @@ class DnsScannerActivity : AppCompatActivity() {
                 .show()
             return
         }
+        //var publicDnsList = emptyList<String>()
+        // --- 1. APPLY PROTOCOL-SPECIFIC CEILINGS ---
+        val selectedModeLower = selectedMode.lowercase()
+        val modeLimit = when (selectedModeLower) {
+            "doh" -> 1024
+            "dot" -> 4096
+            else -> 16384
+        }
+        val publicSize = if (switchPublicDns.isChecked) {
+            if (selectedModeLower == "udp") 24 else 8
+        } else 0
 
+        val rawInputNum = etNumResolvers.text.toString().toIntOrNull() ?: 2000
+        val totalIntended = rawInputNum + publicSize
+        val threshold = modeLimit + publicSize
+
+        Log.d("VAY_DEBUG", "Intended: $totalIntended | Threshold: $threshold")
+
+        if (totalIntended > threshold) {
+            // DIALOG FIRST: No heavy processing has happened yet!
+            MaterialAlertDialogBuilder(this)
+                .setTitle("High Volume Scan")
+                .setMessage("You requested $totalIntended resolvers. This exceeds the stable limit and will take a long time. Proceed?")
+                .setPositiveButton("Confirm and Start") { _, _ ->
+                    // Only process the list after confirmation
+                    prepareAndLaunchScan(modeLimit)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } else {
+            // Within limits, process immediately
+            prepareAndLaunchScan(rawInputNum)
+        }
+    }
+
+    private fun prepareAndLaunchScan(numToTake: Int) {
+        val useRandom = switchRandom.isChecked
+        val baseResolvers = mutableListOf<String>()
+
+        // --- 2. SEPARATED SOURCE SELECTION ---
         if (switchCidrMode.isChecked) {
+            // --- CIDR MODE ---
             if (selectedCidrs.isEmpty()) {
                 Toast.makeText(this, "Please select at least one CIDR block", Toast.LENGTH_SHORT).show()
                 return
             }
+
+            val allCidrIps = mutableListOf<String>()
+            for (cidr in selectedCidrs) {
+                val info = getCidrInfo(cidr)
+                val size = info?.second?.toInt() ?: 0
+                if (size > 0) {
+                    // Generate IPs from block
+                    allCidrIps.addAll(getIpsFromCidr(cidr, size, false))
+                }
+            }
+
+            val sampled = if (useRandom) allCidrIps.shuffled().take(numToTake) else allCidrIps.take(numToTake)
+            baseResolvers.addAll(sampled)
+
         } else {
+            // --- STATIC MODE ---
             if (resolversList.isEmpty()) {
                 Toast.makeText(this, "Please load resolvers first", Toast.LENGTH_SHORT).show()
                 return
             }
+
+            // Final validation before sampling
+            val validatedStatic = validateAndFilterResolvers(resolversList, selectedMode)
+            val sampled = if (useRandom) validatedStatic.shuffled().take(numToTake) else validatedStatic.take(numToTake)
+            baseResolvers.addAll(sampled)
         }
 
-        val parsedNum = etNumResolvers.text.toString().toIntOrNull() ?: 2000
-        val isUsingConfigResolvers = switchConfigResolvers.isChecked
-
-        val numResolvers = if (isUsingConfigResolvers && !switchCidrMode.isChecked) resolversList.size else parsedNum
-
-        if (!switchCidrMode.isChecked) {
-            if (numResolvers < 1 || numResolvers > resolversList.size) {
-                Toast.makeText(this, "Number of resolvers must be between 1 and ${resolversList.size}", Toast.LENGTH_LONG).show()
-                return
+        // --- 3. PROTOCOL FORMATTING ---
+        val modeLower = if (selectedMode.lowercase() == "dot") ":853" else ":53"
+        var formattedResolvers = baseResolvers.map { res ->
+            when (modeLower) {
+                "doh" -> if (res.startsWith("https://")) res else "https://$res/dns-query"
+                "dot" -> if (res.contains(":")) res else "$res:853"
+                else ->  if (res.contains(":")) res else "$res:53"
             }
-        } else {
-            // --- NEW MULTI-CIDR SIZE CALCULATION ---
-            var totalCidrSize = 0L
-            for (cidr in selectedCidrs) {
-                totalCidrSize += getCidrInfo(cidr)?.second ?: 0L
-            }
+        }.toMutableList()
 
-            if (numResolvers < 1 || numResolvers > totalCidrSize) {
-                Toast.makeText(this, "Number must be between 1 and $totalCidrSize for selected blocks", Toast.LENGTH_LONG).show()
-                return
+        // --- 4. PUBLIC DNS INJECTION (FULL LIST PRESERVED) ---
+        if (switchPublicDns.isChecked) {
+            val publicDnsList = when (selectedMode.lowercase()) {
+                "doh" -> listOf(
+                    "https://8.8.8.8/dns-query", "https://8.8.4.4/dns-query",
+                    "https://1.1.1.1/dns-query", "https://1.0.0.1/dns-query",
+                    "https://9.9.9.9/dns-query", "https://149.112.112.112/dns-query",
+                    "https://94.140.14.14/dns-query", "https://94.140.15.15/dns-query"
+                )
+                "dot" -> listOf(
+                    "8.8.8.8:853", "8.8.4.4:853", "1.1.1.1:853", "1.0.0.1:853",
+                    "9.9.9.9:853", "149.112.112.112:853", "94.140.14.14:853", "94.140.15.15:853"
+                )
+                else -> listOf(
+                    "1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112",
+                    "208.67.222.222", "208.67.220.220", "94.140.14.14", "94.140.15.15",
+                    "185.228.168.9", "185.228.169.9", "84.200.69.80", "84.200.70.40",
+                    "193.110.81.0", "185.253.5.0", "64.6.64.6", "64.6.65.6", "209.244.0.3",
+                    "209.244.0.4", "77.88.8.8", "77.88.8.1", "8.26.56.26", "8.20.247.20"
+                ).map { if (it.contains(":")) it else "$it:53" }
             }
+            formattedResolvers = (publicDnsList + formattedResolvers).distinct().toMutableList()
         }
 
-        // Hardcoded Public DNS List
-        val publicDnsList = listOf(
-            "1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112",
-            "208.67.222.222", "208.67.220.220", "94.140.14.14", "94.140.15.15",
-            "185.228.168.9", "185.228.169.9", "84.200.69.80", "84.200.70.40",
-            "193.110.81.0", "185.253.5.0", "64.6.64.6", "64.6.65.6", "209.244.0.3",
-            "209.244.0.4", "77.88.8.8", "77.88.8.1", "8.26.56.26", "8.20.247.20"
-        ).map { if (it.contains(":")) it else "$it:53" } // Ensures port is appended
+        launchResultActivity(formattedResolvers)
+    }
 
+    // Helper to launch the result activity
+    private fun launchResultActivity(finalResolvers: List<String>) {
+        val workers = etWorkers.text.toString().toLongOrNull() ?: 10L
+        val tunnelWait = etTunnelWait.text.toString().toLongOrNull() ?: 2000L
+        val udpTimeout = etUdpTimeout.text.toString().toLongOrNull() ?: 1000L
+        val probeTimeout = etProbeTimeout.text.toString().toLongOrNull() ?: 15L
+        val retries = etRetries.text.toString().toLongOrNull() ?: 0L
         val proxyType = when (rgProxy.checkedRadioButtonId) {
             R.id.rb_socks5 -> "socks5"
             R.id.rb_http -> "http"
             else -> "socks5h"
         }
 
-        val isConservative = switchConservative.isChecked
-        val useRandom = switchRandom.isChecked
-
-        val workers = etWorkers.text.toString().toLongOrNull() ?: 10L
-        val tunnelWait = etTunnelWait.text.toString().toLongOrNull() ?: 2000L
-        val udpTimeout = etUdpTimeout.text.toString().toLongOrNull() ?: 1000L
-        val probeTimeout = etProbeTimeout.text.toString().toLongOrNull() ?: 15L
-        val retries = etRetries.text.toString().toLongOrNull() ?: 0L
-
-
-        /**val baseResolvers = if (useRandom) {
-            resolversList.shuffled().take(numResolvers)
-        } else {
-            resolversList.take(numResolvers)
-        }.map { if (it.contains(":")) it else "$it:53" } // Also handles file-based IPs
-        */
-        // Handle IP generation based on toggle state
-        val baseResolvers = if (switchCidrMode.isChecked) {
-            val allGeneratedIps = mutableListOf<String>()
-
-            // Loop through every selected block and generate all of their IPs
-            for (cidr in selectedCidrs) {
-                // Pass Int.MAX_VALUE to generate ALL IPs in the block for pooling
-                val size = getCidrInfo(cidr)?.second?.toInt() ?: 0
-                allGeneratedIps.addAll(getIpsFromCidr(cidr, size, false))
-            }
-
-            // Now apply the user's scan limit and randomizer to the massive pooled list
-            if (useRandom) {
-                allGeneratedIps.shuffled().take(numResolvers)
-            } else {
-                allGeneratedIps.take(numResolvers)
-            }
-        } else {
-            if (useRandom) {
-                resolversList.shuffled().take(numResolvers)
-            } else {
-                resolversList.take(numResolvers)
-            }
-        }.map { if (it.contains(":")) it else "$it:53" }
-
-        // Combine lists if switch is ON
-        val finalResolvers = if (switchPublicDns.isChecked) {
-            // .distinct() prevents duplicates if public IPs are also in your file
-            (publicDnsList + baseResolvers).distinct()
-        } else {
-            baseResolvers
-        }
-
-        if (finalResolvers.isEmpty()) {
-            Toast.makeText(this, "Please select at least one resolver", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val resolversCommaSeparated = finalResolvers.joinToString(",")
-
-        // Open the new result window and pass all needed data
         val intent = Intent(this, DnsScannerResultActivity::class.java).apply {
             putExtra("CONFIG_ID", configId)
             putExtra("DOMAIN", selectedDomain)
             putExtra("PUBKEY", selectedPubkey)
-            putExtra("RESOLVERS", resolversCommaSeparated)
+            putExtra("MODE", selectedMode)
+            putExtra("RESOLVERS", finalResolvers.joinToString(","))
             putExtra("PROXY_TYPE", proxyType)
             putExtra("RECORD_TYPE", selectedRecordType)
             putExtra("IDLE_TIMEOUT", selectedIdleTimeout)
             putExtra("KEEP_ALIVE", selectedKeepAlive)
             putExtra("CLIENT_ID_SIZE", selectedClientIdSize)
-            putExtra("CONSERVATIVE", isConservative)
             putExtra("TOTAL_RESOLVERS", finalResolvers.size)
             putExtra("WORKERS", workers)
             putExtra("TUNNEL_WAIT", tunnelWait)
             putExtra("UDP_TIMEOUT", udpTimeout)
             putExtra("PROBE_TIMEOUT", probeTimeout)
             putExtra("RETRIES", retries)
-            putExtra("IS_DEFAULT_RESOLVERS", isUsingConfigResolvers)
+            putExtra("IS_DEFAULT_RESOLVERS", switchConfigResolvers.isChecked)
         }
         startActivity(intent)
-
     }
 
     private fun isVpnActive(): Boolean {
@@ -650,5 +948,51 @@ class DnsScannerActivity : AppCompatActivity() {
 
         return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
     }
+    private fun validateAndFilterResolvers(rawList: List<String>, mode: String): List<String> {
+        val sanitized = mutableListOf<String>()
+        var rejectedCount = 0
 
+        for (line in rawList) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+
+            val isCidr = trimmed.contains("/")
+
+            if (isCidr) {
+                // --- STRICT CIDR ENFORCEMENT ---
+                if (isValidCidr(trimmed)) {
+                    sanitized.add(trimmed)
+                } else {
+                    rejectedCount++
+                }
+            } else {
+                // --- STRICT STATIC ENTRY ENFORCEMENT ---
+                when (mode.lowercase()) {
+                    "doh" -> {
+                        // DoH accepts URLs or Strict IPs
+                        if (trimmed.startsWith("https://") || isValidIpv4WithOptionalPort(trimmed)) {
+                            sanitized.add(trimmed)
+                        } else {
+                            rejectedCount++
+                        }
+                    }
+                    "dot", "udp" -> {
+                        // Raw sockets reject HTTP URLs and require Strict IPs
+                        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                            rejectedCount++
+                        } else if (isValidIpv4WithOptionalPort(trimmed)) {
+                            sanitized.add(trimmed)
+                        } else {
+                            rejectedCount++
+                        }
+                    }
+                }
+            }
+        }
+
+        if (rejectedCount > 0) {
+            Toast.makeText(this, "Ignored $rejectedCount invalid or incompatible entries.", Toast.LENGTH_LONG).show()
+        }
+        return sanitized
+    }
 }
