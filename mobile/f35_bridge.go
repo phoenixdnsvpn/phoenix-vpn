@@ -30,6 +30,7 @@ type ScanResultCallback interface {
 func StartF35Scan(
 	isDefault bool,
 	configIndex int64,
+	dnsMode string,
 	customDomain string,
 	customPublicKey string,
 	resolversList string, // Comma-separated
@@ -79,6 +80,7 @@ func StartF35Scan(
 	}
 
 	cfg := f35.DefaultConfig()
+	cfg.Mode = strings.ToLower(dnsMode)
 		
 	rawResolvers := strings.Split(resolversList, ",")
 	var cleaned []string
@@ -92,8 +94,13 @@ func StartF35Scan(
 		if fakeFull != "" {
 			// Leverage the helper we already built in mobile.go!
 			// This splits the port, translates the IP, and re-attaches the port.
-			realFull := translateFakeToReal(fakeFull)
+//			realFull := translateFakeToReal(fakeFull)
 			
+			realFull := fakeFull
+			if !strings.HasPrefix(fakeFull, "http") {
+				realFull = translateFakeToReal(fakeFull)
+			}
+						
 			// Store the reverse mapping for the callback
 			realToFake[realFull] = fakeFull       
 			
@@ -132,6 +139,13 @@ func StartF35Scan(
 		cfg.ProxyPass = proxyPass
 	}
     
+	effectiveUdpTimeout := udpTimeout
+    if strings.ToLower(dnsMode) == "doh" || strings.ToLower(dnsMode) == "dot" {
+        if effectiveUdpTimeout < 5000 {
+            effectiveUdpTimeout = 5000 // Force at least 5 seconds for TLS overhead
+        }
+    }
+        
 	// Build ExtraArgs for vaydns
 	cfg.ExtraArgs = []string{
 		"-pubkey", pubkeyToUse,

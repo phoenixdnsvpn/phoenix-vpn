@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
+//	"strconv"
 	"strings"
 )
 
@@ -15,7 +15,7 @@ type parsedResolver struct {
 	port uint16
 }
 
-func LoadResolvers(path string) ([]string, error) {
+func LoadResolvers(path string, mode string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -31,22 +31,22 @@ func LoadResolvers(path string) ([]string, error) {
 		return nil, err
 	}
 
-	resolvers := normalizeResolvers(raw)
+	resolvers := normalizeResolvers(raw, mode)
 	if len(resolvers) == 0 {
 		return nil, fmt.Errorf("no valid resolvers found")
 	}
 	return resolvers, nil
 }
 
-func normalizeResolvers(input []string) []string {
-	return resolverAddrs(parseResolvers(input))
+func normalizeResolvers(input []string, mode string) []string {
+	return resolverAddrs(parseResolvers(input, mode))
 }
 
-func parseResolvers(input []string) []parsedResolver {
+func parseResolvers(input []string, mode string) []parsedResolver {
 	out := make([]parsedResolver, 0, len(input))
 	seen := make(map[string]bool)
 	for _, line := range input {
-		resolver, ok := parseResolver(strings.TrimSpace(line))
+		resolver, ok := parseResolver(strings.TrimSpace(line), mode)
 		if ok && !seen[resolver.addr] {
 			seen[resolver.addr] = true
 			out = append(out, resolver)
@@ -63,32 +63,30 @@ func resolverAddrs(resolvers []parsedResolver) []string {
 	return out
 }
 
-func parseResolver(line string) (parsedResolver, bool) {
+func parseResolver(line string, mode string) (parsedResolver, bool) {
 	if line == "" {
 		return parsedResolver{}, false
 	}
-	if ip := net.ParseIP(line); ip != nil {
-		return parsedResolver{
-			addr: net.JoinHostPort(ip.String(), "53"),
-			ip:   ip,
-			port: 53,
-		}, true
+	
+	if mode == "doh" {
+		return parsedResolver{addr: line}, true
 	}
+
+	defaultPort := "53"
+	if mode == "dot" {
+		defaultPort = "853"
+	}
+
 	host, port, err := net.SplitHostPort(line)
 	if err != nil {
-		return parsedResolver{}, false
+		host = line
+		port = defaultPort
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return parsedResolver{}, false
-	}
-	portNumber, err := strconv.ParseUint(port, 10, 16)
-	if err != nil {
-		return parsedResolver{}, false
-	}
+	
+	ip := net.ParseIP(host) // Might be nil for DoT domains, which is fine
+	
 	return parsedResolver{
-		addr: net.JoinHostPort(ip.String(), port),
+		addr: net.JoinHostPort(host, port),
 		ip:   ip,
-		port: uint16(portNumber),
 	}, true
 }

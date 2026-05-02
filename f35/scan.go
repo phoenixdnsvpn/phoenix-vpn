@@ -2,6 +2,7 @@ package f35
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/url"
@@ -119,11 +120,12 @@ func worker(ctx context.Context, cfg *runtimeConfig, jobs <-chan parsedResolver,
 				return
 			}
 
-			if resolver.ip == nil {
-				fmt.Printf("DEBUG: Skipping nil IP for %s\n", resolver.addr)
+			// Only enforce numeric IP validation for standard UDP mode.
+	        // DoH uses URLs, which would fail this check otherwise.
+			if cfg.Mode == "udp" && resolver.ip == nil {
+//				fmt.Printf("DEBUG: Skipping nil IP for %s in UDP mode\n", resolver.addr)
 				continue
 			}
-
 			uniquePort := int(atomic.AddInt32(&dynamicPort, 1))
             
 			proxyURL := &url.URL{
@@ -174,11 +176,17 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 //	tunnelMu.Lock()
 //	activeTunnels = append(activeTunnels, cancelTunnel)
 //	tunnelMu.Unlock()
+	warmupWait := cfg.TunnelWait
+	pingTimeout := 1000 * time.Millisecond
+    if cfg.Mode == "doh" || cfg.Mode == "dot" {
+        pingTimeout = 2500 * time.Millisecond
+        warmupWait = cfg.TunnelWait + (2 * time.Second)
+    }
+    
 
-
-// --- NEW: FAST FAIL DNS PING ---
+	// --- FAST FAIL DNS PING ---
 	// If the server doesn't respond to a basic DNS query for aparat.com within 800ms, it's dead.
-	if !quickDNSCheck(ctx, resolver.addr, 800*time.Millisecond) {
+	if !quickDNSCheck(ctx, resolver.addr, pingTimeout, cfg.Mode) {
 		return Result{
 			Resolver:  resolver.addr,
 			Probe:     "dead",
@@ -190,7 +198,15 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 
 	tCfg := ParseExtraArgs(cfg.ExtraArgs)
-	tCfg.UdpAddr =  resolver.addr
+
+	if cfg.Mode == "doh" {
+		tCfg.DohURL = resolver.addr
+	} else if cfg.Mode == "dot" {
+		tCfg.DotAddr = resolver.addr
+	} else {
+		tCfg.UdpAddr = resolver.addr
+	}	
+	
 	tCfg.ListenAddr  = listenAddr
 	tCfg.Domain = cfg.Domain
 
@@ -209,7 +225,7 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	}()
 
 	select {
-	case <-time.After(cfg.TunnelWait):
+	case <-time.After(warmupWait):
 	case <-ctx.Done():
 		return Result{Resolver: resolver.addr, Probe: "stopped"}, false
 	}
@@ -370,22 +386,49 @@ func encodeDNSName(domain string) []byte {
 	return buf
 }
 
-// quickDNSCheck sends a raw UDP DNS query to check if the IP is answering on port 53.
-func quickDNSCheck(ctx context.Context, addr string, timeout time.Duration) bool {
+func quickDNSCheck(ctx context.Context, addr string, timeout time.Duration, mode string) bool {
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// --- DoH Check: Quick HTTP request ---
+	// If the server connects and returns any HTTP code (even 400 Bad Request), it's alive.
+	if mode == "doh" {
+		// Custom transport to ignore certificate verification for the speed test.
+	    // This bypasses many SNI-based firewall blocks.		
+		transport := &http.Transport{
+        	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	    }
+	    tempClient := &http.Client{Transport: transport, Timeout: timeout}
+    		
+		req, err := http.NewRequestWithContext(dialCtx, "HEAD", addr, nil)
+		if err != nil { return false }
+
+		resp, err := tempClient.Do(req)
+
+		if err != nil { return false }
+		resp.Body.Close()
+
+		return true
+	}
+
+	// --- DoT Check: Quick TCP Connect to port 853 ---
+	if mode == "dot" {
+		var d net.Dialer
+		conn, err := d.DialContext(dialCtx, "tcp", addr)
+		if err != nil { return false }
+		conn.Close()
+		return true
+	}
+
+	// --- UDP Check: Existing raw DNS payload logic ---
 	var d net.Dialer
 	conn, err := d.DialContext(dialCtx, "udp", addr)
-	if err != nil {
-		return false
-	}
+	if err != nil { return false }
 	defer conn.Close()
 
-	// 1. Determine which domain to use (Fallback to aparat.com if not injected)
 	domain := InjectedPingDomain
 	if domain == "" {
-		domain = "google.com"  // you need to replace google.com with a url from inside the country
+		domain = "google.com" 
 	}
 
 	// 2. Build the DNS Query dynamically
@@ -399,27 +442,17 @@ func quickDNSCheck(ctx context.Context, addr string, timeout time.Duration) bool
 	}
 	
 	qname := encodeDNSName(domain)
-	
-	footer := []byte{
-		0x00, 0x01, // Type A
-		0x00, 0x01, // Class IN
-	}
+	footer := []byte{0x00, 0x01, 0x00, 0x01}
 
-	// 3. Assemble the full payload
 	query := append(header, qname...)
 	query = append(query, footer...)
 
 	conn.SetWriteDeadline(time.Now().Add(timeout))
-	if _, err := conn.Write(query); err != nil {
-		return false
-	}
+	if _, err := conn.Write(query); err != nil { return false }
 
-	// Wait for any response. If we get bytes back, a DNS server is listening.
 	conn.SetReadDeadline(time.Now().Add(timeout))
 	buf := make([]byte, 512)
-	if _, err := conn.Read(buf); err != nil {
-		return false
-	}
+	if _, err := conn.Read(buf); err != nil { return false }
 
 	return true
 }

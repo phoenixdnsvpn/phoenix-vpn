@@ -13,8 +13,10 @@ import (
 	"net/http"
 	"net/url"
 	"syscall"
+	"sync/atomic"
 	
 	"github.com/Starling226/vaydns-vpn/bridge"
+	"github.com/Starling226/vaydns-vpn/vaydns/client"
 	"github.com/xjasonlyu/tun2socks/v2/engine"
 )
 
@@ -27,7 +29,8 @@ var (
 	isRunning       bool
 	activeSocksPort int
 	wg         sync.WaitGroup // Used to ensure threads fully exit before StopVpn returns
-	
+	ProxyRxBytes uint64
+	ProxyTxBytes uint64	
 	engineLock      sync.Mutex
 )
 
@@ -142,6 +145,9 @@ func StartVpn(
 	activeSocksPort = 10000 + rand.Intn(40000)
 	internalSocks := fmt.Sprintf("127.0.0.1:%d", activeSocksPort)
 
+	atomic.StoreUint64(&client.ProxyRxBytes, 0)
+	atomic.StoreUint64(&client.ProxyTxBytes, 0)
+	
 	mu.Unlock()
 
 	// --- THE NATIVE VAULT LOGIC ---
@@ -294,6 +300,96 @@ func StartVpn(
 	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
 }
 
+// StartProxy: Starts the DNS tunnel and local SOCKS5 proxy WITHOUT Android VPN routing.
+func StartProxy(
+	isDefault bool, configIndex int64, udp string, doh string, dot string,
+	customDomain string, customPubkey string, recordType string, idleTimeout string,
+	KeepAlive string, clientIDSize int, compatDnstt bool, useAuth bool,
+	protocol string, ssMethod string, user string, pass string, customPort int,
+) string {
+	mu.Lock()
+
+	if activeCancel != nil {
+		log.Printf("VAY_DEBUG: Killing old session context")
+		activeCancel()
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	activeWg = &sync.WaitGroup{}
+	activeCtx, activeCancel = context.WithCancel(context.Background())
+	isRunning = true
+
+	// Set the port from the user
+	activeSocksPort = customPort
+	internalSocks := fmt.Sprintf("127.0.0.1:%d", activeSocksPort)
+	
+	atomic.StoreUint64(&ProxyRxBytes, 0)
+	atomic.StoreUint64(&ProxyTxBytes, 0)
+		
+// PRE-CHECK: Ensure the port is not already in use
+	l, err := net.Listen("tcp", internalSocks)
+	if err != nil {
+		mu.Unlock()
+		return fmt.Sprintf("Error|Port %d is already in use. Please select another.", customPort)
+	}
+	l.Close() // Release it immediately so the tunnel can use it
+
+	activeWg = &sync.WaitGroup{}
+	activeCtx, activeCancel = context.WithCancel(context.Background())
+	isRunning = true
+
+	wg := activeWg
+	ctx := activeCtx
+	mu.Unlock()
+
+	// Fetch Configs
+	domainToUse := customDomain
+	pubkeyToUse := customPubkey
+
+	if isDefault {
+		domainToUse = getDefaultConfigDomain(configIndex)
+		pubkeyToUse = getDefaultConfigPubkey(configIndex)
+		recordType = GetDefaultConfigRecordType(configIndex)
+		idleTimeout = GetDefaultConfigIdleTimeout(configIndex)
+		KeepAlive = GetDefaultConfigKeepAlive(configIndex)
+		clientIDSize = int(GetDefaultConfigClientIdSize(configIndex))
+		compatDnstt = GetDefaultConfigDnsttCompatible(configIndex)
+	}
+
+	realUdp := translateFakeToReal(udp)
+	realDoh := translateFakeToReal(doh)
+	realDot := translateFakeToReal(dot)
+
+	// Note: Protector is nil because Proxy Mode doesn't need to bypass Android's VpnService
+	tCfg := bridge.TunnelConfig{
+		UdpAddr:          realUdp,
+		DohURL:           realDoh,
+		DotAddr:          realDot,
+		Domain:           domainToUse,
+		ListenAddr:       internalSocks,
+		LogLevel:         "error",
+		UtlsDistribution: "chrome",
+		RecordType:       recordType,
+		PubkeyHex:        pubkeyToUse,
+		Protector:        nil, 
+		IdleTimeout:      idleTimeout,
+		KeepAlive:        KeepAlive,
+		UDPTimeout:       "1s",
+		ClientIDSize:     clientIDSize,
+		CompatDnstt:      compatDnstt,
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
+			log.Printf("VAY_DEBUG: Proxy Tunnel Error: %v", err)
+		}
+	}()
+
+	// We skip the tun2socks engine entirely in Proxy Mode!
+	return fmt.Sprintf("Success|%s", internalSocks)
+}
 
 /**
  * StopVpn: Cleans up all resources safely without deadlocks.
@@ -367,3 +463,11 @@ func VerifyTunnel() string {
 
 	return "Success"
 }
+
+// GetProxyStats returns the current RX and TX bytes separated by a pipe.
+func GetProxyStats() string {
+	rx := atomic.LoadUint64(&client.ProxyRxBytes)
+	tx := atomic.LoadUint64(&client.ProxyTxBytes)
+	return fmt.Sprintf("%d|%d", rx, tx)
+}
+

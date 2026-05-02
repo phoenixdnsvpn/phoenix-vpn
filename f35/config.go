@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Engine          string
+	Mode            string
 	ClientPath      string
 	Domain          string
 	Pubkey          string // Essential for bridge.RunTunnel in run.go
@@ -108,6 +109,11 @@ func prepareConfig(cfg Config) (runtimeConfig, error) {
 func normalizeAndValidateConfig(cfg Config) (Config, EngineSpec, []parsedResolver, error) {
 	defaults := DefaultConfig()
 
+	cfg.Mode = strings.ToLower(strings.TrimSpace(cfg.Mode))
+	if cfg.Mode == "" {
+		cfg.Mode = "udp"
+	}
+	
 	if strings.TrimSpace(cfg.Engine) == "" {
 		cfg.Engine = defaults.Engine
 	}
@@ -148,7 +154,7 @@ func normalizeAndValidateConfig(cfg Config) (Config, EngineSpec, []parsedResolve
 	cfg.Engine = strings.ToLower(strings.TrimSpace(cfg.Engine))
 	cfg.Proxy = strings.ToLower(strings.TrimSpace(cfg.Proxy))
 	cfg.Domain = strings.TrimSpace(cfg.Domain)
-	resolvers := parseResolvers(cfg.Resolvers)
+	resolvers := parseResolvers(cfg.Resolvers, cfg.Mode)
 	cfg.Resolvers = resolverAddrs(resolvers)
 
 	if cfg.Domain == "" || len(cfg.Resolvers) == 0 {
