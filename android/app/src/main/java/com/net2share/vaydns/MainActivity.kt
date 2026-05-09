@@ -51,6 +51,7 @@ private lateinit var layoutProxyControls: LinearLayout
 //private lateinit var tvProxyAddress: TextView
 private lateinit var etProxyPort: EditText
 private var selectedApps = mutableSetOf<String>()
+private lateinit var tvSelectedAppsInfo: TextView
 class MainActivity : AppCompatActivity() {
 
     private var configAdapter: ConfigAdapter? = null
@@ -61,10 +62,6 @@ class MainActivity : AppCompatActivity() {
             if (intent?.action == "VPN_STATS_UPDATE") {
                 val speed = intent.getStringExtra("speed") ?: ""
                 val total = intent.getStringExtra("total") ?: ""
-
-                // --- 🔴 PROVE THE UI IS RECEIVING IT ---
-//                android.util.Log.d("VAY_UI_DEBUG", "Received in UI: $speed")
-
                 tvSpeed.text = speed
                 tvTotal.text = total
                 return
@@ -134,6 +131,11 @@ class MainActivity : AppCompatActivity() {
     private fun loadSelectedApps() {
         val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
         selectedApps = (sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()).toMutableSet()
+        runOnUiThread {
+            if (::tvSelectedAppsInfo.isInitialized) {
+                tvSelectedAppsInfo.text = "Selected apps to use the DNS tunnel: ${selectedApps.size}"
+            }
+        }
     }
     private val configFilePickerLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -192,6 +194,7 @@ class MainActivity : AppCompatActivity() {
         layoutNetworkStats = findViewById(R.id.layout_network_stats)
         tvSpeed = findViewById(R.id.tv_speed)
         tvTotal = findViewById(R.id.tv_total)
+        tvSelectedAppsInfo = findViewById(R.id.tv_selected_apps_info)
         //btnStart = findViewById(R.id.btn_start)
         //btnStop = findViewById(R.id.btn_stop)
         recyclerConfigs = findViewById(R.id.recycler_configs)
@@ -204,6 +207,9 @@ class MainActivity : AppCompatActivity() {
         val configCount = mobile.Mobile.getDefaultConfigCount()
         val buildStatus = mobile.Mobile.getBuildStatus()
         //val isOfficialBuild = mobile.Mobile.getBuildStatus() == "Official Release"
+        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val savedPort = sharedPref.getString("proxy_port", "1080")
+        etProxyPort.setText(savedPort)
 
         if (configCount > 0) {
             // Injection worked!
@@ -269,9 +275,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // App selector button stays the same
-        findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
-            startActivity(Intent(this, AppSelectorActivity::class.java))
-        }
+        //findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
+        //    startActivity(Intent(this, AppSelectorActivity::class.java))
+        //}
 
         // Register receiver
         val filter = IntentFilter()
@@ -297,10 +303,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshConfigList() {
         configList.clear()
-        configList.addAll(loadAllConfigs(this))
-        if (switchDefault.isChecked) {
-            configList.addAll(DefaultConfigProvider.getDefaultConfigs(this))
+        val userConfigs = loadAllConfigs(this)
+
+        val defaultConfigs = if (switchDefault.isChecked) {
+            DefaultConfigProvider.getDefaultConfigs(this)
+        } else {
+            emptyList()
         }
+
+        // 3. COMBINE AND FILTER: Remove any config marked as freeScanner
+        val filteredList = (userConfigs + defaultConfigs).filter { !it.freeScanner }
+        configList.addAll(filteredList)
 
         // Check if adapter already exists
         if (recyclerConfigs.adapter == null) {
@@ -647,6 +660,7 @@ class MainActivity : AppCompatActivity() {
             menu.findItem(R.id.action_update_resolvers)?.isVisible = false
             menu.findItem(R.id.action_upload_resolvers)?.isVisible = false
             menu.findItem(R.id.action_upload_configs)?.isVisible = false
+            menu.findItem(R.id.action_quick_scanner)?.isVisible = false
         } else {
             // Ensure these items are visible if it is an official build
             menu.findItem(R.id.action_verify)?.isVisible = true
@@ -655,6 +669,7 @@ class MainActivity : AppCompatActivity() {
             menu.findItem(R.id.action_update_resolvers)?.isVisible = true
             menu.findItem(R.id.action_upload_resolvers)?.isVisible = true
             menu.findItem(R.id.action_upload_configs)?.isVisible = true
+            menu.findItem(R.id.action_quick_scanner)?.isVisible = true
 
             // Verification Logic
             val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
@@ -812,6 +827,61 @@ class MainActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
 
+            R.id.action_quick_scanner -> {
+                // 1. Safety Check: Stop VPN before scanning
+                if (isVpnConnected) {
+                    Toast.makeText(this, "Please stop the VPN before running a scan.", Toast.LENGTH_LONG).show()
+                    return true
+                }
+
+                // 2. Find the dedicated Free Scanner config from the native vault
+                val allConfigs = DefaultConfigProvider.getDefaultConfigs(this)
+                val freeConfigEntry = allConfigs.find { it.freeScanner }
+
+                if (freeConfigEntry != null) {
+                    // Retrieve real secrets (Domain/PubKey) for the scanner to build the tunnel
+                    val config = DefaultConfigProvider.getActualConfig(this, freeConfigEntry)
+
+                    val intent = Intent(this, DnsScannerActivity::class.java).apply {
+                        // Core Identification
+                        putExtra("CONFIG_ID", config.id)
+                        putExtra("DNS_ADDRESS", config.dnsAddress)
+                        putExtra("IS_QUICK_SCANNER", true)
+
+                        // Tunnel Parameters for End-to-End Test
+                        putExtra("DOMAIN", config.domain)
+                        putExtra("PUBKEY", config.pubkey)
+                        putExtra("RECORD_TYPE", config.recordType)
+                        putExtra("IS_DEFAULT", config.isDefault)
+                        putExtra("IDLE_TIMEOUT", config.idleTimeout)
+                        putExtra("CLIENT_ID_SIZE", config.clientIdSize)
+                        putExtra("MTU", config.mtu)
+                        putExtra("MODE", config.mode)
+
+                        // Protocol & Authentication
+                        putExtra("PROTOCOL", config.protocol)
+                        putExtra("SS_METHOD", config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
+                        putExtra("USE_AUTH", config.useAuth)
+
+                        val finalUser = if (config.protocol == "shadowsocks") {
+                            config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
+                        } else if (config.useAuth) {
+                            config.user.ifEmpty { "none" }
+                        } else {
+                            "none"
+                        }
+                        val finalPass = if (config.useAuth) config.pass.ifEmpty { "none" } else "none"
+
+                        putExtra("USER", finalUser)
+                        putExtra("PASS", finalPass)
+                    }
+                    startActivity(intent)
+                } else {
+                    Toast.makeText(this, "Quick Scanner configuration not found on this server.", Toast.LENGTH_SHORT).show()
+                }
+                true
+            }
+
             R.id.action_dns_scanner -> {
 
                 if (isVpnConnected) {
@@ -827,13 +897,32 @@ class MainActivity : AppCompatActivity() {
 
                     val intent = Intent(this, DnsScannerActivity::class.java).apply {
                         putExtra("CONFIG_ID", config.id)
+                        putExtra("DNS_ADDRESS", config.dnsAddress)
+                        putExtra("IS_QUICK_SCANNER", false)
                         putExtra("DOMAIN", config.domain)
                         putExtra("PUBKEY", config.pubkey)
                         putExtra("RECORD_TYPE", config.recordType)
                         putExtra("IS_DEFAULT", config.isDefault)
                         putExtra("IDLE_TIMEOUT", config.idleTimeout)
                         putExtra("CLIENT_ID_SIZE", config.clientIdSize)
+                        putExtra("MTU", config.mtu)
                         putExtra("MODE", config.mode)
+
+                        putExtra("PROTOCOL", config.protocol)
+                        putExtra("SS_METHOD", config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
+                        putExtra("USE_AUTH", config.useAuth)
+
+                        val finalUser = if (config.protocol == "shadowsocks") {
+                            config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
+                        } else if (config.useAuth) {
+                            config.user.ifEmpty { "none" }
+                        } else {
+                            "none"
+                        }
+                        val finalPass = if (config.useAuth) config.pass.ifEmpty { "none" } else "none"
+
+                        putExtra("USER", finalUser)
+                        putExtra("PASS", finalPass)
                     }
                     startActivity(intent)
                 }
@@ -849,6 +938,12 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(this, ConfigEditorActivity::class.java))
                 true
             }
+
+            R.id.action_select_apps -> {
+                startActivity(Intent(this, AppSelectorActivity::class.java))
+                true
+            }
+
             R.id.action_verify -> {
                 showVerificationDialog()
                 true
@@ -946,6 +1041,53 @@ class MainActivity : AppCompatActivity() {
             else -> super.onOptionsItemSelected(item)
         }
     }
+
+    private fun getMultipathResolvers(configId: String, defaultAddr: String, mode: String): String {
+
+        // THE RUTHLESS FORMATTER: Strips everything and forces the correct mode
+        fun forceCorrectPort(res: String): String {
+            var cleanIp = res.trim()
+            if (cleanIp.isEmpty()) return ""
+
+            // 1. Strip HTTP/HTTPS protocols and paths if they accidentally left them
+            if (cleanIp.startsWith("http://") || cleanIp.startsWith("https://")) {
+                cleanIp = cleanIp.substringAfter("://").substringBefore("/")
+            }
+
+            // 2. Strip ANY existing port (e.g., "8.8.8.8:853" becomes "8.8.8.8")
+            if (cleanIp.contains(":")) {
+                cleanIp = cleanIp.substringBeforeLast(":")
+            }
+
+            // 3. Force the correct port/format based strictly on the selected Tunnel Mode
+            return when (mode.lowercase()) {
+                //"doh" -> "https://$cleanIp/dns-query"
+                "doh" -> cleanIp
+                "dot" -> "$cleanIp:853"
+                else -> "$cleanIp:53" // TCP and UDP
+            }
+        }
+
+        // Format the single default address just in case multipath is empty
+        val formattedDefault = forceCorrectPort(defaultAddr)
+
+        // Read the raw multipath IPs
+        val rawSelections = try {
+            val file = java.io.File(filesDir, "selected_multipath_$configId.txt")
+            if (!file.exists()) {
+                listOf(formattedDefault)
+            } else {
+                val lines = file.readLines().filter { it.isNotEmpty() }
+                if (lines.isEmpty()) listOf(formattedDefault) else lines
+            }
+        } catch (e: Exception) {
+            listOf(formattedDefault)
+        }
+
+        // Apply the formatter to EVERY IP right before sending to Go
+        return rawSelections.map { forceCorrectPort(it) }.joinToString(",")
+    }
+
     private fun showHowToUseDialog() {
         val instructions = """
             1. Select Apps to Tunnel: Tap on SELECT APPS TO TUNNEL and choose a few specific apps (3–4 recommended) that you want to pass through the tunnel. Only selected apps will be routed; all other traffic will remain on your local network.
@@ -1279,12 +1421,27 @@ class MainActivity : AppCompatActivity() {
             return // Abort without changing the UI text
         }
 
+        val currentPort = etProxyPort.text.toString().trim()
+        getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+            .edit()
+            .putString("proxy_port", currentPort)
+            .apply()
+
         tvStatus.text = "Status: Connecting..."
         tvStatus.setTextColor(Color.parseColor("#FFA500")) // Optional: Orange for connecting
 //        btnToggle.text = "STOP Tunnel"
         btnToggle.text = "CONNECTING..."
         btnToggle.isEnabled = false
         btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.GRAY)
+
+        // Use DefaultConfigProvider for masked default configs
+        val finalConfig = if (config.isDefault) {
+            DefaultConfigProvider.getActualConfig(this@MainActivity, config)
+        } else {
+            config
+        }
+
+        val multipathDns = getMultipathResolvers(config.id, finalConfig.dnsAddress, finalConfig.mode)
 
         val intent = Intent(this, VayVpnService::class.java).apply {
 
@@ -1299,12 +1456,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 -1L // Not a default config
             }
-            // Use DefaultConfigProvider for masked default configs
-            val finalConfig = if (config.isDefault) {
-                DefaultConfigProvider.getActualConfig(this@MainActivity, config)
-            } else {
-                config
-            }
+
             // Now 'config.domain' and 'config.pubkey' contain the real data
             putExtra("IS_DEFAULT_CONFIG", config.isDefault)
             putExtra("CONFIG_ID", config.id)
@@ -1314,12 +1466,16 @@ class MainActivity : AppCompatActivity() {
 
             //val realIp = mobile.Mobile.getRealResolver(finalConfig.dnsAddress)
             //putExtra("UDP", realIp)
-            putExtra("UDP", finalConfig.dnsAddress)
+            //putExtra("UDP", finalConfig.dnsAddress)
+            val baseDohUrl = if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else ""
+            putExtra("BASE_DOH_URL", baseDohUrl)
+            putExtra("UDP", multipathDns)
             putExtra("MODE", finalConfig.mode)
             putExtra("RECORD_TYPE", finalConfig.recordType)
             putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)
             putExtra("KEEP_ALIVE", finalConfig.keepAlive)
             putExtra("CLIENT_ID_SIZE", finalConfig.clientIdSize)
+            putExtra("MTU", config.mtu)
             putExtra("DNSTT_COMPATIBLE", finalConfig.dnsttCompatible)
             putExtra("USE_AUTH", finalConfig.useAuth)
             putExtra("PROTOCOL", finalConfig.protocol)
@@ -1371,16 +1527,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        /**val vpnIntent = VpnService.prepare(this)
-        if (vpnIntent != null) {
-            vpnPermissionLauncher.launch(vpnIntent)
-        } else {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-        }*/
 
     }
 

@@ -42,11 +42,18 @@ class DnsScannerActivity : AppCompatActivity() {
     private var selectedPubkey = ""
     private var selectedRecordType = "TXT"
     private var selectedMode = "udp"
+    private var selectedDnsAddress = "udp"
     private var configId = ""
+    private var selectedMtu = 0L
+    private var selectedProtocol = "socks"
+    private var selectedSsMethod = "chacha20-ietf-poly1305"
+    private var selectedUseAuth = false
+    private var selectedUser = "none"
+    private var selectedPass = "none"
     private var resolversList: List<String> = emptyList()
     private var isDefaultConfig = false
     private lateinit var switchConfigResolvers: Switch
-
+    private lateinit var switchFastFail: Switch
     private lateinit var switchCidrMode: Switch
     private lateinit var layoutCidrSelection: LinearLayout
     private lateinit var tvSelectedCidr: TextView
@@ -54,7 +61,10 @@ class DnsScannerActivity : AppCompatActivity() {
 
     private var loadedCidrs: List<String> = emptyList()
     private var selectedCidrs = mutableSetOf<String>()
+    private lateinit var switchSkipQuickCheck: Switch
+    private lateinit var rgTunnelMode: RadioGroup
 
+    private var isQuickScanner = false
     private val customResolverPickerLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -74,6 +84,7 @@ class DnsScannerActivity : AppCompatActivity() {
             finish()
         }
         // Get data from selected config
+        selectedDnsAddress = intent.getStringExtra("DNS_ADDRESS") ?: ""
         isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT", false)
         selectedDomain = intent.getStringExtra("DOMAIN") ?: ""
         selectedPubkey = intent.getStringExtra("PUBKEY") ?: ""
@@ -83,6 +94,67 @@ class DnsScannerActivity : AppCompatActivity() {
         selectedKeepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
         selectedClientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
         selectedMode = intent.getStringExtra("MODE") ?: "udp"
+        selectedMtu = intent.getLongExtra("MTU", 0L)
+        selectedProtocol = intent.getStringExtra("PROTOCOL") ?: "socks"
+        selectedSsMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
+        selectedUseAuth = intent.getBooleanExtra("USE_AUTH", false)
+        selectedUser = intent.getStringExtra("USER") ?: "none"
+        selectedPass = intent.getStringExtra("PASS") ?: "none"
+        isQuickScanner = intent.getBooleanExtra("IS_QUICK_SCANNER", false)
+
+        initViews()
+
+        rgTunnelMode = findViewById(R.id.rg_tunnel_mode)
+        val tvTunnelModeLabel = findViewById<TextView>(R.id.tv_tunnel_mode_label)
+
+        // Toggle Tunnel Mode RadioGroup visibility
+        /*if (isQuickScanner) {
+            rgTunnelMode?.visibility = android.view.View.VISIBLE
+            tvTunnelModeLabel?.visibility = android.view.View.VISIBLE
+            etDomain?.isEnabled = false
+            switchFastFail.visibility = android.view.View.GONE
+            switchFastFail.isChecked = true
+        } else {
+            rgTunnelMode?.visibility = android.view.View.GONE
+            tvTunnelModeLabel?.visibility = android.view.View.GONE
+            switchFastFail.visibility = android.view.View.VISIBLE
+        }*/
+
+// Toggle visibility based on Scanner Mode
+        if (isQuickScanner) {
+            rgTunnelMode?.visibility = android.view.View.VISIBLE
+            tvTunnelModeLabel?.visibility = android.view.View.VISIBLE
+            etDomain?.isEnabled = false
+
+            // Hide Fast-Fail toggle
+            switchFastFail.visibility = android.view.View.GONE
+            switchFastFail.isChecked = true
+
+            // HIDE UNUSED QUICK SCAN PARAMETERS
+            findViewById<TextView>(R.id.tv_tunnel_wait_label)?.visibility = android.view.View.GONE
+            etTunnelWait.visibility = android.view.View.GONE
+
+            findViewById<TextView>(R.id.tv_probe_timeout_label)?.visibility = android.view.View.GONE
+            etProbeTimeout.visibility = android.view.View.GONE
+
+            findViewById<TextView>(R.id.tv_retries_label)?.visibility = android.view.View.GONE
+            etRetries.visibility = android.view.View.GONE
+
+        } else {
+            rgTunnelMode?.visibility = android.view.View.GONE
+            tvTunnelModeLabel?.visibility = android.view.View.GONE
+            switchFastFail.visibility = android.view.View.VISIBLE
+
+            // Ensure they are visible for normal Full E2E Scans
+            findViewById<TextView>(R.id.tv_tunnel_wait_label)?.visibility = android.view.View.VISIBLE
+            etTunnelWait.visibility = android.view.View.VISIBLE
+
+            findViewById<TextView>(R.id.tv_probe_timeout_label)?.visibility = android.view.View.VISIBLE
+            etProbeTimeout.visibility = android.view.View.VISIBLE
+
+            findViewById<TextView>(R.id.tv_retries_label)?.visibility = android.view.View.VISIBLE
+            etRetries.visibility = android.view.View.VISIBLE
+        }
 
         toolbar.title = "DNS Resolver Scanner"
 //        toolbar.subtitle = if (selectedDomain.contains("-")) "Protected Config" else selectedDomain
@@ -96,7 +168,6 @@ class DnsScannerActivity : AppCompatActivity() {
         supportActionBar?.title = "DNS Resolver Scanner"
 //        supportActionBar?.subtitle = selectedDomain
 
-        initViews()
         setupListeners()
 
         // Load default resolvers on start
@@ -127,6 +198,8 @@ class DnsScannerActivity : AppCompatActivity() {
         btnSelectCidr = findViewById(R.id.btn_select_cidr)
         btnPasteResolvers = findViewById(R.id.btn_paste_resolvers)
 
+        switchFastFail = findViewById<Switch>(R.id.switch_fast_fail)
+
         if (!isDefaultConfig) {
             switchConfigResolvers.visibility = android.view.View.GONE
         }
@@ -137,7 +210,7 @@ class DnsScannerActivity : AppCompatActivity() {
             // HIDE the real domain from the User Interface
             etDomain.setText("----------")
             etDomain.isEnabled = false
-            // Note: selectedDomain still holds the REAL "t.emrooz.store" in memory
+
         } else {
             // Show real domain for custom user configs
             etDomain.setText(selectedDomain)
@@ -238,17 +311,17 @@ class DnsScannerActivity : AppCompatActivity() {
             if (isChecked) {
                 // Safer, slower settings for restrictive firewalls
                 etWorkers.setText("10")
-                etTunnelWait.setText("2000")
+                etTunnelWait.setText("5000")
                 etUdpTimeout.setText("2000")
                 etProbeTimeout.setText("8")
-                etRetries.setText("1")
+                etRetries.setText("2")
             } else {
                 // High-performance settings
                 etWorkers.setText("20")
-                etTunnelWait.setText("1000")
+                etTunnelWait.setText("3000")
                 etUdpTimeout.setText("1000")
                 etProbeTimeout.setText("15")
-                etRetries.setText("0")
+                etRetries.setText("1")
             }
         }
     }
@@ -302,10 +375,12 @@ class DnsScannerActivity : AppCompatActivity() {
                     } else {
                         resolversList = parsedLines
                         tvResolversCount.text = "Loaded custom resolvers: ${resolversList.size}"
-                        val currentThreshold = etNumResolvers.text.toString().toIntOrNull() ?: 5000
-                        if (parsedLines.size < currentThreshold) {
-                            etNumResolvers.setText(parsedLines.size.toString())
-                        }
+                        etNumResolvers.setText(parsedLines.size.toString())
+
+                        //val currentThreshold = etNumResolvers.text.toString().toIntOrNull() ?: 5000
+                        //if (parsedLines.size < currentThreshold) {
+                        //    etNumResolvers.setText(parsedLines.size.toString())
+                        //}
                         Toast.makeText(this, "Loaded ${resolversList.size} custom resolvers", Toast.LENGTH_SHORT).show()
                     }
                 } else {
@@ -334,151 +409,192 @@ class DnsScannerActivity : AppCompatActivity() {
             Toast.makeText(this, "Failed to load CIDR blocks (ir-cidrs.txt)", Toast.LENGTH_SHORT).show()
         }
     }
+
     private fun showCidrSelectionDialog() {
         if (loadedCidrs.isEmpty()) {
             Toast.makeText(this, "No CIDR blocks loaded", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // 1. Removed " IPs" from the string so it easily fits on one line
-        val displayArray = loadedCidrs.map { cidr ->
-            val size = getCidrInfo(cidr)?.second ?: 0L
-            "$cidr  ($size)"
-        }.toTypedArray()
+        // --- 1. STATE VARIABLES ---
+        var currentMaxResolvers = 32768L
+        val maxOptions = listOf("4096", "8192", "16384", "32768", "65536", "131072", "262144")
+        val displayCidrs = loadedCidrs.toMutableList()
+        val adapterStrings = mutableListOf<String>()
 
-        // 2. Custom Title Layout (Holds Main Title + Live Status)
+        // 2. Custom Title Layout
         val customTitleLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val padHorizontal = (24 * resources.displayMetrics.density).toInt()
-            val padTop = (24 * resources.displayMetrics.density).toInt()
-            val padBottom = (8 * resources.displayMetrics.density).toInt()
-            setPadding(padHorizontal, padTop, padHorizontal, padBottom)
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, (8 * resources.displayMetrics.density).toInt())
         }
 
         val mainTitle = TextView(this).apply {
             text = "Select CIDR Blocks"
             textSize = 20f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            val textColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.textColorPrimary, android.graphics.Color.BLACK)
-            setTextColor(textColor)
+            setTextColor(com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.textColorPrimary, android.graphics.Color.BLACK))
         }
 
         val statusLabel = TextView(this).apply {
             text = "Total selected: 0"
             textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            val primaryColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
-            setTextColor(primaryColor)
             setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, 0)
         }
 
+        val maxRowLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, 0)
+        }
+
+        val tvMaxLabel = TextView(this).apply {
+            text = "Max. number of resolvers: "
+            textSize = 14f
+            setTextColor(com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.textColorSecondary, android.graphics.Color.GRAY))
+        }
+
+        val tvMaxVal = TextView(this).apply {
+            text = currentMaxResolvers.toString()
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE))
+        }
+
+        val btnSelectMax = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_recent_history)
+            background = null
+            setPadding((8 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+        }
+
+        maxRowLayout.addView(tvMaxLabel)
+        maxRowLayout.addView(tvMaxVal)
+        maxRowLayout.addView(btnSelectMax)
         customTitleLayout.addView(mainTitle)
         customTitleLayout.addView(statusLabel)
+        customTitleLayout.addView(maxRowLayout)
 
-        // Inside showCidrSelectionDialog in DnsScannerActivity.kt
-        fun updateStatusLabel() {
-            var totalSize = 0L
-            for (cidr in selectedCidrs) {
-                totalSize += getCidrInfo(cidr)?.second ?: 0L
-            }
-            statusLabel.text = "Total selected: $totalSize"
-
-            // Determine the ceiling based on the protocol
-            val modeLimit = when (selectedMode.lowercase()) {
-                "doh" -> 1024
-                "dot" -> 4096
-                else -> 16384 // UDP
-            }
-
-            // Turn red if current mode limit is reached or exceeded
-            if (totalSize > modeLimit) {
-                statusLabel.setTextColor(android.graphics.Color.RED)
-            } else {
-                val primaryColor = com.google.android.material.color.MaterialColors.getColor(
-                    this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE
-                )
-                statusLabel.setTextColor(primaryColor)
-            }
-        }
-
-        updateStatusLabel() // Initialize with current states
-
-        // 3. Create a custom ListView to control the vertical spacing precisely
+        // 3. ListView & Adapter Setup
         val customListView = ListView(this).apply {
             choiceMode = ListView.CHOICE_MODE_MULTIPLE
-            val listPad = (8 * resources.displayMetrics.density).toInt()
-            setPadding(0, listPad, 0, listPad)
-            clipToPadding = false
-            divider = null // Removes the default grey lines between the squashed items
+            divider = null
         }
 
-        val adapter = object : ArrayAdapter<String>(this, android.R.layout.select_dialog_multichoice, displayArray) {
+        val adapter = object : ArrayAdapter<String>(this, android.R.layout.select_dialog_multichoice, adapterStrings) {
             override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
                 val view = super.getView(position, convertView, parent) as CheckedTextView
-
-                // Eliminate default minimum heights
-                view.minHeight = 0
-                view.minimumHeight = 0
-
-                // Set our own squashed padding (6dp top & bottom)
-                val padHorizontal = (24 * resources.displayMetrics.density).toInt()
-                val padVertical = (6 * resources.displayMetrics.density).toInt()
-                view.setPadding(padHorizontal, padVertical, padHorizontal, padVertical)
-
+                view.minHeight = 0; view.minimumHeight = 0
+                view.setPadding((24 * resources.displayMetrics.density).toInt(), (6 * resources.displayMetrics.density).toInt(), (24 * resources.displayMetrics.density).toInt(), (6 * resources.displayMetrics.density).toInt())
                 view.textSize = 15f
-
-                val brandColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
-                view.checkMarkTintList = android.content.res.ColorStateList.valueOf(brandColor)
-
                 return view
             }
         }
         customListView.adapter = adapter
 
-        // Sync ListView checkmarks with our selectedCidrs set
-        for (i in loadedCidrs.indices) {
-            if (selectedCidrs.contains(loadedCidrs[i])) {
-                customListView.setItemChecked(i, true)
+        // --- SYNC & SORT LOGIC ---
+        fun syncDisplayList() {
+            val selected = loadedCidrs.filter { selectedCidrs.contains(it) }
+            val unselected = loadedCidrs.filter { !selectedCidrs.contains(it) }
+
+            displayCidrs.clear()
+            displayCidrs.addAll(selected)
+            displayCidrs.addAll(unselected)
+
+            adapterStrings.clear()
+            adapterStrings.addAll(displayCidrs.map { cidr ->
+                val size = getCidrInfo(cidr)?.second ?: 0L
+                "$cidr  ($size)"
+            })
+
+            adapter.notifyDataSetChanged()
+
+            var totalSize = 0L
+            for (cidr in selected) totalSize += getCidrInfo(cidr)?.second ?: 0L
+            statusLabel.text = "Total selected: $totalSize"
+
+            val primaryColor = com.google.android.material.color.MaterialColors.getColor(this@DnsScannerActivity, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
+            statusLabel.setTextColor(if (totalSize > currentMaxResolvers) android.graphics.Color.RED else primaryColor)
+
+            for (i in displayCidrs.indices) {
+                customListView.setItemChecked(i, selectedCidrs.contains(displayCidrs[i]))
             }
         }
 
-// Handle clicks manually since we aren't using the default dialog builder logic
-        customListView.setOnItemClickListener { _, _, position, _ ->
-            val clickedCidr = loadedCidrs[position]
-            // Get the actual boolean checked state directly from the ListView
-            val isChecked = customListView.isItemChecked(position)
-
-            if (isChecked) {
-                selectedCidrs.add(clickedCidr)
-            } else {
-                selectedCidrs.remove(clickedCidr)
-            }
-            updateStatusLabel()
-        }
-
-        // 4. Build and show the dialog
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setCustomTitle(customTitleLayout)
-            .setView(customListView) // Inject our custom squashed list!
+            .setView(customListView)
             .setPositiveButton("OK") { _, _ ->
-                if (selectedCidrs.isEmpty()) {
-                    tvSelectedCidr.text = "Tap right icon to select CIDR ->"
-                    tvResolversCount.text = "Loaded resolvers: 0"
-                } else {
+                if (selectedCidrs.isNotEmpty()) {
                     var totalSize = 0L
-                    for (cidr in selectedCidrs) {
-                        totalSize += getCidrInfo(cidr)?.second ?: 0L
-                    }
+                    for (cidr in selectedCidrs) totalSize += getCidrInfo(cidr)?.second ?: 0L
                     tvSelectedCidr.text = "${selectedCidrs.size} blocks selected"
                     tvResolversCount.text = "Available IPs: $totalSize"
-
-                    // Automatically update the input field to the TOTAL size
-                    // so it scans every IP in the selected blocks
                     etNumResolvers.setText(totalSize.toString())
                 }
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .setNeutralButton("Check", null)
+            .create()
+
+        btnSelectMax.setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Max Resolvers")
+                .setItems(maxOptions.toTypedArray()) { _, which ->
+                    currentMaxResolvers = maxOptions[which].toLong()
+                    tvMaxVal.text = currentMaxResolvers.toString()
+                    syncDisplayList() // Refresh label color if needed
+                }
+                .show()
+        }
+
+        customListView.setOnItemClickListener { _, _, position, _ ->
+            val clickedCidr = displayCidrs[position]
+            if (customListView.isItemChecked(position)) selectedCidrs.add(clickedCidr)
+            else selectedCidrs.remove(clickedCidr)
+            syncDisplayList()
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL).text = "Check"
+        }
+
+        dialog.setOnShowListener {
+            val btnCheck = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL)
+            btnCheck.setOnClickListener {
+                if (btnCheck.text == "Check") {
+                    selectedCidrs.clear()
+
+                    // 🔴 DIVERSIFIED RANDOM SELECTION LOGIC
+                    // Threshold is 50% of the target (e.g., 4096 if target is 8192)
+                    val threshold = currentMaxResolvers / 2
+
+                    // Filter: Only include blocks smaller than the threshold
+                    val diversifiedPool = loadedCidrs.filter { cidr ->
+                        val size = getCidrInfo(cidr)?.second ?: 0L
+                        size < threshold
+                    }
+
+                    // If no small blocks exist, fallback to the full list to avoid empty results
+                    val finalPool = if (diversifiedPool.isNotEmpty()) diversifiedPool else loadedCidrs
+                    val shuffled = finalPool.shuffled()
+
+                    var runningSum = 0L
+                    for (cidr in shuffled) {
+                        val size = getCidrInfo(cidr)?.second ?: 0L
+                        if (runningSum + size <= currentMaxResolvers) {
+                            selectedCidrs.add(cidr)
+                            runningSum += size
+                        }
+                    }
+                    btnCheck.text = "Uncheck"
+                } else {
+                    selectedCidrs.clear()
+                    btnCheck.text = "Check"
+                }
+                syncDisplayList()
+            }
+        }
+
+        dialog.show()
+        syncDisplayList()
     }
 
     private fun showPasteResolversDialog() {
@@ -794,13 +910,23 @@ class DnsScannerActivity : AppCompatActivity() {
                 .show()
             return
         }
+
+        if (isQuickScanner) {
+            selectedMode = when (rgTunnelMode?.checkedRadioButtonId) {
+                R.id.rb_mode_tcp -> "tcp"
+                R.id.rb_mode_dot -> "dot"
+                R.id.rb_mode_doh -> "doh"
+                else -> "udp" // Default to UDP if nothing is selected
+            }
+        }
+
         //var publicDnsList = emptyList<String>()
         // --- 1. APPLY PROTOCOL-SPECIFIC CEILINGS ---
         val selectedModeLower = selectedMode.lowercase()
         val modeLimit = when (selectedModeLower) {
-            "doh" -> 1024
-            "dot" -> 4096
-            else -> 16384
+            "doh" -> 8192
+            "dot" -> 32768
+            else -> 262144
         }
         val publicSize = if (switchPublicDns.isChecked) {
             if (selectedModeLower == "udp") 24 else 8
@@ -820,6 +946,7 @@ class DnsScannerActivity : AppCompatActivity() {
                 .setPositiveButton("Confirm and Start") { _, _ ->
                     // Only process the list after confirmation
                     prepareAndLaunchScan(modeLimit)
+                    prepareAndLaunchScan(totalIntended)
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -868,10 +995,11 @@ class DnsScannerActivity : AppCompatActivity() {
         }
 
         // --- 3. PROTOCOL FORMATTING ---
-        val modeLower = if (selectedMode.lowercase() == "dot") ":853" else ":53"
+        //val modeLower = if (selectedMode.lowercase() == "dot") ":853" else ":53"
         var formattedResolvers = baseResolvers.map { res ->
-            when (modeLower) {
-                "doh" -> if (res.startsWith("https://")) res else "https://$res/dns-query"
+            when (selectedMode.lowercase()) {
+                //"doh" -> if (res.startsWith("https://")) res else "https://$res/dns-query"
+                "doh" -> res
                 "dot" -> if (res.contains(":")) res else "$res:853"
                 else ->  if (res.contains(":")) res else "$res:53"
             }
@@ -916,25 +1044,50 @@ class DnsScannerActivity : AppCompatActivity() {
             R.id.rb_http -> "http"
             else -> "socks5h"
         }
+        val fastFailEnabled = switchFastFail.isChecked
+        val baseDohUrl = if (selectedMode.lowercase() == "doh") selectedDnsAddress else ""
 
         val intent = Intent(this, DnsScannerResultActivity::class.java).apply {
+            putExtra("BASE_DOH_URL", baseDohUrl)
+            putExtra("IS_QUICK_SCANNER", isQuickScanner)
             putExtra("CONFIG_ID", configId)
             putExtra("DOMAIN", selectedDomain)
             putExtra("PUBKEY", selectedPubkey)
             putExtra("MODE", selectedMode)
-            putExtra("RESOLVERS", finalResolvers.joinToString(","))
+            //putExtra("RESOLVERS", finalResolvers.joinToString(","))
             putExtra("PROXY_TYPE", proxyType)
             putExtra("RECORD_TYPE", selectedRecordType)
             putExtra("IDLE_TIMEOUT", selectedIdleTimeout)
             putExtra("KEEP_ALIVE", selectedKeepAlive)
             putExtra("CLIENT_ID_SIZE", selectedClientIdSize)
-            putExtra("TOTAL_RESOLVERS", finalResolvers.size)
+            putExtra("MTU", selectedMtu)
+            putExtra("PROTOCOL", selectedProtocol) // Backend encryption type
+            putExtra("SS_METHOD", selectedSsMethod)
+            putExtra("USE_AUTH", selectedUseAuth)
+            putExtra("USER", selectedUser)
+            putExtra("PASS", selectedPass)
             putExtra("WORKERS", workers)
             putExtra("TUNNEL_WAIT", tunnelWait)
             putExtra("UDP_TIMEOUT", udpTimeout)
             putExtra("PROBE_TIMEOUT", probeTimeout)
             putExtra("RETRIES", retries)
             putExtra("IS_DEFAULT_RESOLVERS", switchConfigResolvers.isChecked)
+//            putExtra("SKIP_QUICK_CHECK", switchSkipQuickCheck.isChecked)
+            putExtra("FAST_FAIL_ENABLED", fastFailEnabled)
+
+            if (finalResolvers.size < 8216) {
+                // ✅ SMALL LIST: Use Intent Extra (Faster)
+                putExtra("RESOLVERS", finalResolvers.joinToString(","))
+                putExtra("RESOLVERS_FILE", "")
+            } else {
+                // ✅ LARGE LIST: Use File (Safe from 1MB System Limit)
+                val resolversFile = java.io.File(filesDir, "pending_scan_resolvers.txt")
+                resolversFile.writeText(finalResolvers.joinToString(","))
+
+                putExtra("RESOLVERS_FILE", resolversFile.absolutePath)
+                putExtra("RESOLVERS", "") // Clear the intent buffer
+            }
+            putExtra("TOTAL_RESOLVERS", finalResolvers.size)
         }
         startActivity(intent)
     }
@@ -976,7 +1129,7 @@ class DnsScannerActivity : AppCompatActivity() {
                             rejectedCount++
                         }
                     }
-                    "dot", "udp" -> {
+                    "dot", "udp", "tcp" -> {
                         // Raw sockets reject HTTP URLs and require Strict IPs
                         if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
                             rejectedCount++

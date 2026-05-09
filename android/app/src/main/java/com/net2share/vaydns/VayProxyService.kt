@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.Context
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -20,61 +21,6 @@ class VayProxyService : Service() {
     private var initialTxBytes = 0L
     private var previousRxBytes = 0L
     private var previousTxBytes = 0L
-
-    /**private val statsRunnable = object : Runnable {
-        override fun run() {
-            if (isStopping) return
-
-            // 1. Ask Android OS for Total Device Traffic
-            val currentRx = android.net.TrafficStats.getTotalRxBytes()
-            val currentTx = android.net.TrafficStats.getTotalTxBytes()
-
-            // 2. RESILIENCE: If OS temporarily blocks the read, wait 1s and try again.
-            if (currentRx == android.net.TrafficStats.UNSUPPORTED.toLong() || currentRx == 0L) {
-                statsHandler.postDelayed(this, 1000)
-                return
-            }
-
-            // 3. Initialize baseline
-            if (initialRxBytes == 0L && initialTxBytes == 0L) {
-                initialRxBytes = currentRx
-                initialTxBytes = currentTx
-                previousRxBytes = currentRx
-                previousTxBytes = currentTx
-            }
-
-            // 4. Calculate raw speed
-            var rxSpeed = currentRx - previousRxBytes
-            var txSpeed = currentTx - previousTxBytes
-            var rxTotal = currentRx - initialRxBytes
-            var txTotal = currentTx - initialTxBytes
-
-            previousRxBytes = currentRx
-            previousTxBytes = currentTx
-
-            // 5. Sanitize negative spikes (Safe math, no Math.max casting issues)
-            if (rxSpeed < 0) rxSpeed = 0L
-            if (txSpeed < 0) txSpeed = 0L
-            if (rxTotal < 0) rxTotal = 0L
-            if (txTotal < 0) txTotal = 0L
-
-            // --- 🔴 PROVE WHAT ANDROID IS SEEING ---
-            android.util.Log.d("VAY_PROXY_DEBUG", "TrafficStats RX Speed: $rxSpeed | TX Speed: $txSpeed")
-
-            val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
-            val totalStr = "Total: ${formatBytes(rxTotal)} ↓   ${formatBytes(txTotal)} ↑"
-
-            // 6. Broadcast to MainActivity
-            sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
-                putExtra("speed", speedStr)
-                putExtra("total", totalStr)
-                setPackage(packageName)
-            })
-
-            // 7. Schedule next tick
-            statsHandler.postDelayed(this, 1000)
-        }
-    }*/
 
     private val statsRunnable = object : Runnable {
         override fun run() {
@@ -109,6 +55,28 @@ class VayProxyService : Service() {
                         putExtra("total", totalStr)
                         setPackage(packageName)
                     })
+
+                    // UPDATE LOCK SCREEN NOTIFICATION
+                    try {
+                        val intent = Intent(this@VayProxyService, MainActivity::class.java)
+                        val pendingIntent = PendingIntent.getActivity(this@VayProxyService, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+
+                        val updateNotification = androidx.core.app.NotificationCompat.Builder(this@VayProxyService, "VAY_PROXY_ACTIVE")
+                            .setContentTitle("VayDNS Proxy Active")
+                            .setContentText(speedStr)
+                            .setSmallIcon(R.drawable.ic_vpn_key)
+                            .setOngoing(true)
+                            .setContentIntent(pendingIntent)
+                            .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
+                            .setOnlyAlertOnce(true)
+                            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                            .build()
+
+                        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        nm.notify(2, updateNotification)
+                    } catch (e: Exception) {
+                        android.util.Log.e("VayProxy", "Failed to update notification: ${e.message}")
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("VayProxy", "Failed to parse Go stats: ${e.message}")
@@ -146,11 +114,16 @@ class VayProxyService : Service() {
             return START_NOT_STICKY
         }
 
-        val notification = NotificationCompat.Builder(this, "VAYDNS_CHANNEL")
+        val notification = NotificationCompat.Builder(this, "VAY_PROXY_ACTIVE")
             .setContentTitle("VayDNS Proxy Active")
             .setContentText("Connecting...")
             .setSmallIcon(R.drawable.ic_vpn_key)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setOnlyAlertOnce(true)
             .build()
+        startForeground(2, notification) // Use ID 2 to separate from VPN
         startForeground(2, notification) // Use ID 2 to separate from VPN
 
         Thread {
@@ -160,6 +133,7 @@ class VayProxyService : Service() {
 
                 val isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT_CONFIG", false)
                 val configIndex = intent.getLongExtra("CONFIG_INDEX", 0L)
+                val baseDohUrl = intent?.getStringExtra("BASE_DOH_URL") ?: ""
                 val domain = intent.getStringExtra("DOMAIN") ?: ""
                 val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
                 val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
@@ -168,6 +142,7 @@ class VayProxyService : Service() {
                 val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
                 val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
                 val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
+                val mtu = intent.getLongExtra("MTU", 0L)
                 val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
                 val useAuth = intent.getBooleanExtra("USE_AUTH", false)
                 val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
@@ -176,17 +151,18 @@ class VayProxyService : Service() {
                 val pass = intent.getStringExtra("PASS") ?: ""
                 val proxyPort = intent.getLongExtra("PROXY_PORT", 1080L)
 
-                var udp = ""; var doh = ""; var dot = ""
+                var udp = ""; var tcp = ""; var doh = ""; var dot = ""
                 when (mode.lowercase()) {
                     "udp" -> udp = dnsAddress
+                    "tcp" -> tcp = dnsAddress
                     "doh" -> doh = dnsAddress
                     "dot" -> dot = dnsAddress
                 }
 
                 // Call the new Proxy function!
                 val result = Mobile.startProxy(
-                    isDefaultConfig, configIndex, udp, doh, dot, domain, pubkey,
-                    recordType, idleTimeout, keepAlive, clientIdSize, dnsttCompatible,
+                    isDefaultConfig, configIndex, udp, tcp,doh, dot, baseDohUrl, domain, pubkey,
+                    recordType, idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible,
                     useAuth, protocol, ssMethod, user, pass, proxyPort
                 )
 
@@ -230,11 +206,14 @@ class VayProxyService : Service() {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
-        val notification = NotificationCompat.Builder(this, "VAYDNS_CHANNEL")
+        val notification = NotificationCompat.Builder(this, "VAY_PROXY_ACTIVE")
             .setContentTitle("VayDNS Proxy Active")
             .setContentText(status)
             .setSmallIcon(R.drawable.ic_vpn_key)
             .setContentIntent(pendingIntent)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setOnlyAlertOnce(true)
             .build()
         val nm = getSystemService(NotificationManager::class.java)
         nm.notify(2, notification)
@@ -243,7 +222,7 @@ class VayProxyService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "VAYDNS_CHANNEL", "VayDNS Proxy Service", NotificationManager.IMPORTANCE_LOW
+                "VAY_PROXY_ACTIVE", "VayDNS Proxy Service", NotificationManager.IMPORTANCE_DEFAULT
             )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }

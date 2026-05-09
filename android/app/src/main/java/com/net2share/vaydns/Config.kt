@@ -9,11 +9,12 @@ data class Config(
     val domain: String,
     val pubkey: String,
     val dnsAddress: String,
-    val mode: String,   // "udp", "dot", or "doh"
+    val mode: String,   // "udp", "tcp", "dot", or "doh"
     val recordType: String = "TXT",
     val idleTimeout: String = "10s",
     val keepAlive: String = "2s",
     val clientIdSize: Long = 2,
+    val mtu: Long = 0,
     val dnsttCompatible: Boolean = false,
     val useAuth: Boolean = false,
     val useSshKey: Boolean = false,
@@ -21,5 +22,6 @@ data class Config(
     val user: String = "",
     val pass: String = "",
     val ssMethod: String = "chacha20-ietf-poly1305",
-    val isDefault: Boolean = false // Crucial for your toggle logicval
+    val isDefault: Boolean = false,
+    val freeScanner: Boolean = false
 )

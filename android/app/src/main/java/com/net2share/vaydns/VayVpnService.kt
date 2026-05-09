@@ -31,11 +31,11 @@ class VayVpnService : VpnService() {
     private var tunInterface: ParcelFileDescriptor? = null
     private var isStopping = false
     private var isStarting = false
-        // 1. Move protector to class level
+    // 1. Move protector to class level
     private var protector: AndroidProtector? = null
 
     private var builder: Builder = Builder()
-        // The 'Lock' ensures only one thread can talk to Go at a time
+    // The 'Lock' ensures only one thread can talk to Go at a time
     companion object {
         private val goLock = Any()
     }
@@ -45,45 +45,6 @@ class VayVpnService : VpnService() {
     private var previousRxBytes = 0L
     private var previousTxBytes = 0L
 
-    /*private val statsRunnable = object : Runnable {
-        override fun run() {
-            if (isStopping) return
-
-            val uid = android.os.Process.myUid()
-            val currentRx = TrafficStats.getUidRxBytes(uid)
-            val currentTx = TrafficStats.getUidTxBytes(uid)
-
-            if (currentRx == TrafficStats.UNSUPPORTED.toLong()) return
-
-            // Initialize on first tick
-            if (initialRxBytes == 0L && initialTxBytes == 0L) {
-                initialRxBytes = currentRx
-                initialTxBytes = currentTx
-                previousRxBytes = currentRx
-                previousTxBytes = currentTx
-            }
-
-            val rxSpeed = currentRx - previousRxBytes
-            val txSpeed = currentTx - previousTxBytes
-            val rxTotal = currentRx - initialRxBytes
-            val txTotal = currentTx - initialTxBytes
-
-            previousRxBytes = currentRx
-            previousTxBytes = currentTx
-
-            val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
-            val totalStr = "Total: ${formatBytes(rxTotal)} ↓   ${formatBytes(txTotal)} ↑"
-
-            sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
-                putExtra("speed", speedStr)
-                putExtra("total", totalStr)
-                setPackage(packageName)
-            })
-
-            // Run again in 1 second
-            statsHandler.postDelayed(this, 1000)
-        }
-    }*/
     private val statsRunnable = object : Runnable {
         override fun run() {
             if (isStopping) return
@@ -118,6 +79,31 @@ class VayVpnService : VpnService() {
                         putExtra("total", totalStr)
                         setPackage(packageName)
                     })
+
+                    // 5. UPDATE THE LOCK SCREEN NOTIFICATION
+                    try {
+                        // 1. Recreate the PendingIntent so tapping it still opens the app
+                        val intent = Intent(this@VayVpnService, MainActivity::class.java)
+                        val pendingIntent = PendingIntent.getActivity(this@VayVpnService, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+
+                        // 2. Build a fresh notification right here to avoid variable clashes!
+                        val updateNotification = androidx.core.app.NotificationCompat.Builder(this@VayVpnService, "VAY_CHANNEL_ACTIVE")
+                            .setContentTitle("VayDNS VPN")
+                            .setContentText(speedStr)
+                            .setSmallIcon(com.net2share.vaydns.R.drawable.ic_vpn_key)
+                            .setOngoing(true)
+                            .setContentIntent(pendingIntent)
+                            .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
+                            .setOnlyAlertOnce(true)
+                            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                            .build()
+
+                        // 3. Push the update to the system
+                        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        nm.notify(1, updateNotification)
+                    } catch (e: Exception) {
+                        android.util.Log.e("VAY_VPN", "Failed to update notification: ${e.message}")
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("VAY_VPN", "Error parsing Go stats: ${e.message}")
@@ -203,10 +189,14 @@ class VayVpnService : VpnService() {
         }
 
         // 2. Initial Notification to satisfy Foreground Service requirements
-        val notification = Notification.Builder(this, "VAYDNS_CHANNEL")
+        val notification = Notification.Builder(this, "VAY_CHANNEL_ACTIVE")
             .setContentTitle("VayDNS Tunnel Active")
             .setContentText("Connecting to server...")
-            .setSmallIcon(R.drawable.ic_dialog_info)
+//            .setSmallIcon(R.drawable.ic_dialog_info)
+            .setSmallIcon(com.net2share.vaydns.R.drawable.ic_vpn_key)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
         startForeground(1, notification)
 
@@ -232,14 +222,14 @@ class VayVpnService : VpnService() {
 
                     val domain = intent?.getStringExtra("DOMAIN") ?: ""
                     val pubkey = (intent?.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
+                    val baseDohUrl = intent?.getStringExtra("BASE_DOH_URL") ?: ""
                     val dnsAddress = intent?.getStringExtra("UDP") ?: "8.8.8.8:53"
                     val mode = intent?.getStringExtra("MODE") ?: "udp"
                     val recordType = intent?.getStringExtra("RECORD_TYPE") ?: "TXT"
                     val idleTimeout = intent?.getStringExtra("IDLE_TIMEOUT") ?: "10s"
                     val keepAlive = intent?.getStringExtra("KEEP_ALIVE") ?: "2s"
-//                    val clientIdSize = intent?.getIntExtra("CLIENT_ID_SIZE", 2)
                     val clientIdSize = intent?.getLongExtra("CLIENT_ID_SIZE", 2L) ?: 2L
-//                    val dnsttCompatible = intent?.getBooleanExtra("DNSTT_COMPATIBLE", false)
+                    val mtu = intent.getLongExtra("MTU", 0L)
                     val dnsttCompatible = intent?.getBooleanExtra("DNSTT_COMPATIBLE", false) ?: false
                     val useAuth = intent?.getBooleanExtra("USE_AUTH", false) ?: false
                     val protocol = intent?.getStringExtra("PROTOCOL") ?: "socks5"
@@ -252,10 +242,12 @@ class VayVpnService : VpnService() {
                     }
 
                     var udp = ""
+                    var tcp = ""
                     var doh = ""
                     var dot = ""
                     when (mode.lowercase()) {
                         "udp" -> udp = dnsAddress
+                        "tcp" -> tcp = dnsAddress
                         "doh" -> doh = dnsAddress
                         "dot" -> dot = dnsAddress
                     }
@@ -348,14 +340,17 @@ class VayVpnService : VpnService() {
                             isDefaultConfig,
                             configIndex,
                             udp,
+                            tcp,
                             doh,
                             dot,
+                            baseDohUrl,
                             domain,
                             pubkey,
                             recordType,
                             idleTimeout,
                             keepAlive,
-                            clientIdSize.toLong(), // Pass as Long for Go compatibility if needed
+                            clientIdSize.toLong(),
+                            mtu.toLong(),
                             dnsttCompatible,
                             useAuth,
                             protocol,
@@ -435,7 +430,7 @@ class VayVpnService : VpnService() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "VAY_CHANNEL_ID",
+                "VAY_CHANNEL_ACTIVE",
                 "VayDNS Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
@@ -450,14 +445,16 @@ class VayVpnService : VpnService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val notification = NotificationCompat.Builder(this, "VAY_CHANNEL_ID")
+        val notification = NotificationCompat.Builder(this, "VAY_CHANNEL_ACTIVE")
             .setContentTitle("VayDNS VPN")
             .setContentText(status) // This is where "Connected" or "Connecting..." goes
             .setSmallIcon(com.net2share.vaydns.R.drawable.ic_vpn_key)
 //            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true) // Prevents the user from swiping it away
             .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_LOW) // Matches channel importance
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // CRITICAL: Shows the content on the lock screen
+            .setOnlyAlertOnce(true) // Updates the text silently without beeping/vibrating every second
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT) // Matches channel importance
             .build()
 
         // ID 1 matches the ID used in startForeground()
@@ -472,7 +469,7 @@ class VayVpnService : VpnService() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "VAYDNS_CHANNEL",           // ← make this the single source of truth
+                "VAY_CHANNEL_ACTIVE",           // ← make this the single source of truth
                 "VayDNS VPN Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
@@ -531,7 +528,7 @@ class VayVpnService : VpnService() {
         // 2. Run the standard Android lifecycle teardown
         super.onDestroy()
 
-       //  3. Obliterate the isolated :vpn process.
+        //  3. Obliterate the isolated :vpn process.
         // This instantly cures any kcp-go socket leaks or memory panics,
         // leaving a perfectly clean slate for the next time the user hits START.
         System.exit(0)

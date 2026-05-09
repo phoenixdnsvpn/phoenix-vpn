@@ -110,14 +110,53 @@
                     android:textColor="?attr/colorOnSurface"
                     android:text="8.8.8.8:53" />
 
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_multipath_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Multipath Resolvers (Select max 3):"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="16dp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_multipath_desc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Selective Multipath will race these 3 IPs for faster connection."
+                android:textSize="11sp"
+                android:textColor="?android:attr/textColorSecondary"
+                android:layout_marginBottom="4dp" />
+
+            <LinearLayout
+                android:id="@+id/layout_multipath_controls"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="?attr/selectableItemBackground"
+                android:paddingVertical="8dp">
+
+                <TextView
+                    android:id="@+id/tv_multipath_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="0 IPs selected"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorPrimary" />
+
                 <ImageButton
-                    android:id="@+id/btn_load_saved_resolvers"
+                    android:id="@+id/btn_select_multipath"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:src="@android:drawable/ic_menu_recent_history"
-                    android:background="?attr/selectableItemBackground"
+                    android:background="?attr/selectableItemBackgroundBorderless"
                     app:tint="?attr/colorPrimary"
-                    android:contentDescription="Load Saved Resolvers" />
+                    android:contentDescription="Select Multipath Resolvers" />
             </LinearLayout>
 
             <TextView
@@ -140,6 +179,15 @@
                     android:layout_height="wrap_content"
                     android:text="UDP"
                     android:checked="true"
+                    android:layout_weight="1"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_tcp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="TCP"
                     android:layout_weight="1"
                     android:textColor="?attr/colorOnSurface"
                     android:buttonTint="?attr/colorPrimary" />
@@ -226,6 +274,25 @@
                 android:textColor="?attr/colorOnSurface"
                 android:inputType="number"
                 android:text="2" />
+
+            <TextView
+                android:id="@+id/tv_mtu_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MTU:"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_mtu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="30 &lt; MTU &lt; 130"
+                android:textColorHint="@android:color/darker_gray"
+                android:textColor="?attr/colorOnSurface"
+                android:inputType="number"
+                android:text="0" />
 
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/sw_dnstt"

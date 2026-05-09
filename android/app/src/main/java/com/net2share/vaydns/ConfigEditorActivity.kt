@@ -15,6 +15,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.CheckBox
+import android.text.Editable
+import android.text.TextWatcher
+import android.content.res.ColorStateList
+import android.graphics.Color
+import androidx.appcompat.widget.AppCompatCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,11 +30,28 @@ import mobile.Mobile
 class ConfigEditorActivity : AppCompatActivity() {
 
     private var editingConfigId: String? = null
+    private var multipathDialog: androidx.appcompat.app.AlertDialog? = null
 
+    data class ResolverEntry(
+        var address: String,
+        var isChecked: Boolean = false,
+        val isManual: Boolean = false,
+        val latency: String = ""
+    )
+
+    private val resolverEntries = mutableListOf<ResolverEntry>()
+    private lateinit var layoutResolverContainer: LinearLayout
     // Remember last values for each mode
     private var lastUdp = "8.8.8.8:53"
+    private var lastTcp = "8.8.8.8:53"
     private var lastDot = "8.8.8.8:853"
     private var lastDoh = "https://dns.google/dns-query"
+
+    private lateinit var tvMultipathStatus: TextView
+    private lateinit var btnSelectMultipath: ImageButton
+    private lateinit var layoutMultipathControls: LinearLayout
+    private lateinit var tvMultipathLabel: TextView
+    private lateinit var tvMultipathDesc: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,19 +64,17 @@ class ConfigEditorActivity : AppCompatActivity() {
             finish() // Closes this window and returns to the Main Menu
         }
 
-//        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-//        supportActionBar?.title = "Config parameters"
-
         val etName = findViewById<EditText>(R.id.et_config_name)
         val etDomain = findViewById<EditText>(R.id.et_domain)
         val etPubkey = findViewById<EditText>(R.id.et_pubkey)
         val etDns = findViewById<EditText>(R.id.et_dns)
-        val btnLoadSavedResolvers = findViewById<ImageButton>(R.id.btn_load_saved_resolvers)
+        //val btnLoadSavedResolvers = findViewById<ImageButton>(R.id.btn_load_saved_resolvers)
         val rgMode = findViewById<RadioGroup>(R.id.rg_mode)
         val spRecordType = findViewById<Spinner>(R.id.sp_record_type)
         val etIdleTimeout = findViewById<EditText>(R.id.et_idle_timeout)
         val etKeepAlive = findViewById<EditText>(R.id.et_keep_alive)
         val etClientIdSize = findViewById<EditText>(R.id.et_client_id_size)
+        val etMtu = findViewById<EditText>(R.id.et_mtu)
         val swDnstt = findViewById<SwitchCompat>(R.id.sw_dnstt)
         val swAuth = findViewById<SwitchCompat>(R.id.sw_auth)
         val rgProtocol = findViewById<RadioGroup>(R.id.rg_protocol)
@@ -66,6 +88,13 @@ class ConfigEditorActivity : AppCompatActivity() {
         val tvSsMethodLabel = findViewById<TextView>(R.id.tv_ss_method_label)
         val swUseDefaultResolvers = findViewById<SwitchCompat>(R.id.sw_use_default_resolvers)
         swUseDefaultResolvers.visibility = View.GONE
+
+        // MULTIPATH BINDINGS
+        tvMultipathStatus = findViewById(R.id.tv_multipath_status)
+        btnSelectMultipath = findViewById(R.id.btn_select_multipath)
+        layoutMultipathControls = findViewById(R.id.layout_multipath_controls)
+        tvMultipathLabel = findViewById(R.id.tv_multipath_label)
+        tvMultipathDesc = findViewById(R.id.tv_multipath_desc)
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
 
@@ -87,96 +116,55 @@ class ConfigEditorActivity : AppCompatActivity() {
         editingConfigId = intent.getStringExtra("CONFIG_ID")
         val isDefault = editingConfigId?.startsWith("default_") == true
 
+        // Load Data into memory (does not build UI yet)
+        setupMultipathData(editingConfigId ?: "new_temp_config")
+
+        // The clock icon now OPENS THE DIALOG
+        btnSelectMultipath.setOnClickListener {
+            showMultipathDialog()
+        }
+
         if (editingConfigId != null) {
-//            supportActionBar?.title = "Edit Config"
-            btnLoadSavedResolvers.visibility = View.VISIBLE
-            btnLoadSavedResolvers.setOnClickListener {
-                try {
-                    // 1. Read directly from the physical file
-                    val file = java.io.File(filesDir, "resolvers_$editingConfigId.txt")
-                    if (!file.exists()) {
-                        Toast.makeText(this, "No saved resolvers for this config.", Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-
-                    val lines = file.readLines().filter { it.isNotBlank() }
-                    if (lines.isEmpty()) {
-                        Toast.makeText(this, "Saved resolvers are empty.", Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-
-                    // 2. Parse the IP and Latency for the UI
-                    val displayList = mutableListOf<String>()
-                    val ipList = mutableListOf<String>()
-
-                    for (line in lines) {
-                        val parts = line.split(",")
-                        if (parts.isNotEmpty()) {
-                            val ip = parts[0]
-                            val latency = if (parts.size > 1) parts[1] else "?"
-
-                            // Formats as: "8.8.8.8  (45 ms)"
-                            displayList.add("$ip  ($latency ms)")
-                            ipList.add(ip)
-                        }
-                    }
-
-                    // 🚨 FIX 2: Custom Adapter to squash the unused vertical space
-                    val adapter = object : android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, displayList) {
-                        override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
-                            val view = super.getView(position, convertView, parent) as android.widget.TextView
-
-                            // Remove Android's default minimum height
-                            view.minHeight = 0
-                            view.minimumHeight = 0
-
-                            // Shrink the padding (Horizontal: 16dp, Vertical: 6dp)
-                            val padHorizontal = (16 * resources.displayMetrics.density).toInt()
-                            val padVertical = (6 * resources.displayMetrics.density).toInt()
-
-                            view.setPadding(padHorizontal, padVertical, padHorizontal, padVertical)
-                            view.textSize = 15f
-                            return view
-                        }
-                    }
-
-                    // 3. Show the compressed dialog
-                    MaterialAlertDialogBuilder(this)
-                        .setTitle("Select a Saved Resolver")
-                        .setAdapter(adapter) { _, which ->
-                            val selectedIp = ipList[which]
-                            etDns.setText(selectedIp) // Inserts ONLY the IP, ignores the latency text
-
-                            when (rgMode.checkedRadioButtonId) {
-                                R.id.rb_udp -> lastUdp = selectedIp
-                                R.id.rb_tls -> lastDot = selectedIp
-                                R.id.rb_https -> lastDoh = selectedIp
-                            }
-                        }
-                        .setNegativeButton("Cancel", null)
-                        .show()
-
-                } catch (e: Exception) {
-                    Toast.makeText(this, "Error loading resolvers", Toast.LENGTH_SHORT).show()
-                }
-            }
 
             if (isDefault) {
-                val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
-//                etName.setText(DefaultConfigs.getConfigName(index))
+                //  HIDE ALL MULTIPATH UI FOR DEFAULTS
+                /**tvMultipathLabel.visibility = View.GONE
+                tvMultipathDesc.visibility = View.GONE
+                layoutMultipathControls.visibility = View.GONE*/
+                //findViewById<TextView>(R.id.tv_mtu_label)?.visibility = View.VISIBLE
 
+                val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
                 etName.setText(mobile.Mobile.getDefaultConfigName(index))
                 etDomain.setText("----------")
                 etPubkey.setText("----------")
 
+                val originalName = mobile.Mobile.getDefaultConfigName(index).ifEmpty { "Official Server ${index + 1}" }
                 val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                val savedName = prefs.getString("${editingConfigId}_name", originalName)
                 val savedDns = prefs.getString("${editingConfigId}_dns", "8.8.8.8:53")
                 val savedMode = prefs.getString("${editingConfigId}_mode", "udp")
+                val savedMtu = prefs.getLong("${editingConfigId}_mtu", 0L)
+
+                etName.setText(savedName)
+                etName.isEnabled = true
+
+                etName.addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        val currentText = s?.toString() ?: ""
+                        if (!currentText.startsWith(originalName)) {
+                            // If they delete any part of the original name, force it back
+                            etName.setText(originalName)
+                            etName.setSelection(originalName.length)
+                        }
+                    }
+                })
 
                 swUseDefaultResolvers.visibility = View.VISIBLE
                 swUseDefaultResolvers.setOnCheckedChangeListener { _, isChecked ->
                     if (isChecked) {
-                        val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
+                        //val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
 
                         // Ask Go for the decrypted comma-separated string of resolvers for this config
                         //val defaultResolversStr = mobile.Mobile.getDefaultConfigResolvers(index)
@@ -194,6 +182,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                                     etDns.setText(ipArray[which])
                                     when (rgMode.checkedRadioButtonId) {
                                         R.id.rb_udp -> lastUdp = ipArray[which]
+                                        R.id.rb_tcp -> lastTcp = ipArray[which]
                                         R.id.rb_tls -> lastDot = ipArray[which]
                                         R.id.rb_https -> lastDoh = ipArray[which]
                                     }
@@ -210,11 +199,12 @@ class ConfigEditorActivity : AppCompatActivity() {
 
                 etDns.setText(savedDns)
                 when(savedMode) {
+                    "tcp" -> rgMode.check(R.id.rb_tcp)
                     "dot" -> rgMode.check(R.id.rb_tls)
                     "doh" -> rgMode.check(R.id.rb_https)
                     else -> rgMode.check(R.id.rb_udp)
                 }
-
+                etMtu.setText(savedMtu.toString())
                 val rt = mobile.Mobile.getDefaultConfigRecordType(index)
                 val rtIndex = recordTypes.indexOf(rt.uppercase())
                 if (rtIndex >= 0) spRecordType.setSelection(rtIndex) // Set selection for defaults
@@ -261,7 +251,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swAuth.isEnabled = false
                 etUser.isEnabled = false
                 etPass.isEnabled = false
-                etName.isEnabled = false
+                //etName.isEnabled = false
                 etDomain.isEnabled = false
                 etPubkey.isEnabled = false
                 spRecordType.isEnabled = false
@@ -280,6 +270,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                 // but usually, it's safer to hide the ones we know:
                 tvUserLabel.visibility = View.GONE
                 tvPassLabel.visibility = View.GONE
+                etMtu.visibility = View.VISIBLE
+                findViewById<TextView>(R.id.tv_mtu_label).visibility = View.VISIBLE
 
                 // Hide Advanced Inputs
                 spRecordType.visibility = View.GONE
@@ -330,6 +322,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         etIdleTimeout, config.idleTimeout,
                         etKeepAlive, config.keepAlive,
                         etClientIdSize, config.clientIdSize,
+                        etMtu, config.mtu,
                         swDnstt, config.dnsttCompatible,
                         swAuth, config.useAuth,
                         swSshKey, config.useSshKey,
@@ -404,6 +397,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         rgMode.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.rb_udp -> etDns.setText(lastUdp)
+                R.id.rb_tcp -> etDns.setText(lastTcp)
                 R.id.rb_tls -> etDns.setText(lastDot)
                 R.id.rb_https -> etDns.setText(lastDoh)
             }
@@ -441,19 +435,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
 
-        /*rgProtocol.setOnCheckedChangeListener { _, checkedId ->
-            when (checkedId) {
-                R.id.rb_ssh -> {
-                    // Only enable the toggle if the master Auth switch is also ON
-                    swSshKey.isEnabled = swAuth.isChecked
-                }
-                else -> {
-                    swSshKey.isChecked = false
-                    swSshKey.isEnabled = false
-                }
-            }
-        }*/
-
         swAuth.setOnCheckedChangeListener { _, isChecked ->
             // 1. Enable/Disable User and Password fields
             etUser.isEnabled = isChecked
@@ -482,11 +463,25 @@ class ConfigEditorActivity : AppCompatActivity() {
                 Toast.makeText(this, "Config name is required", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+
+            val mode = when (rgMode.checkedRadioButtonId) {
+                R.id.rb_tcp -> "tcp"
+                R.id.rb_tls -> "dot"
+                R.id.rb_https -> "doh"
+                else -> "udp"
+            }
             val ssMethod = spSsMethod.selectedItem.toString()
             val domain = etDomain.text.toString().trim()
             val pubkey = etPubkey.text.toString().trim()
             val dns = etDns.text.toString().trim()
             val clientIdSize = etClientIdSize.text.toString().toLongOrNull() ?: 2L
+            val configId = intent.getStringExtra("CONFIG_ID") ?: "user_${System.currentTimeMillis()}"
+            val mtu = etMtu.text.toString().toLongOrNull() ?: 0L
+
+            if ( mtu != 0L && (mtu < 30 || mtu > 130)) {
+                Toast.makeText(this, "Invalid MTU: Please enter a value between 30 and 130, or 0 for default.", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
             val dnstt = swDnstt.isChecked
             val useAuth = swAuth.isChecked
             val useSshKey = swSshKey.isChecked
@@ -519,22 +514,43 @@ class ConfigEditorActivity : AppCompatActivity() {
             val idle = normalizeDuration(etIdleTimeout.text.toString(), "10s")
             val keep = normalizeDuration(etKeepAlive.text.toString(), "2s")
 
-            val mode = when (rgMode.checkedRadioButtonId) {
-                R.id.rb_tls -> "dot"
-                R.id.rb_https -> "doh"
-                else -> "udp"
-            }
-
             // Save the current value for future switching
             when (rgMode.checkedRadioButtonId) {
                 R.id.rb_udp -> lastUdp = dns
+                R.id.rb_tcp -> lastTcp = dns
                 R.id.rb_tls -> lastDot = dns
                 R.id.rb_https -> lastDoh = dns
             }
 
+            // 1. Save 10 Manual Rows (Persistent inputs)
+            val manualAddrs = resolverEntries.filter { it.isManual }.map { it.address }
+            java.io.File(filesDir, "manual_resolvers_$configId.txt").writeText(manualAddrs.joinToString("\n"))
+
+            // 2. Save Selected Multipath (Final list for Go engine)
+            val selectedAddrs = resolverEntries
+                .filter { it.isChecked && it.address.isNotEmpty() }
+                .mapNotNull { sanitizeResolverInput(it.address, mode) }
+
+            //  FORMATTING RULE: Assign appropriate ports/URLs based on Tunnel Mode
+            val engineResolvers = if (selectedAddrs.isEmpty()) {
+                listOf(dns)
+            } else {
+                selectedAddrs.map { res ->
+                    when (mode) {
+                        "doh" -> if (res.startsWith("https://") || res.startsWith("http://")) res else "https://$res/dns-query"
+                        "dot" -> if (res.contains(":")) res else "$res:853"
+                        else ->  if (res.contains(":")) res else "$res:53" // Covers UDP and TCP
+                    }
+                }
+            }
+
+            java.io.File(filesDir, "selected_multipath_$configId.txt").writeText(selectedAddrs.joinToString("\n"))
+
+            // PASS configId TO THIS FUNCTION
             saveOrUpdateConfig(
+                configId,
                 name, domain, pubkey, dns, mode, rt, idle, keep,
-                clientIdSize, dnstt, useAuth, useSshKey, protocol, ssMethod, user, pass
+                clientIdSize, mtu,dnstt, useAuth, useSshKey, protocol, ssMethod, user, pass
             )
             finish()
 
@@ -549,6 +565,398 @@ class ConfigEditorActivity : AppCompatActivity() {
 
     }
 
+    private fun isValidIpv4(ip: String): Boolean {
+        val parts = ip.split(".")
+        if (parts.size != 4) return false
+        return parts.all { part ->
+            val num = part.toIntOrNull()
+            num != null && num in 0..255 // Safely checks for null before evaluating range
+        }
+    }
+
+    private fun isValidIpv4WithOptionalPort(input: String): Boolean {
+        if (input.contains(":")) {
+            val parts = input.split(":")
+            if (parts.size != 2) return false
+            val port = parts[1].toIntOrNull()
+            return isValidIpv4(parts[0]) && port != null && port in 1..65535
+        }
+        return isValidIpv4(input)
+    }
+
+    private fun sanitizeResolverInput(input: String, mode: String): String? {
+        val parsedLines = input.split(Regex("[\\s,;]+"))
+            .map { it.replace("\"", "").trim() }
+            .filter { it.isNotEmpty() }
+
+        for (trimmed in parsedLines) {
+            when (mode.lowercase()) {
+                "doh" -> {
+                    if (trimmed.startsWith("https://") || isValidIpv4WithOptionalPort(trimmed)) {
+                        return trimmed
+                    }
+                }
+                else -> {
+                    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && isValidIpv4WithOptionalPort(trimmed)) {
+                        return trimmed
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun setupMultipathData(configId: String) {
+        resolverEntries.clear()
+
+        // 1. Load Scanner Results FIRST (They will appear at the top of the list)
+        val scanFile = java.io.File(filesDir, "resolvers_$configId.txt")
+        if (scanFile.exists()) {
+            scanFile.readLines().forEach { line ->
+                val parts = line.split(",") // Split the "IP,Latency" format
+                val ip = parts[0].trim()
+                val latencyVal = if (parts.size > 1) parts[1].trim() else ""
+
+                if (ip.isNotEmpty()) {
+                    resolverEntries.add(ResolverEntry(ip, isChecked = false, isManual = false, latency = latencyVal))
+                }
+            }
+        }
+
+        // 2. Load 10 Persistent Manual Rows SECOND (They will appear at the bottom)
+        val manualFile = java.io.File(filesDir, "manual_resolvers_$configId.txt")
+        val savedManuals = if (manualFile.exists()) manualFile.readLines() else emptyList()
+
+        for (i in 0 until 20) {
+            val addr = savedManuals.getOrNull(i) ?: ""
+            resolverEntries.add(ResolverEntry(addr, isChecked = false, isManual = true, latency = ""))
+        }
+
+        // 3. Restore Selection State
+        val selectedFile = java.io.File(filesDir, "selected_multipath_$configId.txt")
+        val currentSelections = if (selectedFile.exists()) selectedFile.readLines().toSet() else emptySet()
+
+        resolverEntries.forEach { entry ->
+            if (currentSelections.contains(entry.address)) entry.isChecked = true
+        }
+
+        updateMultipathStatus()
+    }
+
+    private fun updateMultipathStatus() {
+        val count = resolverEntries.count { it.isChecked }
+        if (::tvMultipathStatus.isInitialized) {
+            tvMultipathStatus.text = "$count IPs selected"
+        }
+    }
+
+    private fun showMultipathDialog() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val isDarkMode = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val checkBoxColor = if (isDarkMode) android.graphics.Color.WHITE else android.graphics.Color.parseColor("#2F4A6F")
+
+        val brandColor = Color.parseColor("#2F4A6F") // VayDNS Brand Color
+        val dynamicTextColor = com.google.android.material.color.MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorOnSurface,
+            Color.BLACK
+        )
+
+        // 🔴 1. CREATE THE IMPORT BUTTON
+        val btnImport = Button(this).apply {
+            text = "IMPORT RESOLVERS / وارد کردن آی‌پی"
+            setBackgroundColor(brandColor)
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, (16 * resources.displayMetrics.density).toInt())
+            }
+
+            setOnClickListener {
+                val input = EditText(this@ConfigEditorActivity).apply {
+                    hint = "Paste IPs (comma, space, or newline separated)..."
+                    setLines(5)
+                    gravity = android.view.Gravity.TOP
+                    val pad = (16 * resources.displayMetrics.density).toInt()
+                    setPadding(pad, pad, pad, pad)
+                }
+
+                MaterialAlertDialogBuilder(this@ConfigEditorActivity)
+                    .setTitle("Import Resolvers")
+                    .setView(input)
+                    .setPositiveButton("Import") { _, _ ->
+                        val pasted = input.text.toString()
+
+                        // Parse by spaces, commas, or newlines
+                        val parsedLines = pasted.split(Regex("[\\s,;]+"))
+                            .map { it.replace("\"", "").trim() }
+                            .filter { it.isNotEmpty() }
+
+                        val rgMode = findViewById<RadioGroup>(R.id.rg_mode)
+                        val currentMode = when (rgMode?.checkedRadioButtonId) {
+                            R.id.rb_tcp -> "tcp"; R.id.rb_tls -> "dot"; R.id.rb_https -> "doh"; else -> "udp"
+                        }
+
+                        // Sanitize and remove duplicates
+                        val validIps = parsedLines.mapNotNull { sanitizeResolverInput(it, currentMode) }.distinct()
+
+                        if (validIps.isNotEmpty()) {
+                            // Enforce the 10 IP limit
+                            val imported = validIps.take(20)
+
+                            // Overwrite the manual slots in memory
+                            var importIndex = 0
+                            resolverEntries.filter { it.isManual }.forEach { entry ->
+                                if (importIndex < imported.size) {
+                                    entry.address = imported[importIndex]
+                                    entry.isChecked = false // Reset check state
+                                    importIndex++
+                                } else {
+                                    entry.address = "" // Clear unused rows so old junk isn't left behind
+                                    entry.isChecked = false
+                                }
+                            }
+
+                            // Notice if they pasted more than 10
+                            if (validIps.size > 20) {
+                                MaterialAlertDialogBuilder(this@ConfigEditorActivity)
+                                    .setTitle("Limit Reached / محدودیت وارد کردن")
+                                    .setMessage("Found ${validIps.size} valid IPs, but only a maximum of 10 can be imported.\n\nتعداد ${validIps.size} آی‌پی معتبر یافت شد، اما تنها ۱۰ مورد اول وارد شدند.")
+                                    .setPositiveButton("OK", null)
+                                    .show()
+                            } else {
+                                Toast.makeText(this@ConfigEditorActivity, "Imported ${imported.size} IPs", Toast.LENGTH_SHORT).show()
+                            }
+
+                            // 🔴 REFRESH THE UI
+                            multipathDialog?.dismiss()
+                            showMultipathDialog()
+                        } else {
+                            Toast.makeText(this@ConfigEditorActivity, "No valid IPs found for $currentMode mode.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
+        container.addView(btnImport)
+
+        resolverEntries.forEach { entry ->
+            val row = LinearLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 0, 0, 0)
+            }
+
+            // 1. Initialize EditText (No listener yet)
+            val editText = EditText(this).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setText(entry.address)
+                hint = if (entry.isManual) "Enter Manual IP..." else ""
+
+                if (!entry.isManual) {
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    isClickable = false
+                    isCursorVisible = false
+                }
+
+                textSize = 14f
+                setSingleLine(true)
+            }
+
+            // 2. Initialize CheckBox (No listener yet)
+            val checkBox = AppCompatCheckBox(this).apply {
+                isChecked = entry.isChecked
+                buttonTintList = ColorStateList.valueOf(checkBoxColor)
+            }
+
+            // 3. Set the EditText Listener (Now it can safely see checkBox)
+            editText.addTextChangedListener(object : TextWatcher {
+                override fun afterTextChanged(s: Editable?) {
+                    val newText = s.toString().trim()
+                    if (entry.address != newText) {
+                        entry.address = newText
+
+                        // Security: If user edits a verified IP, force uncheck
+                        if (editText.hasFocus() && checkBox.isChecked) {
+                            checkBox.tag = "ignore"
+                            checkBox.isChecked = false
+                            entry.isChecked = false
+                            checkBox.tag = null
+                            updateMultipathStatus()
+                        }
+                    }
+                }
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            })
+
+            // 4. Set the CheckBox Listener (Now it can safely see editText)
+            checkBox.setOnCheckedChangeListener { buttonView, isChecked ->
+                if (buttonView.tag == "ignore") return@setOnCheckedChangeListener
+
+                if (isChecked) {
+                    if (entry.address.isBlank()) {
+                        buttonView.tag = "ignore"
+                        buttonView.isChecked = false
+                        buttonView.tag = null
+                        Toast.makeText(this@ConfigEditorActivity, "Please enter an IP address first", Toast.LENGTH_SHORT).show()
+                        return@setOnCheckedChangeListener
+                    }
+
+                    val rgMode = findViewById<RadioGroup>(R.id.rg_mode)
+                    val currentMode = when (rgMode?.checkedRadioButtonId) {
+                        R.id.rb_tcp -> "tcp"; R.id.rb_tls -> "dot"; R.id.rb_https -> "doh"; else -> "udp"
+                    }
+
+                    val sanitized = sanitizeResolverInput(entry.address, currentMode)
+
+                    if (sanitized != null) {
+                        if (sanitized != entry.address) {
+                            entry.address = sanitized
+                            editText.setText(sanitized)
+                            editText.setSelection(sanitized.length)
+                        }
+
+                        entry.isChecked = true
+                        updateMultipathStatus()
+                    } else {
+                        buttonView.tag = "ignore"
+                        buttonView.isChecked = false
+                        buttonView.tag = null
+                        Toast.makeText(this@ConfigEditorActivity, "Invalid IP for $currentMode mode.", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    entry.isChecked = false
+                    updateMultipathStatus()
+                }
+            }
+
+            // 5. Add views to row
+            row.addView(checkBox)
+            row.addView(editText)
+
+            // 6. Display Latency Label
+            if (!entry.isManual && entry.latency.isNotEmpty()) {
+                val tvLatency = TextView(this).apply {
+                    text = "${entry.latency} ms"
+                    textSize = 13f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+
+                    val latInt = entry.latency.toIntOrNull() ?: 0
+                    val textColor = when {
+                        latInt <= 2000 -> Color.parseColor("#00C853")
+                        latInt <= 6000 -> Color.parseColor("#FFB300")
+                        else -> Color.parseColor("#F44336")
+                    }
+                    setTextColor(textColor)
+                    setPadding((8 * resources.displayMetrics.density).toInt(), 0, (8 * resources.displayMetrics.density).toInt(), 0)
+                }
+                row.addView(tvLatency)
+            }
+
+            container.addView(row)
+        }
+
+        val scrollView = android.widget.ScrollView(this).apply {
+            addView(container)
+        }
+
+        /*val wrapper = android.widget.FrameLayout(this).apply {
+            // Add explicit bottom padding (e.g., 24dp) to push the list away from the buttons
+            val bottomPad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(0, 0, 0, bottomPad)
+            addView(scrollView)
+        }*/
+
+        // 3. ASSIGN THE DIALOG TO OUR VARIABLE
+        fun handleDialogClose(triggerSave: Boolean) {
+            val rgMode = findViewById<RadioGroup>(R.id.rg_mode)
+            val currentMode = when (rgMode?.checkedRadioButtonId) {
+                R.id.rb_tcp -> "tcp"; R.id.rb_tls -> "dot"; R.id.rb_https -> "doh"; else -> "udp"
+            }
+
+            var wipedGarbage = false
+
+            // Loop through all 10 manual rows and scrub them
+            resolverEntries.filter { it.isManual }.forEach { entry ->
+                if (entry.address.isNotBlank()) {
+                    val sanitized = sanitizeResolverInput(entry.address, currentMode)
+
+                    if (sanitized != null) {
+                        entry.address = sanitized
+                    } else {
+                        entry.address = ""
+                        entry.isChecked = false
+                        wipedGarbage = true
+                    }
+                } else {
+                    entry.isChecked = false
+                }
+            }
+
+            updateMultipathStatus()
+
+            // The isolated saving logic for resolvers
+            val saveResolversAction = {
+                if (triggerSave) {
+                    val configId = intent.getStringExtra("CONFIG_ID") ?: "new_temp_config"
+
+                    // 1. Save Manual Rows safely
+                    val manualAddrs = resolverEntries.filter { it.isManual }.map {
+                        if (it.address.isBlank()) "" else sanitizeResolverInput(it.address, currentMode) ?: ""
+                    }
+                    java.io.File(filesDir, "manual_resolvers_$configId.txt").writeText(manualAddrs.joinToString("\n"))
+
+                    // 2. Save Selected Multipath
+                    val selectedAddrs = resolverEntries
+                        .filter { it.isChecked && it.address.isNotEmpty() }
+                        .mapNotNull { sanitizeResolverInput(it.address, currentMode) }
+
+                    java.io.File(filesDir, "selected_multipath_$configId.txt").writeText(selectedAddrs.joinToString("\n"))
+
+                    Toast.makeText(this@ConfigEditorActivity, "Resolvers Saved!", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            if (wipedGarbage) {
+                MaterialAlertDialogBuilder(this@ConfigEditorActivity)
+                    .setTitle("Invalid IPs Cleared / حذف آی‌پی‌های نامعتبر")
+                    .setMessage("One or more of the manual IP addresses you entered were incorrectly formatted for $currentMode mode.\n\nThey have been automatically removed to prevent connection errors.\n\n---\n\nیک یا چند آی‌پی دستی که وارد کرده‌اید، فرمت نامعتبری برای حالت $currentMode داشتند.\n\nاین آی‌پی‌ها برای جلوگیری از خطای اتصال، به‌طور خودکار حذف شدند.")
+                    .setPositiveButton("OK / تأیید") { _, _ ->
+                        saveResolversAction() // Save after they acknowledge the warning
+                    }
+                    .show()
+            } else {
+                saveResolversAction() // Save immediately if no garbage was found
+            }
+        }
+
+        // 4. ASSIGN THE DIALOG TO OUR VARIABLE
+        multipathDialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Select Multipath Resolvers")
+            .setView(scrollView)
+            .setPositiveButton("Save Resolvers") { _, _ ->
+                handleDialogClose(true) // Primary Action: Scrub, save to txt files, and stay on screen
+            }
+            .setNegativeButton("Cancel") { _, _ ->
+                handleDialogClose(false) // Secondary Action: Scrub and close without saving to txt
+            }
+            .show()
+    }
+
     private fun loadConfigForEditing(
         etName: EditText, nameValue: String,
         etDomain: EditText, domainValue: String,
@@ -559,6 +967,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         etIdleTimeout: EditText, idleValue: String,
         etKeepAlive: EditText, keepValue: String,
         etClientIdSize: EditText, clientIdValue: Long,
+        etMtu: EditText, mtuValue: Long,
         swDnstt: SwitchCompat, dnsttValue: Boolean,
         swAuth: SwitchCompat, useAuth: Boolean,
         swSshKey: SwitchCompat, useSshKey: Boolean,
@@ -576,6 +985,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         etIdleTimeout.setText(idleValue)
         etKeepAlive.setText(keepValue)
         etClientIdSize.setText(clientIdValue.toString())
+        etMtu.setText(mtuValue.toString())
         etUser.setText(userValue)
         etPass.setText(passValue)
         val adapter = spSsMethod.adapter as ArrayAdapter<String>
@@ -593,6 +1003,10 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         // 2. Mode Logic & Memory (Restored)
         when (modeValue.lowercase()) {
+            "tcp" -> {
+                rgMode.check(R.id.rb_tcp)
+                lastTcp = dnsValue
+            }
             "dot" -> {
                 rgMode.check(R.id.rb_tls)
                 lastDot = dnsValue
@@ -647,6 +1061,7 @@ class ConfigEditorActivity : AppCompatActivity() {
     }
 
     private fun saveOrUpdateConfig(
+        configId: String,
         name: String,
         domain: String,
         pubkey: String,
@@ -655,7 +1070,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         recordType: String,
         idleTimeout: String,
         keepAlive: String,
-        clientIdSize: Long,      // Consistent with Go/Data Class
+        clientIdSize: Long,
+        mtu: Long,
         dnsttCompatible: Boolean,
         useAuth: Boolean,
         useSshKey: Boolean,
@@ -668,8 +1084,10 @@ class ConfigEditorActivity : AppCompatActivity() {
             // Save only DNS and Mode to a separate preference file
             val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
             prefs.edit().apply {
+                putString("${editingConfigId}_name", name)
                 putString("${editingConfigId}_dns", dns)
                 putString("${editingConfigId}_mode", mode)
+                putLong("${editingConfigId}_mtu", mtu)
             }.apply()
 
 //            Toast.makeText(this, "Default parameters updated!", Toast.LENGTH_SHORT).show()
@@ -688,7 +1106,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val obj = jsonArray.getJSONObject(i)
                 if (obj.getString("id") == editingConfigId) {
                     populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
-                        idleTimeout, keepAlive, clientIdSize, dnsttCompatible, useAuth, useSshKey, protocol, ssMethod, user, pass)
+                        idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth, useSshKey, protocol, ssMethod, user, pass)
                     break
                 }
             }
@@ -696,18 +1114,25 @@ class ConfigEditorActivity : AppCompatActivity() {
             val newObj = JSONObject()
             newObj.put("id", java.util.UUID.randomUUID().toString())
             populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
-                idleTimeout, keepAlive, clientIdSize, dnsttCompatible, useAuth, useSshKey, protocol, ssMethod, user, pass)
+                idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth, useSshKey, protocol, ssMethod, user, pass)
             jsonArray.put(newObj)
+
+            val tempManual = java.io.File(filesDir, "manual_resolvers_new_temp_config.txt")
+            if (tempManual.exists()) tempManual.renameTo(java.io.File(filesDir, "manual_resolvers_$configId.txt"))
+
+            val tempSelected = java.io.File(filesDir, "selected_multipath_new_temp_config.txt")
+            if (tempSelected.exists()) tempSelected.renameTo(java.io.File(filesDir, "selected_multipath_$configId.txt"))
         }
 
         sharedPref.edit().putString("configs", jsonArray.toString()).apply()
+
 //        Toast.makeText(this, "Config saved!", Toast.LENGTH_SHORT).show()
     }
 
     private fun populateJsonObject(
         obj: JSONObject, name: String, domain: String, pubkey: String, dns: String, mode: String,
         recordType: String, idleTimeout: String, keepAlive: String,
-        clientIdSize: Long, dnsttCompatible: Boolean, useAuth: Boolean, useSshKey: Boolean, protocol: String, ssMethod: String, user: String, pass: String
+        clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean, useSshKey: Boolean, protocol: String, ssMethod: String, user: String, pass: String
     ) {
         obj.put("name", name)
         obj.put("domain", domain)
@@ -719,6 +1144,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("keepAlive", keepAlive)
         obj.put("clientIdSize", clientIdSize)
         obj.put("dnsttCompatible", dnsttCompatible)
+        obj.put("mtu", mtu)
         obj.put("useAuth", useAuth)
         obj.put("useSshKey", useSshKey)
         obj.put("protocol", protocol)
@@ -736,6 +1162,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
+
                 list.add(
                     Config(
                         id = obj.getString("id"),
@@ -748,6 +1175,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         idleTimeout = obj.optString("idleTimeout", "10s"),
                         keepAlive = obj.optString("keepAlive", "2s"),
                         clientIdSize = obj.optLong("clientIdSize", 2),
+                        mtu = obj.optLong("mtu", 0L),
                         dnsttCompatible = obj.optBoolean("dnsttCompatible", false),
 
                         // --- Updated Protocol & Auth Fields ---
@@ -783,6 +1211,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("idleTimeout", config.idleTimeout)
                         put("keepAlive", config.keepAlive)
                         put("clientIdSize", config.clientIdSize)
+                        put("mtu", config.mtu)
                         put("dnsttCompatible", config.dnsttCompatible)
 
                         // --- New Protocol & Auth Fields ---

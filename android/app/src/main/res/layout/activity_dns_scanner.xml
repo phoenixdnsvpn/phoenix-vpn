@@ -53,6 +53,58 @@
                 android:textColor="?attr/colorPrimary" />
 
             <TextView
+                android:id="@+id/tv_tunnel_mode_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Tunnel Mode:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <RadioGroup
+                android:id="@+id/rg_tunnel_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <RadioButton
+                    android:id="@+id/rb_mode_udp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="?attr/colorPrimary"
+                    android:checked="true"
+                    android:text="UDP"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <RadioButton
+                    android:id="@+id/rb_mode_tcp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="?attr/colorPrimary"
+                    android:text="TCP"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <RadioButton
+                    android:id="@+id/rb_mode_dot"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="?attr/colorPrimary"
+                    android:text="DoT"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <RadioButton
+                    android:id="@+id/rb_mode_doh"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="?attr/colorPrimary"
+                    android:text="DoH"
+                    android:textColor="?attr/colorOnSurface" />
+            </RadioGroup>
+
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Proxy Type:"
@@ -244,6 +296,16 @@
                 android:layout_marginTop="20dp"
                 android:thumbTint="?attr/colorPrimary" />
 
+            <Switch
+                android:id="@+id/switch_fast_fail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Enable Fast-Fail Check"
+                android:textColor="?attr/colorOnSurface"
+                android:checked="true"
+                android:layout_marginTop="20dp"
+                android:thumbTint="?attr/colorPrimary" />
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -261,6 +323,7 @@
                 android:text="20" />
 
             <TextView
+                android:id="@+id/tv_tunnel_wait_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Tunnel Wait (ms):"
@@ -274,9 +337,10 @@
                 android:layout_height="wrap_content"
                 android:inputType="number"
                 android:textColor="?attr/colorOnSurface"
-                android:text="1000" />
+                android:text="3000" />
 
             <TextView
+                android:id="@+id/tv_probe_timeout_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Probe Timeout (seconds):"
@@ -309,6 +373,7 @@
                 android:text="1000" />
 
             <TextView
+                android:id="@+id/tv_retries_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Retry:"
@@ -322,7 +387,7 @@
                 android:layout_height="wrap_content"
                 android:inputType="number"
                 android:textColor="?attr/colorOnSurface"
-                android:text="0" />
+                android:text="1" />
 
         </LinearLayout>
     </ScrollView>

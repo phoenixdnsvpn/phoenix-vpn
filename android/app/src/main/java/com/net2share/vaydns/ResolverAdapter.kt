@@ -7,8 +7,11 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
-class ResolverAdapter(private val results: List<ResolverResult>) :
-    RecyclerView.Adapter<ResolverAdapter.ViewHolder>() {
+
+class ResolverAdapter(
+    private val results: List<ResolverResult>,
+    private val isQuickScanner: Boolean
+) : RecyclerView.Adapter<ResolverAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvIp: TextView = view.findViewById(R.id.tv_ip)
@@ -27,6 +30,10 @@ class ResolverAdapter(private val results: List<ResolverResult>) :
         holder.tvIp.text = item.ip
         holder.tvLatency.text = "${item.latencyMs} ms"
 
+        if (isQuickScanner) {
+            holder.itemView.setOnClickListener(null)
+            holder.itemView.isClickable = false
+        }
         // Color coding
         when {
             item.latencyMs <= 2000 -> {

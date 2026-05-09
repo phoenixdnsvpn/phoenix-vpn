@@ -4,9 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
+import android.os.PowerManager
 import android.widget.Button
 import android.widget.EditText
 import android.content.Context
+import android.util.Log
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.widget.ImageButton
 import android.widget.TextView
@@ -39,14 +41,40 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private var totalResolvers = 0
     private var isRunning = true
     private var scanCallback: ScanResultCallback? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var isQuickScanner = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_dns_scanner_result)
 
+        // Prevent the phone from automatically sleeping while on this screen
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar_results)
+        isQuickScanner = intent.getBooleanExtra("IS_QUICK_SCANNER", false)
         val btnSort = findViewById<ImageButton>(R.id.btn_sort)
         val btnSave = findViewById<ImageButton>(R.id.btn_save)
+        val btnSet = findViewById<ImageButton>(R.id.btn_set)
+
+        if (isQuickScanner) {
+            // Hiding the Apply/Check icon because we are only sorting and sharing
+            btnSet.visibility = android.view.View.GONE
+            btnSave.visibility = android.view.View.GONE
+        }
+
+        val resolversFilePath = intent.getStringExtra("RESOLVERS_FILE") ?: ""
+        val resolversCommaSeparated = if (resolversFilePath.isNotEmpty()) {
+            // High Volume: Read from Disk
+            try {
+                java.io.File(resolversFilePath).readText()
+            } catch (e: Exception) {
+                ""
+            }
+        } else {
+            // Standard Volume: Read from Intent
+            intent.getStringExtra("RESOLVERS") ?: ""
+        }
 
         val isDefaultResolvers = intent.getBooleanExtra("IS_DEFAULT_RESOLVERS", false)
         // The new way to handle the back arrow click
@@ -59,7 +87,6 @@ class DnsScannerResultActivity : AppCompatActivity() {
         val isDefaultConfig = configId.startsWith("default_")
         val configIndex = if (isDefaultConfig) configId.removePrefix("default_").toLongOrNull() ?: 0L else 0L
 
-        val btnSet = findViewById<ImageButton>(R.id.btn_set)
         btnSet.setOnClickListener {
             // 1. Find the fastest successful resolver
             val fastest = results.filter { it.probe == "ok" }.minByOrNull { it.latencyMs }
@@ -177,22 +204,27 @@ class DnsScannerResultActivity : AppCompatActivity() {
         btnStopResume = findViewById(R.id.btn_stop_resume)
         btnShare = findViewById(R.id.btn_share)
 //        btnBack = findViewById(R.id.btn_back)
+        adapter = ResolverAdapter(results, isQuickScanner)
         recycler = findViewById(R.id.recycler_results)
-
         recycler.layoutManager = LinearLayoutManager(this)
         recycler.addItemDecoration(androidx.recyclerview.widget.DividerItemDecoration(this, LinearLayoutManager.VERTICAL))
-
-        adapter = ResolverAdapter(results)
         recycler.adapter = adapter
         // Extract Intent Data
+        val baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
         val domain = intent.getStringExtra("DOMAIN") ?: ""
         val pubkey = intent.getStringExtra("PUBKEY") ?: ""
-        val resolversCommaSeparated = intent.getStringExtra("RESOLVERS") ?: ""
+        //val resolversCommaSeparated = intent.getStringExtra("RESOLVERS") ?: ""
         val proxyType = intent.getStringExtra("PROXY_TYPE") ?: "socks5h"
+        val tunnelProtocol = intent.getStringExtra("PROTOCOL") ?: "socks"
+        val ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
+        val fastFailEnabled = intent.getBooleanExtra("FAST_FAIL_ENABLED", true)
+        val user = intent.getStringExtra("USER") ?: "none"
+        val pass = intent.getStringExtra("PASS") ?: "none"
         val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
         val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
         val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
         val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
+        val mtu = intent.getLongExtra("MTU", 0L)
         val selectedMode = intent.getStringExtra("MODE") ?: "udp"
 //        val isConservative = intent.getBooleanExtra("CONSERVATIVE", false)
         val workers = intent.getLongExtra("WORKERS", 20L)
@@ -200,30 +232,12 @@ class DnsScannerResultActivity : AppCompatActivity() {
         val udpTimeout = intent.getLongExtra("UDP_TIMEOUT", 1000L)
         val probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 15L)
         val retries = intent.getLongExtra("RETRIES", 0L)
+        //val skipQuickCheck = intent.getBooleanExtra("SKIP_QUICK_CHECK", false)
+
         totalResolvers = intent.getIntExtra("TOTAL_RESOLVERS", 500)
         tvProgress.text = "0 / $totalResolvers"
 
         val isAuthEnabled = intent.getBooleanExtra("USE_AUTH", false)
-
-        // Set to actual value if ON, otherwise fallback to "none"
-        val user = if (isAuthEnabled) {
-            intent.getStringExtra("USER")?.takeIf { it.isNotEmpty() } ?: "none"
-        } else {
-            "none"
-        }
-
-        val pass = if (isAuthEnabled) {
-            intent.getStringExtra("PASS")?.takeIf { it.isNotEmpty() } ?: "none"
-        } else {
-            "none"
-        }
-//        supportActionBar?.title = "Scan in Progress"
-
-        // Back Arrow Action
-/*        btnBack.setOnClickListener {
-            stopScanProcess()
-            finish() // Return to previous screen
-        }*/
 
         // Stop/Resume Logic
         btnStopResume.setOnClickListener {
@@ -242,9 +256,9 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 btnStopResume.text = "STOP"
                 isRunning = true
 
-                startScan(isDefaultConfig, configIndex, selectedMode, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
-                    workers, tunnelWait, udpTimeout, probeTimeout, retries, user, pass,
-                    idleTimeout, keepAlive, clientIdSize)
+                startScan(isDefaultConfig, configIndex, selectedMode, domain, pubkey, resolversCommaSeparated, baseDohUrl, proxyType, tunnelProtocol, recordType,
+                    workers, tunnelWait, udpTimeout, probeTimeout, retries, fastFailEnabled, isQuickScanner, user, pass, ssMethod,
+                    idleTimeout, keepAlive, clientIdSize, mtu)
             }
         }
 
@@ -284,10 +298,22 @@ class DnsScannerResultActivity : AppCompatActivity() {
         // We must re-inject the Base64 strings from SharedPreferences before scanning.
         mobile.Mobile.initVault(filesDir.absolutePath)
 
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VayDNS::ScannerWakelock")
+            wakeLock?.acquire(30 * 60 * 1000L) // 30 minutes
+            Log.i("VAY_SCANNER", "WakeLock acquired successfully")
+        } catch (e: Exception) {
+            Log.e("VAY_SCANNER", "Failed to acquire WakeLock: ${e.message}")
+        }
+
         // Start initial scan
-        startScan(isDefaultConfig, configIndex, selectedMode, domain, pubkey, resolversCommaSeparated, proxyType, recordType,
-            workers, tunnelWait, udpTimeout, probeTimeout, retries, user, pass,
-            idleTimeout, keepAlive, clientIdSize)
+        if (savedInstanceState == null) {
+            startScan(isDefaultConfig, configIndex, selectedMode, domain, pubkey, resolversCommaSeparated, baseDohUrl, proxyType, tunnelProtocol, recordType,
+                workers, tunnelWait, udpTimeout, probeTimeout, retries, fastFailEnabled, isQuickScanner, user, pass, ssMethod,
+                idleTimeout, keepAlive, clientIdSize, mtu)
+        }
+
     }
 
     private fun stopScanProcess() {
@@ -309,18 +335,24 @@ class DnsScannerResultActivity : AppCompatActivity() {
         domain: String,
         pubkey: String,
         resolvers: String,
+        baseDohUrl: String,
         proxyType: String,
+        tunnelProtocol: String,
         recordType: String,
         workers: Long,
         tunnelWait: Long,
         udpTimeout: Long,
         probeTimeout: Long,
         retries: Long,
+        fastFailEnabled: Boolean,
+        isQuickScan: Boolean,
         user: String,
         pass: String,
+        ssMethod: String,
         idleTimeout: String,
         keepAlive: String,
-        clientIdSize: Long
+        clientIdSize: Long,
+        mtu:Long
     ) {
         scanCallback = object : ScanResultCallback {
             override fun onResult(jsonResult: String) {
@@ -380,18 +412,24 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 domain,
                 pubkey,
                 resolvers,
+                baseDohUrl,
                 proxyType,
+                tunnelProtocol,
                 user,
                 pass,
+                ssMethod,
                 recordType,
                 idleTimeout,
                 keepAlive,
                 clientIdSize,
+                mtu,
                 workers,
                 tunnelWait,
                 udpTimeout,
                 probeTimeout,
                 retries,
+                fastFailEnabled,
+                isQuickScan,
                 scanCallback!!
             )
         } catch (e: Exception) {
@@ -400,8 +438,19 @@ class DnsScannerResultActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-//        stopScanProcess() // Safety kill
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+        }
+
         super.onDestroy()
-        System.exit(0) // now we are Sandboxing the scanner process to prevent crash from kcp-go leaking.
+        if (isFinishing) {
+            // The user explicitly pressed Back or closed the screen.
+            // It is safe to nuke the sandbox process to prevent the kcp-go crash.
+            System.exit(0)
+        } else {
+            // The OS is temporarily destroying the UI in the background to save RAM.
+            // Stop the Go engine so it doesn't leak or run headless.
+            stopScanProcess() // now we are Sandboxing the scanner process to prevent crash from kcp-go leaking.
+        }
     }
 }

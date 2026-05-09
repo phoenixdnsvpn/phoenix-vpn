@@ -19,13 +19,16 @@ object DefaultConfigProvider {
         for (i in 0L until count) {
             val id = "default_$i"
             val hasAuth = mobile.Mobile.hasDefaultConfigAuth(i)
+            val isFreeScanner = mobile.Mobile.getDefaultConfigIsFreeScanner(i)
+            val originalName = mobile.Mobile.getDefaultConfigName(i).ifEmpty { "Official Server ${i.toInt() + 1}" }
+            val customName = overrides.getString("${id}_name", originalName) ?: originalName
 
             val config = Config(
                 id = id,
                 isDefault = true,
-                // If Go can't decrypt, these will return empty, and the UI remains safe.
-                name = mobile.Mobile.getDefaultConfigName(i).ifEmpty { "Official Server ${i.toInt() + 1}" },
-
+                freeScanner = isFreeScanner,
+                name = customName,
+                //name = mobile.Mobile.getDefaultConfigName(i).ifEmpty { "Official Server ${i.toInt() + 1}" },
                 domain = "SECURE_NATIVE_VAULT",
                 pubkey = "SECURE_NATIVE_VAULT",
 

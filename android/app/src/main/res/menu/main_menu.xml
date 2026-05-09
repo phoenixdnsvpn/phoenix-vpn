@@ -13,6 +13,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_select_apps"
+        android:title="Select Apps to Tunnel"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_verify"
         android:title="Verify App"
         app:showAsAction="never" />
@@ -45,6 +50,11 @@
     <item
         android:id="@+id/action_dns_scanner"
         android:title="DNS Scanner"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_quick_scanner"
+        android:title="Quick Scanner"
         app:showAsAction="never" />
 
     <item

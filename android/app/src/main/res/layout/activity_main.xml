@@ -73,27 +73,16 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <Button
-                        android:id="@+id/btn_select_apps"
-                        style="@style/Widget.MaterialComponents.Button.TextButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="SELECT APPS TO TUNNEL"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:paddingStart="16dp"
-                        android:drawableStart="@android:drawable/ic_menu_add"
-                        android:drawableTint="?attr/colorOnSurface"
-                        android:gravity="start|center_vertical"
-                        android:textColor="?attr/colorOnSurface" />
-
                     <TextView
+                        android:id="@+id/tv_selected_apps_info"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Only selected apps will use the DNS tunnel."
-                        android:textSize="12sp"
+                        android:text="Selected apps to use the DNS tunnel: 0"
+                        android:textSize="13sp"
+                        android:gravity="center"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:paddingStart="4dp"/>
+                        android:paddingTop="8dp"
+                        android:paddingBottom="8dp" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -102,18 +91,9 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:visibility="gone"
-                    android:paddingTop="12dp"
-                    android:paddingBottom="12dp"
+                    android:paddingTop="0dp"
+                    android:paddingBottom="0dp"
                     android:gravity="center">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="PROXY MODE ACTIVE"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorPrimary"
-                        android:layout_marginBottom="6dp"/>
 
                     <LinearLayout
                         android:layout_width="wrap_content"
@@ -137,7 +117,8 @@
                             android:textSize="16sp"
                             android:textStyle="bold"
                             android:textColor="?attr/colorOnSurface"
-                            android:layout_marginStart="16dp"/> <EditText
+                            android:layout_marginStart="16dp"/>
+                        <EditText
                         android:id="@+id/et_proxy_port"
                         android:layout_width="70dp"
                         android:layout_height="wrap_content"
@@ -153,13 +134,6 @@
                         android:textColor="?attr/colorOnSurface"/>
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Enter these in Telegram's Proxy Settings."
-                        android:textSize="12sp"
-                        android:textColor="?android:attr/textColorSecondary"
-                        android:layout_marginTop="4dp"/>
                 </LinearLayout>
                 
             </FrameLayout>
