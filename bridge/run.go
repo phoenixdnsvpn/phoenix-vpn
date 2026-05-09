@@ -8,7 +8,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-//	"github.com/net2share/vaydns/client"
     "github.com/Starling226/vaydns-vpn/vaydns/client"
 )
 
@@ -19,7 +18,7 @@ type SocketProtector interface {
 }
 
 type TunnelConfig struct {
-	DohURL, DotAddr, UdpAddr, Domain, ListenAddr string
+	BaseDohURL, DohURL, TcpAddr, DotAddr, UdpAddr, Domain, ListenAddr string
 	PubkeyHex, UtlsDistribution, RecordType      string
 	LogLevel                                     string
 	MaxQnameLen, MaxNumLabels, MaxStreams        int
@@ -30,6 +29,13 @@ type TunnelConfig struct {
 	CompatDnstt                                  bool
 	ClientIDSize                                 int
 	MTU                                          int
+	IsScanner                                    bool
+	Protocol                                     string
+	SSMethod                                     string
+	User                                         string
+	Pass                                         string
+	FastFailEnabled 							 bool
+	QuickScan                                    bool
 	Protector SocketProtector
 }
 
@@ -88,6 +94,8 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 		rType = client.ResolverTypeDOH
 	} else if c.DotAddr != "" {
 		rType = client.ResolverTypeDOT
+	} else if c.TcpAddr != "" {
+		rType = client.ResolverTypeTCP		
 	} else if c.UdpAddr != "" {
 		rType = client.ResolverTypeUDP
 	} else {
@@ -96,8 +104,9 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 
 	rAddr := c.DohURL
 	if rType == client.ResolverTypeDOT { rAddr = c.DotAddr }
+	if rType == client.ResolverTypeTCP { rAddr = c.TcpAddr }
 	if rType == client.ResolverTypeUDP { rAddr = c.UdpAddr }
-
+	
 	resolver, err := client.NewResolver(rType, rAddr)
 	if err != nil {
 		return err
@@ -125,45 +134,6 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	    })
 	}
 
-	/*resolver.DialerControl = func(network, address string, rawConn syscall.RawConn) error {
-	    if err := ctx.Err(); err != nil {
-	        // Return a specific error that the library recognizes as "Permanent"
-	        return fmt.Errorf("engine shutdown initiated")
-	    }
-
-	    return rawConn.Control(func(fd uintptr) {
-	        select {
-	        case <-ctx.Done():
-	            return 
-	        default:
-	            c.Protector.Protect(int(fd))
-	        }
-	    })
-	}*/
-	
-	/*resolver.DialerControl = func(network, address string, rawConn syscall.RawConn) error {
-		// 1. If context is cancelled, kill the dialer immediately.
-		// This stops the Noise Handshake reconnect loop.
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("shutting down")
-		}
-
-		if c.Protector == nil {
-			return nil 
-		}
-
-		return rawConn.Control(func(fd uintptr) {
-			select {
-			case <-ctx.Done():
-				// 2. Context cancelled: Exit without calling JNI/Protector
-				return 
-			default:
-				// 3. ONLY call the JNI bridge if the tunnel is alive
-				c.Protector.Protect(int(fd))
-			}
-		})
-	}*/
-
 	utlsID, _ := client.SampleUTLSDistribution(c.UtlsDistribution)
 	resolver.UTLSClientHelloID = utlsID
 	resolver.UDPTimeout = udpTimeout
@@ -182,7 +152,7 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	ts.MaxNumLabels = 0
 //	ts.ClientIDSize = 2
     ts.ClientIDSize = c.ClientIDSize
-	ts.MTU = 0
+	ts.MTU = c.MTU
 
 	// 6. Assemble the final Tunnel
 	tunnel, err := client.NewTunnel(resolver, ts)
@@ -198,15 +168,22 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 	tunnel.SessionCheckInterval = sessionCheck
 	tunnel.OpenStreamTimeout = openStreamTimeout
 	tunnel.MaxStreams = c.MaxStreams
+	
+//	tunnel.PacketQueueSize = 512
+//	tunnel.KCPWindowSize = 0	
 
-	// Context cancellation handler
-	go func() {
-		<-ctx.Done()
-		log.Info("VAY_DEBUG: Context cancelled - shutting down tunnel")
-		if tunnel != nil {
-			tunnel.Close()
-		}
-	}()
+
+// Context cancellation handler
+	if !c.IsScanner { // ONLY the VPN is allowed to explicitly close the tunnel
+		go func() {
+			<-ctx.Done()
+			log.Info("VAY_DEBUG: Context cancelled - shutting down tunnel")
+			if tunnel != nil {
+				time.Sleep(500 * time.Millisecond) // Keep your safety delay for the VPN
+				tunnel.Close()
+			}
+		}()
+	}
 
 	if c.ListenAddr == "" {
 		c.ListenAddr = "127.0.0.1:10808"
