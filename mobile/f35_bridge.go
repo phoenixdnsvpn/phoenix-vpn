@@ -34,18 +34,24 @@ func StartF35Scan(
 	customDomain string,
 	customPublicKey string,
 	resolversList string, // Comma-separated
+	baseDohUrl string,
 	proxyType string,
+	tunnelProtocol string,
 	proxyUser string,
 	proxyPass string,
+	ssMethod string,
 	recordType string,
 	idleTimeout string,
 	keepAlive string,
 	clientIdSize int,
+	mtu int,
 	workers int,          
 	tunnelWait int,   
 	udpTimeout int,        
 	probeTimeout int, 
-	retries int,          
+	retries int,
+	fastFailEnabled bool,
+	isQuickScan bool,
 	callback ScanResultCallback,
 ) string {
 	scanMu.Lock()
@@ -94,13 +100,12 @@ func StartF35Scan(
 		if fakeFull != "" {
 			// Leverage the helper we already built in mobile.go!
 			// This splits the port, translates the IP, and re-attaches the port.
-//			realFull := translateFakeToReal(fakeFull)
 			
 			realFull := fakeFull
 			if !strings.HasPrefix(fakeFull, "http") {
 				realFull = translateFakeToReal(fakeFull)
 			}
-						
+
 			// Store the reverse mapping for the callback
 			realToFake[realFull] = fakeFull       
 			
@@ -148,6 +153,7 @@ func StartF35Scan(
         
 	// Build ExtraArgs for vaydns
 	cfg.ExtraArgs = []string{
+		"-base-doh", baseDohUrl,
 		"-pubkey", pubkeyToUse,
 		"-record-type", strings.ToLower(recordType),
 		"-log-level", "error",
@@ -155,8 +161,14 @@ func StartF35Scan(
 		"-utls", "chrome",
 		"-keepalive", keepAlive,
 		"-idle-timeout", idleTimeout,
-		"-mtu", "50",
+		"-mtu", fmt.Sprintf("%d", mtu),		
 		"-udp-timeout", fmt.Sprintf("%dms", udpTimeout),
+		"-protocol", proxyType,
+		"-ss-method", ssMethod,
+		"-user", proxyUser,
+		"-pass", proxyPass,
+		"-fast-fail-enabled", fmt.Sprintf("%v", fastFailEnabled),
+		"-quick-scan", fmt.Sprintf("%v", isQuickScan),
 	}
 
 	cfg.Pubkey = pubkeyToUse 
@@ -198,7 +210,7 @@ func StartF35Scan(
 		// 1. Execute the actual scan
 		err := f35.ScanWithContext(ctx, cfg, hooks)
 		
-		fmt.Println("GO_DEBUG: Scan engine finished processing resolvers. Entering 15s grace period...")
+		fmt.Println("GO_DEBUG: Scan engine finished processing resolvers. Entering 3 seconds grace period...")
 
 		// 3. Notify the App that we are truly finished
 		if callback != nil {
@@ -212,6 +224,7 @@ func StartF35Scan(
 			}
 		}
 
+		time.Sleep(3 * time.Second)
 		// 4. Final Resource Termination
 		cancel() 
 

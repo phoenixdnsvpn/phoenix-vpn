@@ -100,15 +100,18 @@ func StartVpn(
 	fd int, 
 	isDefault bool, 
 	configIndex int64, 
-	udp string, 
+	udp string,
+	tcp string,
 	doh string, 
-	dot string, 
+	dot string,
+	baseDohUrl string,
 	customDomain string, 
 	customPubkey string, 
 	recordType string, 
 	idleTimeout string, 
 	KeepAlive string, 
-	clientIDSize int, 
+	clientIDSize int,
+	mtu int,
 	compatDnstt bool, 
 	useAuth bool, 
 	protocol string, 
@@ -137,7 +140,9 @@ func StartVpn(
 
 	wg := activeWg
 	ctx := activeCtx
-
+			
+//	fmt.Printf("VAY_DEBUG: mtu %d\n",mtu)
+				
 	activeSocksPort = 10000 + rand.Intn(40000)
 	internalSocks := fmt.Sprintf("127.0.0.1:%d", activeSocksPort)
 
@@ -170,17 +175,21 @@ func StartVpn(
 		useAuth = (user != "" || pass != "")
 	}
 
-	realUdp := translateFakeToReal(udp)
-	realDoh := translateFakeToReal(doh)
-	realDot := translateFakeToReal(dot)
-
+	realUdp := translateMultipathFakeToReal(udp)
+    realTcp := translateMultipathFakeToReal(tcp)
+    realDoh := translateMultipathFakeToReal(doh)
+    realDot := translateMultipathFakeToReal(dot)
+    
 	tCfg := bridge.TunnelConfig{
+		BaseDohURL:       baseDohUrl,
 		UdpAddr:          realUdp,
+		TcpAddr:          realTcp,
 		DohURL:           realDoh,
 		DotAddr:          realDot,
 		Domain:           domainToUse,
 		ListenAddr:       internalSocks,
 		LogLevel:         "error",
+//		LogLevel:         "info",
 		UtlsDistribution: "chrome",
 		RecordType:       recordType,
 		PubkeyHex:        pubkeyToUse,
@@ -189,6 +198,7 @@ func StartVpn(
 		KeepAlive:        KeepAlive,
 		UDPTimeout:       "1s",
 		ClientIDSize:     clientIDSize,
+		MTU:              mtu,
 		CompatDnstt:      compatDnstt,
 	}
 
@@ -202,7 +212,7 @@ func StartVpn(
 
 	// 4. BUILD THE PROXY URL WITH AUTHENTICATION
 
-	// 🚨 MASTER GUARDRAIL: If authentication is disabled, SSH and Shadowsocks
+	// MASTER GUARDRAIL: If authentication is disabled, SSH and Shadowsocks
 	// are impossible. Force fallback to plain SOCKS5.
 	if !useAuth || protocol == "" || protocol == "socks" {
 		protocol = "socks5"
@@ -258,7 +268,7 @@ func StartVpn(
 	}
 
 	proxyString := proxyURL.String()
-
+			
 	// 5. START TUN2SOCKS ENGINE
 	wg.Add(1)
 	go func() {
@@ -298,9 +308,9 @@ func StartVpn(
 
 // StartProxy: Starts the DNS tunnel and local SOCKS5 proxy WITHOUT Android VPN routing.
 func StartProxy(
-	isDefault bool, configIndex int64, udp string, doh string, dot string,
+	isDefault bool, configIndex int64, udp string, tcp string, doh string, dot string, baseDohUrl string,
 	customDomain string, customPubkey string, recordType string, idleTimeout string,
-	KeepAlive string, clientIDSize int, compatDnstt bool, useAuth bool,
+	KeepAlive string, clientIDSize int, mtu int, compatDnstt bool, useAuth bool,
 	protocol string, ssMethod string, user string, pass string, customPort int,
 ) string {
 	mu.Lock()
@@ -352,13 +362,16 @@ func StartProxy(
 		compatDnstt = GetDefaultConfigDnsttCompatible(configIndex)
 	}
 
-	realUdp := translateFakeToReal(udp)
-	realDoh := translateFakeToReal(doh)
-	realDot := translateFakeToReal(dot)
-
+	realUdp := translateMultipathFakeToReal(udp)
+    realTcp := translateMultipathFakeToReal(tcp)
+    realDoh := translateMultipathFakeToReal(doh)
+    realDot := translateMultipathFakeToReal(dot)
+    
 	// Note: Protector is nil because Proxy Mode doesn't need to bypass Android's VpnService
 	tCfg := bridge.TunnelConfig{
+		BaseDohURL:       baseDohUrl,
 		UdpAddr:          realUdp,
+		TcpAddr:          realTcp,
 		DohURL:           realDoh,
 		DotAddr:          realDot,
 		Domain:           domainToUse,
@@ -372,6 +385,7 @@ func StartProxy(
 		KeepAlive:        KeepAlive,
 		UDPTimeout:       "1s",
 		ClientIDSize:     clientIDSize,
+		MTU:              mtu,
 		CompatDnstt:      compatDnstt,
 	}
 
@@ -425,6 +439,19 @@ func StopVpn() string {
 	}
 
 	return "Stopped"
+}
+
+// translateMultipathFakeToReal handles strings like "8.8.8.8,1.1.1.1"
+func translateMultipathFakeToReal(input string) string {
+	parts := strings.Split(input, ",")
+	var translated []string
+	for _, p := range parts {
+		res := translateFakeToReal(p)
+		if res != "" {
+			translated = append(translated, res)
+		}
+	}
+	return strings.Join(translated, ",")
 }
 
 func VerifyTunnel() string {

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+//	"fmt"
 )
 
 // =====================================================================
@@ -43,9 +44,10 @@ type DefaultConfig struct {
 	DnsttCompatible bool   `json:"dnsttCompatible"`
 	Protocol        string `json:"protocol"`
 	UseSshKey       bool   `json:"useSshKey"`
-	ssMethod        string `json:"method"`
+	SSMethod        string `json:"method"`
 	User            string `json:"user"`
 	Pass            string `json:"pass"`
+	FreeScanner     bool   `json:"freeScanner"`
 }
 
 type ConfigWrapper struct {
@@ -375,7 +377,7 @@ func GetDefaultConfigMethod(index int64) string {
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
 	}
-	return defaultConfigs[index].ssMethod
+	return defaultConfigs[index].SSMethod
 }
 
 // --- SAFE PUBLIC UI HELPERS ---
@@ -545,4 +547,17 @@ func ImportConfigsManual(data []byte) string {
 	configMu.Unlock()
 
 	return "SUCCESS|Config upload successful!"
+}
+
+func GetDefaultConfigIsFreeScanner(index int64) bool {
+
+	ensureParsed()
+	configMu.Lock()
+	defer configMu.Unlock()
+	
+	// Ensure we are checking the defaultConfigs slice, not the display map
+	if int(index) >= 0 && int(index) < len(defaultConfigs) {
+		return defaultConfigs[index].FreeScanner
+	}
+	return false
 }

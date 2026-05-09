@@ -160,9 +160,10 @@ func (c *TLSPacketConn) recvLoop(conn net.Conn) error {
 // sendLoop reads messages from the outgoing queue and writes them,
 // length-prefixed, to conn.
 func (c *TLSPacketConn) sendLoop(conn net.Conn) error {
-	bw := bufio.NewWriter(conn)
+	bw := bufio.NewWriterSize(conn, 16384)
 	outgoing := c.QueuePacketConn.OutgoingQueue(turbotunnel.DummyAddr{})
 	closed := c.QueuePacketConn.Closed()
+
 	for {
 		var p []byte
 		select {
@@ -170,21 +171,41 @@ func (c *TLSPacketConn) sendLoop(conn net.Conn) error {
 			return nil
 		case p = <-outgoing:
 		}
+
 		length := uint16(len(p))
 		if int(length) != len(p) {
 			panic(len(p))
 		}
-		err := binary.Write(bw, binary.BigEndian, &length)
-		if err != nil {
+		if err := binary.Write(bw, binary.BigEndian, &length); err != nil {
 			return err
 		}
-		_, err = bw.Write(p)
-		if err != nil {
+		if _, err := bw.Write(p); err != nil {
 			return err
 		}
-		err = bw.Flush()
-		if err != nil {
+
+		// Limited safe drain (max 8 packets per flush) + error checking
+		const maxDrain = 8
+		drained := 0
+	drain:
+		for drained < maxDrain {
+			select {
+			case p2 := <-outgoing:
+				length2 := uint16(len(p2))
+				if err := binary.Write(bw, binary.BigEndian, &length2); err != nil {
+					return err
+				}
+				if _, err := bw.Write(p2); err != nil {
+					return err
+				}
+				drained++
+			default:
+				break drain
+			}
+		}
+
+		if err := bw.Flush(); err != nil {
 			return err
 		}
 	}
 }
+

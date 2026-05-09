@@ -26,9 +26,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"syscall"
 	"time"
+	"strings"
 	"sync/atomic"
 
 	"github.com/net2share/vaydns/dns"
@@ -65,6 +67,7 @@ type ResolverType string
 
 const (
 	ResolverTypeUDP ResolverType = "udp"
+	ResolverTypeTCP ResolverType = "tcp"
 	ResolverTypeDOT ResolverType = "dot"
 	ResolverTypeDOH ResolverType = "doh"
 )
@@ -72,8 +75,8 @@ const (
 // Resolver holds DNS resolver configuration.
 type Resolver struct {
 	ResolverType ResolverType
-	ResolverAddr string // UDP: "1.1.1.1:53", DoT: "resolver:853", DoH: "https://resolver/dns-query"
-
+//	ResolverAddr string // UDP: "1.1.1.1:53", DoT: "resolver:853", DoH: "https://resolver/dns-query"
+	ResolverAddrs []string
 	// UTLSClientHelloID sets the uTLS fingerprint for DoH/DoT connections.
 	// nil means no uTLS (plain TLS).
 	UTLSClientHelloID *utls.ClientHelloID
@@ -124,16 +127,30 @@ func (c *StatsConn) Write(b []byte) (n int, err error) {
 }
 
 
-// NewResolver creates a Resolver with the given type and address.
-func NewResolver(resolverType ResolverType, resolverAddr string) (Resolver, error) {
+// NewResolver creates a Resolver that handles comma-separated multipath addresses.
+func NewResolver(resolverType ResolverType, resolverAddrs string) (Resolver, error) {
 	switch resolverType {
-	case ResolverTypeUDP, ResolverTypeDOT, ResolverTypeDOH:
+	case ResolverTypeUDP, ResolverTypeTCP, ResolverTypeDOT, ResolverTypeDOH:
 	default:
 		return Resolver{}, fmt.Errorf("unsupported resolver type: %s", resolverType)
 	}
+
+	// Split the comma-separated list provided by mobile.go
+	parts := strings.Split(resolverAddrs, ",")
+	trimmed := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			trimmed = append(trimmed, t)
+		}
+	}
+
+	if len(trimmed) == 0 {
+		return Resolver{}, errors.New("no resolver addresses provided")
+	}
+
 	return Resolver{
-		ResolverType: resolverType,
-		ResolverAddr: resolverAddr,
+		ResolverType:  resolverType,
+		ResolverAddrs: trimmed,
 	}, nil
 }
 
@@ -298,10 +315,16 @@ func (t *Tunnel) applyDefaults() {
 	}
 }
 
+
 func (t *Tunnel) effectivePacketQueueSize() int {
 	if t.PacketQueueSize > 0 {
 		return t.PacketQueueSize
 	}
+
+	if t.Resolver.ResolverType != ResolverTypeUDP {
+		return 2048 
+	}
+
 	return turbotunnel.QueueSize
 }
 
@@ -323,118 +346,172 @@ func (t *Tunnel) effectiveKCPWindowSize() int {
 	return ws
 }
 
-// InitiateResolverConnection creates the underlying transport connection
-// based on the Resolver configuration.
+// InitiateResolverConnection creates the underlying transport connection.
+// It implements a "Sliding Window" multipath: it races up to 3 resolvers at a time.
+// If one fails, it immediately pulls the next one from the pool to take its place.
 func (t *Tunnel) InitiateResolverConnection() error {
 	r := t.Resolver
-	switch r.ResolverType {
-	case ResolverTypeUDP:
-		addr, err := net.ResolveUDPAddr("udp", r.ResolverAddr)
-		if err != nil {
-			return err
-		}
-		t.remoteAddr = addr
-		if r.UDPSharedSocket {
-			lc := net.ListenConfig{Control: r.DialerControl}
-			conn, err := lc.ListenPacket(context.Background(), "udp", ":0")
-			if err != nil {
-				return err
-			}
-			t.resolverConn = conn
-		} else {
-			workers := r.UDPWorkers
-			if workers <= 0 {
-				workers = DefaultUDPWorkers
-			}
-			timeout := r.UDPTimeout
-			if timeout <= 0 {
-				timeout = DefaultUDPResponseTimeout
-			}
-			conn, forgedStats, err := NewUDPPacketConn(addr, r.DialerControl, workers, timeout, !r.UDPAcceptErrors, t.effectivePacketQueueSize(), t.effectiveQueueOverflowMode())
-			if err != nil {
-				return err
-			}
-			t.forgedStats = forgedStats
-			t.resolverConn = conn
-		}
-		return nil
-
-	case ResolverTypeDOH:
-		t.mu.Lock() // Added
-		t.remoteAddr = turbotunnel.DummyAddr{}
-		t.mu.Unlock() // Added
-		
-		var rt http.RoundTripper
-		if r.RoundTripper != nil {
-			rt = r.RoundTripper
-		} else if r.UTLSClientHelloID != nil {
-//			rt = NewUTLSRoundTripper(nil, r.UTLSClientHelloID)
-			//  Pass DialerControl into uTLS
-			rt = NewUTLSRoundTripper(nil, r.UTLSClientHelloID, r.DialerControl) //Added
-		} else {
-		//  Protect standard HTTP Dialers
-			dialer := &net.Dialer{Control: r.DialerControl} // Added
-			tr := http.DefaultTransport.(*http.Transport).Clone() // Added
-//			rt = http.DefaultTransport
-			tr.DialContext = dialer.DialContext // Added
-			rt = tr  // Added
-		}
-		
-		t.mu.Lock() // Added
-		qSize := t.effectivePacketQueueSize() // Added
-		oMode := t.effectiveQueueOverflowMode() // Added
-		t.mu.Unlock() // Added
-				
-		conn, err := NewHTTPPacketConn(rt, r.ResolverAddr, 8, qSize, oMode)	// Added	
-//		conn, err := NewHTTPPacketConn(rt, r.ResolverAddr, 8, t.effectivePacketQueueSize(), t.effectiveQueueOverflowMode())
-		if err != nil {
-			return err
-		}
-		t.mu.Lock() // Added
-		t.resolverConn = conn
-		t.mu.Unlock() // Added
-		return nil
-
-	case ResolverTypeDOT:
-		t.mu.Lock()	// Added
-		t.remoteAddr = turbotunnel.DummyAddr{}
-		t.mu.Unlock() // Added
-		
-		var dialTLSContext func(ctx context.Context, network, addr string) (net.Conn, error)
-		if r.UTLSClientHelloID != nil {
-			id := r.UTLSClientHelloID			
-			dialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				// Pass DialerControl to uTLS for DoT
-//				return UTLSDialContext(ctx, network, addr, nil, id)
-				return UTLSDialContext(ctx, network, addr, nil, id, r.DialerControl) // Added
-			}
-		} else {
-			dialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				// Protect standard TLS Dialer
-				// return tls.DialWithDialer(&net.Dialer{}, network, addr, nil)
-				dialer := &net.Dialer{Control: r.DialerControl} // Added
-				return tls.DialWithDialer(dialer, network, addr, nil) // Added
-			}
-		}
-		
-		t.mu.Lock() // Added
-		qSize := t.effectivePacketQueueSize() // Added
-		oMode := t.effectiveQueueOverflowMode() // Added
-		t.mu.Unlock() // Added
-				
-		//	conn, err := NewTLSPacketConn(r.ResolverAddr, dialTLSContext, t.effectivePacketQueueSize(), t.effectiveQueueOverflowMode())
-		conn, err := NewTLSPacketConn(r.ResolverAddr, dialTLSContext, qSize, oMode)	// Added
-		if err != nil {
-			return err
-		}
-		t.mu.Lock()  // Added
-		t.resolverConn = conn
-		t.mu.Unlock() // Added
-		return nil
-
-	default:
-		return fmt.Errorf("unsupported resolver type: %s", r.ResolverType)
+	if len(r.ResolverAddrs) == 0 {
+		return errors.New("multipath error: no resolver addresses available")
 	}
+
+	t.mu.Lock()
+	qSize := t.effectivePacketQueueSize()
+	oMode := t.effectiveQueueOverflowMode()
+	t.mu.Unlock()
+
+	type raceResult struct {
+		conn        net.PacketConn
+		addr        net.Addr
+		forgedStats *ForgedStats
+		err         error
+		target      string
+	}
+
+	resultCh := make(chan raceResult, len(r.ResolverAddrs))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensures all background workers die instantly when this function returns
+
+	//  The Semaphore: Strictly limits us to 3 active attempts at any given time
+	sem := make(chan struct{}, 3)
+
+	// Spawner Goroutine: Feeds addresses from the pool into the worker slots
+	go func() {
+		for _, addrStr := range r.ResolverAddrs {
+			// Try to claim a slot (blocks if 3 are currently running)
+			select {
+			case sem <- struct{}{}: 
+			case <-ctx.Done():
+				return // Abort spawning if we already found a winner
+			}
+
+			// Slot claimed! Launch the dialer
+			go func(target string) {
+				defer func() { <-sem }() //  Instantly free the slot for the next IP when finished
+
+				var res raceResult
+				res.target = target
+
+				switch r.ResolverType {
+				case ResolverTypeUDP:
+					uAddr, err := net.ResolveUDPAddr("udp", target)
+					if err != nil {
+						res.err = err
+					} else {
+						res.addr = uAddr
+						if r.UDPSharedSocket {
+							lc := net.ListenConfig{Control: r.DialerControl}
+							conn, err := lc.ListenPacket(ctx, "udp", ":0")
+							res.conn, res.err = conn, err
+						} else {
+							workers := r.UDPWorkers
+							if workers <= 0 { workers = DefaultUDPWorkers }
+							timeout := r.UDPTimeout
+							if timeout <= 0 { timeout = DefaultUDPResponseTimeout }
+							conn, fs, err := NewUDPPacketConn(uAddr, r.DialerControl, workers, timeout, !r.UDPAcceptErrors, qSize, oMode)
+							res.conn, res.forgedStats, res.err = conn, fs, err
+						}
+					}
+
+				case ResolverTypeTCP:
+					res.addr = turbotunnel.DummyAddr{}
+					dialTCP := func(ctx context.Context, n, a string) (net.Conn, error) {
+						return (&net.Dialer{Control: r.DialerControl}).DialContext(ctx, n, a)
+					}
+					res.conn, res.err = NewTLSPacketConn(target, dialTCP, qSize, oMode)
+
+				case ResolverTypeDOH:
+					res.addr = turbotunnel.DummyAddr{}
+					var rt http.RoundTripper
+
+					reqURL := target
+					if !strings.HasPrefix(reqURL, "http://") && !strings.HasPrefix(reqURL, "https://") {
+						reqURL = "https://" + reqURL
+					}
+					
+					// Use Go's native URL parser to safely check if a path exists
+					u, err := url.Parse(reqURL)
+					if err == nil {
+						// If the user didn't specify a path (e.g., "8.8.8.8" or "dns.google")
+						if u.Path == "" || u.Path == "/" {
+							u.Path = "/dns-query"
+							reqURL = u.String()
+						}
+					}
+
+					if r.UTLSClientHelloID != nil {
+						rt = NewUTLSRoundTripper(nil, r.UTLSClientHelloID, r.DialerControl) 
+					} else {
+						tr := http.DefaultTransport.(*http.Transport).Clone()
+						tr.DialContext = (&net.Dialer{Control: r.DialerControl}).DialContext
+						rt = tr
+					}
+
+					// Pass the safely parsed URL and the 100 workers!
+					res.conn, res.err = NewHTTPPacketConn(rt, reqURL, 32, qSize, oMode)
+
+				case ResolverTypeDOT:
+					res.addr = turbotunnel.DummyAddr{}
+					dialTLS := func(ctx context.Context, n, a string) (net.Conn, error) {
+						dialer := &net.Dialer{Control: r.DialerControl}
+						if r.UTLSClientHelloID != nil {
+							return UTLSDialContext(ctx, n, a, nil, r.UTLSClientHelloID, r.DialerControl)
+						}
+						return tls.DialWithDialer(dialer, n, a, nil)
+					}
+					res.conn, res.err = NewTLSPacketConn(target, dialTLS, qSize, oMode)
+				}
+
+				// Report result safely
+				select {
+				case resultCh <- res:
+					if res.err == nil && ctx.Err() != nil {
+						res.conn.Close() // Edge case cleanup
+					}
+				case <-ctx.Done():
+					if res.err == nil && res.conn != nil {
+						res.conn.Close() // Cleanup if a winner was already found
+					}
+				}
+			}(addrStr)
+		}
+	}()
+
+	// Main thread: Listen for results as they come in
+	var lastErr error
+	failures := 0
+	timeout := time.After(t.HandshakeTimeout)
+
+	for failures < len(r.ResolverAddrs) {
+		select {
+		case res := <-resultCh:
+			if res.err == nil {
+				// WINNER FOUND!
+				cancel() // Instantly kills all other active dialers and stops the spawner
+				
+				t.mu.Lock()
+				t.resolverConn = res.conn
+				t.remoteAddr = res.addr
+				t.forgedStats = res.forgedStats
+				t.mu.Unlock()
+				
+				log.Infof("VAY_DEBUG: [Multipath] Winner established: %s", res.target)
+				return nil
+			}
+			
+			// If it failed, record it. The worker defer func() will release the slot, 
+			// triggering the spawner to instantly launch the next IP.
+			lastErr = res.err
+			failures++
+			log.Warnf("VAY_DEBUG: [Multipath] Path failed: %s (%v)", res.target, res.err)
+
+		case <-timeout:
+			cancel()
+			return fmt.Errorf("multipath connection timeout after %v", t.HandshakeTimeout)
+		}
+	}
+
+	return fmt.Errorf("all %d multipath resolvers failed. last error: %v", len(r.ResolverAddrs), lastErr)
 }
 
 // InitiateDNSPacketConn wraps the resolver connection with DNS encoding.
@@ -469,7 +546,18 @@ func (t *Tunnel) InitiateKCPConn(mtu int) error {
 	}
 	log.Infof("session %08x ready", conn.GetConv())
 	conn.SetStreamMode(true)
-	conn.SetNoDelay(0, 0, 0, 1)
+
+	if t.Resolver.ResolverType == ResolverTypeDOT || t.Resolver.ResolverType == ResolverTypeTCP {
+		// giving the single TCP stream time to recover from firewall packet loss.
+		// nodelay=1, interval=50ms
+		// resend=3 (Aggressive retransmit to overcome high latency/loss)
+		// nc=1 (Disable congestion window so speed doesn't drop on lag)
+		// nc=0 (0 means Congestion Control is ON)		
+		conn.SetNoDelay(1, 50, 2, 1)
+	} else{
+		conn.SetNoDelay(0, 0, 0, 1)
+	}
+						
 	conn.SetWindowSize(t.effectiveKCPWindowSize(), t.effectiveKCPWindowSize())
 	if rc := conn.SetMtu(mtu); !rc {
 		conn.Close()
@@ -803,30 +891,54 @@ func (t *Tunnel) ListenAndServe(listenAddr string) error {
 
 // createSession creates a KCP+Noise+smux session (used by ListenAndServe).
 func (t *Tunnel) createSession(mtu int) (*kcp.UDPSession, *smux.Session, error) {
+	// Initialize the KCP connection over our DNS packet transport
 	conn, err := kcp.NewConn2(t.remoteAddr, nil, 0, 0, t.dnsPacketConn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening KCP conn: %v", err)
 	}
 	log.Infof("session %08x ready", conn.GetConv())
+	
+	// Enable Stream Mode for consistent data flow
 	conn.SetStreamMode(true)
-	conn.SetNoDelay(0, 0, 0, 1)
-	conn.SetWindowSize(t.effectiveKCPWindowSize(), t.effectiveKCPWindowSize())
+
+	if t.Resolver.ResolverType == ResolverTypeDOT || t.Resolver.ResolverType == ResolverTypeTCP {
+
+		// giving the single TCP stream time to recover from firewall packet loss.
+		// nodelay=1, interval=50ms
+		// resend=3 (Aggressive retransmit to overcome high latency/loss)
+		// nc=1 (Disable congestion window so speed doesn't drop on lag)
+		// nc=0 (0 means Congestion Control is ON)
+		conn.SetNoDelay(1, 50, 2, 1)
+	} else{
+		conn.SetNoDelay(0, 0, 0, 1)
+	}
+		
+	// Calculate and set the window size based on our expanded queue
+	// This will now correctly log 4096 (8192 / 2) for TCP modes
+	ws := t.effectiveKCPWindowSize()
+//	fmt.Printf("VAY_DEBUG: Setting KCP Window Size to %d\n", ws)
+	conn.SetWindowSize(ws, ws)
+
+	// Apply the MTU (usually 50-100 for DNS tunneling)
 	if rc := conn.SetMtu(mtu); !rc {
 		conn.Close()
 		return nil, nil, fmt.Errorf("failed to set KCP MTU to %d", mtu)
 	}
 
+	// Perform the Noise Handshake for end-to-end encryption
 	rw, err := noiseHandshake(conn, t.TunnelServer.decodedNoisePubKey, t.HandshakeTimeout)
 	if err != nil {
 		conn.Close()
 		return nil, nil, err
 	}
 
+	// Setup Smux Multiplexing over the encrypted channel
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.Version = 2
 	smuxConfig.KeepAliveInterval = t.KeepAlive
 	smuxConfig.KeepAliveTimeout = t.IdleTimeout
-	smuxConfig.MaxStreamBuffer = 1 * 1024 * 1024
+	smuxConfig.MaxStreamBuffer = 1 * 1024 * 1024 // 1MB buffer for streams
+	
 	sess, err := smux.Client(rw, smuxConfig)
 	if err != nil {
 		conn.Close()
