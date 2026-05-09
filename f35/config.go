@@ -12,7 +12,7 @@ type Config struct {
 	Mode            string
 	ClientPath      string
 	Domain          string
-	Pubkey          string // Essential for bridge.RunTunnel in run.go
+	Pubkey          string
 	Resolvers       []string
 	ProbeURL        string
 	DownloadURL     string
@@ -34,6 +34,7 @@ type Config struct {
 	UploadBytes     int
 	WhoisTimeout    time.Duration
 	StartPort       int
+	SkipQuickCheck  bool
 }
 
 type Result struct {
