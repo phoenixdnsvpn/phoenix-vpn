@@ -14,6 +14,8 @@ VayDNS VPN is a high-performance DNS-based tunneling solution. Originally develo
 VayDNS VPN is a transparent, source-available project dedicated to promoting digital freedom and providing secure internet access for users in countries facing heavy internet censorship. The primary objective of this software is to facilitate open communication and information access through DNS tunneling technology. This project is strictly educational and humanitarian in nature; it does not target, exploit, or attack any systems, networks, or infrastructure. The source code is made available for public audit to ensure transparency and trust within the community of users who rely on these tools for safe and restricted-free connectivity.
 
 ## Key Features
+- **Dedicated Proxy Mode:** Features a built-in local SOCKS5 proxy, allowing users to tunnel specific applications (like Telegram) without routing their entire device through the Android VpnService. Includes accurate, application-isolated traffic monitoring.
+
 - **Encrypted Configuration:** Supports pre-configured 'Default Servers' integrated via a compiled Go native layer. This architecture secures private infrastructure details by ensuring they are not stored in plain-text configuration files.
 
 - **CI/CD Ready:** Automated build pipeline via GitHub Actions that injects server configurations through encrypted secrets.
@@ -27,6 +29,14 @@ VayDNS VPN is a transparent, source-available project dedicated to promoting dig
 - **Remote Update Configs:**  Users can seamlessly update default configurations over-the-air whenever new servers or optimizations become available, ensuring the app stays ahead of network restrictions.
 
 - **Remote Update Resolvers:**  Users can seamlessly update default resolvers over-the-air whenever new updtates for resolvers become available, ensuring the app stays ahead of network restrictions.
+
+* **Multi-Domain Server Core:** The `vaydns-server` can now natively listen and route traffic for multiple domains simultaneously on a single instance (Port 53), allowing for seamless domain migrations without dropping existing users.
+
+* **TCP Protocol Support:** Introduced full end-to-end support for plain TCP tunneling and resolving, expanding your options for bypassing restrictive DPI firewalls.
+
+* **Concurrent Multi-Resolver Engine:** The app now intelligently utilizes up to 3 selected resolvers concurrently, improving connection reliability and speed.
+
+* **Light E2E Scanner:** Added a highly optimized "fast-fail" handshake scanner. This bypasses heavy payload checks to rapidly verify raw connectivity, delivering instant Alive/Dead results.
 
 ## 🔒 App Verification
 Official builds of VayDNS VPN can be verified using the in-app verification tool. 
