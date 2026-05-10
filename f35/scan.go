@@ -302,6 +302,18 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	tCfg.Domain = cfg.Domain
 	tCfg.IsScanner = true
 	
+	tunnelCtx, cancelTunnel := context.WithCancel(ctx)
+
+    // This instantly frees the scanner to move to the next IP, but guarantees
+    // the tunnel is killed 1 second later. This prevents the router NAT flood
+    // AND prevents the kcp-go 0x70 panic by not ripping the socket out instantly.
+	defer func() {
+		go func() {
+			time.Sleep(1 * time.Second)
+			cancelTunnel()
+		}()
+	}()
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -309,15 +321,14 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 			}
 		}()
 
-		err := bridge.RunTunnel(context.Background(), tCfg) //Sandboxing
+        // 🔴 FIX 3: Pass tunnelCtx instead of context.Background()
+		err := bridge.RunTunnel(tunnelCtx, tCfg) 
 		if err != nil && err != context.Canceled {
 			fmt.Printf("TUNNEL_ERROR [%s]: %v\n", resolver.addr, err)			
 		}
 	}()
 
 	// --- STEP 2: INTRA-TUNNEL FAST FAIL & QUICK SCAN (HANDSHAKE) ---
-	// If QuickScan is enabled, we ALWAYS perform the handshake to verify light e2e connectivity.
-	// If it's a normal scan, we only perform the handshake as a fallback if the DNS Ping failed.
 	performHandshake := tCfg.QuickScan || (tCfg.FastFailEnabled && !dnsPassed)	
 	
 	var handshakeLatency int64
