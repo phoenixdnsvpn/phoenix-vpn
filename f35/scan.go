@@ -268,6 +268,7 @@ func worker(ctx context.Context, cfg *runtimeConfig, jobs <-chan parsedResolver,
 	}
 }
 
+
 func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig, resolver parsedResolver, port int) (Result, bool) {
 
 	baseWarmup := cfg.TunnelWait
