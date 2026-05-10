@@ -188,6 +188,14 @@ Follow these steps to set up and start your secure tunnel:
 5.  **Troubleshooting**: Different configurations use different DNS record types (TXT, NULL, etc.). A resolver that works for one config may not work for another. If you cannot connect, try switching to a different configuration or record type.
 6.  **Performance Expectations**: Please note that DNS tunneling is inherently slower than traditional VPNs due to protocol overhead. Expect speeds ranging from **10 KB/sec to 200 KB/sec**, depending on your network conditions.
       
+## How to add Multi Domain support to vaydns server
+To enable multi-domain routing, pass a comma-separated list of domains to the -domain flag.
+
+**Example Usage**:
+```
+./vaydns-server -udp :5300 -privkey-file server.key -domain t.example.com,s.example.com -upstream 127.0.0.1:8000
+```
+      
 ## Acknowledgments
 
 This project would not be possible without the incredible work of the following open-source repositories:
