@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
-	"sync/atomic"	
+//	"sync/atomic"	
 	"time"
 	"fmt"
 	"net/http"
-	"runtime"
-	"runtime/debug"
+//	"runtime"
+//	"runtime/debug"
 	
 	"github.com/Starling226/vaydns-vpn/f35"
 )
