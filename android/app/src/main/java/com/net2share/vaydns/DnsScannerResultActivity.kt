@@ -73,6 +73,23 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private var probeTimeout = 15L
     private var retries = 0L
 
+    private val saveFileLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                try {
+                    contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        // Extract only the healthy IPs and separate them by a new line
+                        val successfulIps = globalResults.filter { it.probe == "ok" }.map { it.ip }.joinToString("\n")
+                        outputStream.write(successfulIps.toByteArray())
+                    }
+                    Toast.makeText(this, "Resolvers saved successfully!", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private val uiReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -171,17 +188,59 @@ class DnsScannerResultActivity : AppCompatActivity() {
         }
 
         btnSet.setOnClickListener {
-            val fastest = globalResults.filter { res: ResolverResult -> res.probe == "ok" }
-                .minByOrNull { res: ResolverResult -> res.latencyMs }
-            if (fastest == null) return@setOnClickListener
+            // 1. Find the fastest successful resolver from the new Sandbox list
+            val fastest = globalResults.filter { it.probe == "ok" }.minByOrNull { it.latencyMs }
 
+            if (fastest == null) {
+                Toast.makeText(this, "No successful resolvers to set.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 2. Ask for confirmation
             MaterialAlertDialogBuilder(this)
                 .setTitle("Apply Fastest Resolver")
-                .setMessage("Set ${fastest.ip} (${fastest.latencyMs} ms) as the DNS server?")
+                .setMessage("Set ${fastest.ip} (${fastest.latencyMs} ms) as the DNS server for this configuration?")
                 .setPositiveButton("Apply") { _, _ ->
-                    // Your existing save logic...
-                    Toast.makeText(this, "Fastest resolver applied!", Toast.LENGTH_SHORT).show()
-                }.setNegativeButton("Cancel", null).show()
+
+                    // 🟢 RESTORED: Write the physical update file
+                    try {
+                        val updateFile = java.io.File(filesDir, "apply_dns_${configId}.txt")
+                        updateFile.writeText(fastest.ip)
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "Failed to write temp file: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+
+                    // 🟢 RESTORED: Update the actual Configuration memory
+                    if (configId.startsWith("default_")) {
+                        // --- Logic for Official/Default Configs ---
+                        val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                        prefs.edit().putString("${configId}_dns", fastest.ip).apply()
+                        Toast.makeText(this, "Applied to Default Config!", Toast.LENGTH_SHORT).show()
+
+                    } else {
+                        // --- Logic for Custom User Configs ---
+                        try {
+                            // Load existing list using the companion object in ConfigEditorActivity
+                            val currentConfigs = com.net2share.vaydns.ConfigEditorActivity.loadAllConfigs(this).toMutableList()
+                            val index = currentConfigs.indexOfFirst { it.id == configId }
+
+                            if (index != -1) {
+                                val updatedConfig = currentConfigs[index].copy(dnsAddress = fastest.ip)
+                                currentConfigs[index] = updatedConfig
+
+                                // Save the updated list back to SharedPreferences
+                                com.net2share.vaydns.ConfigEditorActivity.saveAllConfigs(this, currentConfigs)
+                                Toast.makeText(this, "Fastest resolver applied!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this, "Error: Config not found.", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "Failed to apply custom config: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         btnSort.setOnClickListener {
@@ -214,6 +273,78 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
         if (savedInstanceState == null) {
             startScanLifecycle()
+        }
+
+        btnShare.setOnClickListener {
+            if (globalResults.isEmpty()) {
+                Toast.makeText(this, "No results to share", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 1. Filter for successful probes
+            val successfulResults = globalResults.filter { it.probe == "ok" }
+
+            if (successfulResults.isEmpty()) {
+                Toast.makeText(this, "No successful IPs to share", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 2. Map to a formatted string
+            val shareText = "VayDNS Scan Results:\n" + successfulResults.joinToString("\n") {
+                "${it.ip} (${it.latencyMs} ms)"
+            }
+
+            // 3. Create the Share Intent
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "VayDNS Scan Results")
+                putExtra(Intent.EXTRA_TEXT, shareText)
+            }
+
+            // 4. Launch the Android Chooser (WhatsApp, Email, Telegram, etc.)
+            startActivity(Intent.createChooser(shareIntent, "Share Resolvers via"))
+        }
+
+        btnSave.setOnClickListener {
+            if (globalResults.none { it.probe == "ok" }) {
+                Toast.makeText(this, "No successful resolvers to save.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val input = EditText(this)
+            input.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            input.hint = "e.g., 3000"
+
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Save Fast Resolvers")
+                .setMessage("Enter maximum acceptable latency (ms):")
+                .setView(input)
+                .setPositiveButton("Save") { _, _ ->
+                    val maxLatencyStr = input.text.toString()
+                    val maxLatency = maxLatencyStr.toIntOrNull() ?: Int.MAX_VALUE
+
+                    // Filter and sort the global Sandbox results
+                    val filteredAndSorted = globalResults
+                        .filter { it.probe == "ok" && it.latencyMs <= maxLatency }
+                        .sortedBy { it.latencyMs }
+
+                    if (filteredAndSorted.isEmpty()) {
+                        Toast.makeText(this, "No resolvers found under ${maxLatency}ms.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // Format: "1.1.1.1,45" per line
+                        val dataToSave = filteredAndSorted.joinToString("\n") { "${it.ip},${it.latencyMs}" }
+
+                        try {
+                            val file = java.io.File(filesDir, "resolvers_$configId.txt")
+                            file.writeText(dataToSave)
+                            Toast.makeText(this, "Saved ${filteredAndSorted.size} resolvers!", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "Error saving: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
     }
 
