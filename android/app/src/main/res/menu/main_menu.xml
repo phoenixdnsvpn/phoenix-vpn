@@ -58,13 +58,28 @@
         app:showAsAction="never" />
 
     <item
-        android:id="@+id/action_how_to_use"
-        android:title="How to Use / راهنمای استفاده"
+        android:id="@+id/action_my_dns"
+        android:title="My DNS Server"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_toggle_mode"
         android:title="Switch to Proxy Mode"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_daily_traffic"
+        android:title="Display Daily Traffic"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_settings"
+        android:title="Settings"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_how_to_use"
+        android:title="How to Use / راهنمای استفاده"
         app:showAsAction="never" />
 
     <item

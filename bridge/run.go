@@ -6,8 +6,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+//	"sync"
 
 	log "github.com/sirupsen/logrus"
+//	"github.com/net2share/vaydns/client"
     "github.com/Starling226/vaydns-vpn/vaydns/client"
 )
 
@@ -34,8 +36,8 @@ type TunnelConfig struct {
 	SSMethod                                     string
 	User                                         string
 	Pass                                         string
-	FastFailEnabled 							 bool
-	QuickScan                                    bool
+	LightE2EEnabled 							 bool
+	EngineQuickScan                              bool
 	Protector SocketProtector
 }
 
@@ -172,9 +174,8 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 //	tunnel.PacketQueueSize = 512
 //	tunnel.KCPWindowSize = 0	
 
-
 // Context cancellation handler
-	if !c.IsScanner { // ONLY the VPN is allowed to explicitly close the tunnel
+	if !c.IsScanner { // ONLY the VPN is allowed to explicitly close the tunnel. becauss of the kcp-go bug removing this will kill the scanner after few scans.
 		go func() {
 			<-ctx.Done()
 			log.Info("VAY_DEBUG: Context cancelled - shutting down tunnel")

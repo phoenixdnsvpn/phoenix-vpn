@@ -25,13 +25,8 @@ var globalDynamicPort int32
 var InjectedPingDomain string
 var dynamicPort int32 = 20000
 
-// CRITICAL FIX: The Global Tunnel Registry
-// This prevents the Go Garbage Collector from deleting tunnels when the app backgrounds.
-// By holding a permanent reference, we stop kcp-go finalizers from triggering the 0x70 panic.
-var (
-//	activeTunnels []context.CancelFunc
-	tunnelMu      sync.Mutex
-)
+// THE FIX: Master FD Guardrail (Max 150 concurrent tunnels)
+var tunnelSemaphore = make(chan struct{}, 50)
 
 type scanStats struct {
 	mu        sync.Mutex
@@ -41,10 +36,6 @@ type scanStats struct {
 }
 
 func ScanWithContext(ctx context.Context, cfg Config, hooks Hooks) error {
-	// Clear the registry at the start of a new scan
-	tunnelMu.Lock()
-//	activeTunnels = make([]context.CancelFunc, 0)
-	tunnelMu.Unlock()
 
 	runtime, err := prepareConfig(cfg)
 	if err != nil {
@@ -124,9 +115,7 @@ func worker(ctx context.Context, cfg *runtimeConfig, jobs <-chan parsedResolver,
 				return
 			}
 
-			if cfg.Mode == "udp" && resolver.ip == nil {
-				continue
-			}
+			atomic.CompareAndSwapInt32(&dynamicPort, 60000, 20000)
 			uniquePort := int(atomic.AddInt32(&dynamicPort, 1))
             
 			vaydnsLocal := net.JoinHostPort("127.0.0.1", strconv.Itoa(uniquePort))
@@ -271,22 +260,46 @@ func worker(ctx context.Context, cfg *runtimeConfig, jobs <-chan parsedResolver,
 
 func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig, resolver parsedResolver, port int) (Result, bool) {
 
+	// ACQUIRE FD SLOT: Throttles workers so we NEVER crash Android
+	tunnelSemaphore <- struct{}{} 
+
 	baseWarmup := cfg.TunnelWait
 	pingTimeout := 2000 * time.Millisecond
 	
-    if cfg.Mode == "doh" || cfg.Mode == "dot" {
-        pingTimeout = 2500 * time.Millisecond
-        baseWarmup += 2 * time.Second
-    }
-    	
-	tCfg := ParseExtraArgs(cfg.ExtraArgs)
-	
-	// --- STEP 1: PRE-TUNNEL FAST FAIL (DNS PING) ---
-	var dnsPassed bool
-	if tCfg.FastFailEnabled {
-		dnsPassed = quickDNSCheck(ctx, resolver.addr, pingTimeout, cfg.Mode, tCfg.BaseDohURL)
-	}	
+	if cfg.Mode == "doh" || cfg.Mode == "dot" {
+		pingTimeout = 2500 * time.Millisecond
+		baseWarmup += 2 * time.Second
+	}
 		
+	tCfg := ParseExtraArgs(cfg.ExtraArgs)
+			
+	// --- STEP 1: PRE-TUNNEL QUICK SCAN (DNS PING ONLY) ---
+	// If the user selected "Quick DNS Check", we ONLY ping the resolver,
+	// return the latency instantly, and completely bypass tunnel creation.
+	if tCfg.EngineQuickScan {
+		start := time.Now()
+		dnsPassed := quickDNSCheck(ctx, resolver.addr, pingTimeout, cfg.Mode, tCfg.BaseDohURL)
+		
+		// CRITICAL: We are exiting early, so we must manually free the worker slot
+		<-tunnelSemaphore 
+		
+		if dnsPassed {
+			latency := time.Since(start).Milliseconds()
+			if latency == 0 { latency = 1 }
+			return Result{
+				Resolver: resolver.addr,
+				Probe: "ok",
+				LatencyMS: latency,
+			}, true
+		} else {
+			return Result{
+				Resolver: resolver.addr,
+				Probe: "dead",
+				LatencyMS: 99999,
+			}, false
+		}
+	}
+			
 	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 
 	if cfg.Mode == "doh" {
@@ -303,15 +316,18 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	tCfg.Domain = cfg.Domain
 	tCfg.IsScanner = true
 	
+	var smuxUsed bool // Tracks if we need the extra 1-second HTTP flush delay
 	tunnelCtx, cancelTunnel := context.WithCancel(ctx)
 
-    // This instantly frees the scanner to move to the next IP, but guarantees
-    // the tunnel is killed 1 second later. This prevents the router NAT flood
-    // AND prevents the kcp-go 0x70 panic by not ripping the socket out instantly.
+	// SMART ASYNCHRONOUS CLEANUP
 	defer func() {
 		go func() {
-			time.Sleep(1 * time.Second)
-			cancelTunnel()
+			if smuxUsed {
+				// Only delay if HTTP data was ACTUALLY sent (prevents KCP panic)
+				time.Sleep(3 * time.Second) 
+			}
+			cancelTunnel() // Instantly closes the socket in run.go
+			<-tunnelSemaphore // Instantly frees the slot for the next worker
 		}()
 	}()
 
@@ -322,7 +338,6 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 			}
 		}()
 
-        // 🔴 FIX 3: Pass tunnelCtx instead of context.Background()
 		err := bridge.RunTunnel(tunnelCtx, tCfg) 
 		if err != nil && err != context.Canceled {
 			fmt.Printf("TUNNEL_ERROR [%s]: %v\n", resolver.addr, err)			
@@ -330,11 +345,11 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	}()
 
 	// --- STEP 2: INTRA-TUNNEL FAST FAIL & QUICK SCAN (HANDSHAKE) ---
-	performHandshake := tCfg.QuickScan || (tCfg.FastFailEnabled && !dnsPassed)	
+
+	performHandshake := tCfg.LightE2EEnabled 	
 	
 	var handshakeLatency int64
 	if performHandshake {
-		// Give the local port a moment to bind
 		time.Sleep(250 * time.Millisecond)
 		
 		start := time.Now()
@@ -346,12 +361,12 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 			}, false
 		}
 		handshakeLatency = time.Since(start).Milliseconds()
-		if handshakeLatency == 0 { handshakeLatency = 1 } // prevent 0ms display
+		if handshakeLatency == 0 { handshakeLatency = 1 } 
 	}
 	
 	// --- STEP 3: QUICK SCAN EXIT ---
-	// If this is the Quick IP Scanner, we are done! The handshake proved e2e connectivity.
-	if tCfg.QuickScan {
+
+	if tCfg.LightE2EEnabled {
 		return Result{
 			Resolver: resolver.addr,
 			Probe: "ok",
@@ -361,7 +376,7 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 		
 	finalWait := baseWarmup
 	if performHandshake {
-		finalWait = 250 * time.Millisecond // Already warmed up by handshake check
+		finalWait = 250 * time.Millisecond 
 	}
 	
 	select {
@@ -369,6 +384,9 @@ func checkResolver(ctx context.Context, client *http.Client, cfg *runtimeConfig,
 	case <-ctx.Done():
 		return Result{Resolver: resolver.addr, Probe: "stopped"}, false
 	}
+
+	// WE PASSED WARMUP. HTTP STREAMS ARE ABOUT TO OPEN.
+	smuxUsed = true
 
 	result := Result{
 		Resolver: resolver.addr,
@@ -518,12 +536,12 @@ func ParseExtraArgs(args []string) bridge.TunnelConfig {
 		case "-fast-fail-enabled":
 			enabled, err := strconv.ParseBool(value)
 			if err == nil {
-				config.FastFailEnabled = enabled
+				config.LightE2EEnabled = enabled
 			}
 		case "-quick-scan":
 			parsed, err := strconv.ParseBool(value)
 			if err == nil { 
-				config.QuickScan = parsed
+				config.EngineQuickScan = parsed
 			}						
 		}
 		i++
@@ -532,7 +550,7 @@ func ParseExtraArgs(args []string) bridge.TunnelConfig {
 	return config
 }
 
-// encodeDNSName converts a string like "aparat.com" into DNS wire format
+// encodeDNSName converts a string like "google.com" into DNS wire format
 func encodeDNSName(domain string) []byte {
 
 	// Strips any accidental spaces, tabs, or newlines injected by the CI environment
@@ -605,7 +623,7 @@ func quickDNSCheck(ctx context.Context, addr string, timeout time.Duration, mode
 		txID = []byte{0xab, 0xcd} // Safe fallback if the system crypto pool is temporarily exhausted
 	}
 
-	domain := InjectedPingDomain  //inject your in country domain during the build
+	domain := InjectedPingDomain
 	if domain == "" {
 		domain = "google.com" 
 	}

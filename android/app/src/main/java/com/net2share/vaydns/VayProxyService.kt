@@ -21,7 +21,12 @@ class VayProxyService : Service() {
     private var initialTxBytes = 0L
     private var previousRxBytes = 0L
     private var previousTxBytes = 0L
-
+    private var pendingRxSave = 0L
+    private var pendingTxSave = 0L
+    private var statsTickCount = 0
+    private var absoluteDailyRx = 0L
+    private var absoluteDailyTx = 0L
+    private var currentTrackingDate = ""
     private val statsRunnable = object : Runnable {
         override fun run() {
             if (isStopping) return
@@ -35,6 +40,14 @@ class VayProxyService : Service() {
                     val currentRx = parts[0].toLong()
                     val currentTx = parts[1].toLong()
 
+                    val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                    if (currentTrackingDate != dateStr) {
+                        val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+                        absoluteDailyRx = prefs.getLong("rx_$dateStr", 0L)
+                        absoluteDailyTx = prefs.getLong("tx_$dateStr", 0L)
+                        currentTrackingDate = dateStr
+                    }
+
                     // --- SAFE MATH (No Math.max casting issues) ---
                     val diffRx = currentRx - previousRxBytes
                     val diffTx = currentTx - previousTxBytes
@@ -45,6 +58,29 @@ class VayProxyService : Service() {
                     previousRxBytes = currentRx
                     previousTxBytes = currentTx
 
+                    // Accumulate in RAM, flush to disk every 10 seconds
+                    pendingRxSave += rxSpeed
+                    pendingTxSave += txSpeed
+                    statsTickCount++
+
+                    if (statsTickCount >= 10) {
+                        if (pendingRxSave > 0 || pendingTxSave > 0) {
+                            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                            val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+                            val dailyRx = prefs.getLong("rx_$dateStr", 0L) + pendingRxSave
+                            val dailyTx = prefs.getLong("tx_$dateStr", 0L) + pendingTxSave
+
+                            prefs.edit()
+                                .putLong("rx_$dateStr", dailyRx)
+                                .putLong("tx_$dateStr", dailyTx)
+                                .apply()
+
+                            pendingRxSave = 0L
+                            pendingTxSave = 0L
+                        }
+                        statsTickCount = 0
+                    }
+
                     val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
                     // currentRx IS the total since the session started, so we use it directly!
                     val totalStr = "Total: ${formatBytes(currentRx)} ↓   ${formatBytes(currentTx)} ↑"
@@ -53,6 +89,8 @@ class VayProxyService : Service() {
                     sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
                         putExtra("speed", speedStr)
                         putExtra("total", totalStr)
+                        putExtra("liveDailyRx", absoluteDailyRx)
+                        putExtra("liveDailyTx", absoluteDailyTx)
                         setPackage(packageName)
                     })
 
@@ -106,6 +144,7 @@ class VayProxyService : Service() {
             isStopping = true
             stopForeground(STOP_FOREGROUND_REMOVE)
             statsHandler.removeCallbacks(statsRunnable)
+            flushPendingTraffic()
 
             Thread {
                 Mobile.stopVpn()
@@ -202,6 +241,19 @@ class VayProxyService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun flushPendingTraffic() {
+        if (pendingRxSave > 0 || pendingTxSave > 0) {
+            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putLong("rx_$dateStr", absoluteDailyRx) // 🟢 Write the absolute total!
+                .putLong("tx_$dateStr", absoluteDailyTx)
+                .apply()
+            pendingRxSave = 0L
+            pendingTxSave = 0L
+        }
+    }
+
     private fun updateNotification(status: String) {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
@@ -240,6 +292,7 @@ class VayProxyService : Service() {
     override fun onDestroy() {
         android.util.Log.i("VayProxy", "Destroying Proxy Service and freeing ports...")
         statsHandler.removeCallbacks(statsRunnable)
+        flushPendingTraffic()
         super.onDestroy()
 
         // Kill this isolated process to guarantee the SOCKS listener is destroyed

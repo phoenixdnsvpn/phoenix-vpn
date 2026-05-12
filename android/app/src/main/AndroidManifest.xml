@@ -3,10 +3,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -60,7 +60,6 @@
 
         <activity
             android:name=".DnsScannerResultActivity"
-            android:process=":scanner"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
@@ -83,6 +82,16 @@
             android:name=".VayProxyService"
             android:process=":proxy"  android:foregroundServiceType="specialUse"
             android:exported="false" />
+
+        <service
+            android:name=".VayScannerService"
+            android:process=":scanner"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Continuous DNS Scanning" />
+        </service>
 
     </application>
 

@@ -554,7 +554,7 @@ func GetDefaultConfigIsFreeScanner(index int64) bool {
 	ensureParsed()
 	configMu.Lock()
 	defer configMu.Unlock()
-	
+		
 	// Ensure we are checking the defaultConfigs slice, not the display map
 	if int(index) >= 0 && int(index) < len(defaultConfigs) {
 		return defaultConfigs[index].FreeScanner

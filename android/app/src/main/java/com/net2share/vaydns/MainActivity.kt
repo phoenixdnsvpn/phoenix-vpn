@@ -8,6 +8,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import android.graphics.Color
 import android.net.VpnService
+import android.net.ConnectivityManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Menu
@@ -52,6 +53,12 @@ private lateinit var layoutProxyControls: LinearLayout
 private lateinit var etProxyPort: EditText
 private var selectedApps = mutableSetOf<String>()
 private lateinit var tvSelectedAppsInfo: TextView
+private var activePendingRx = 0L
+private var activePendingTx = 0L
+private var liveDailyRx = -1L
+private var liveDailyTx = -1L
+private var liveTrackingDate = ""
+
 class MainActivity : AppCompatActivity() {
 
     private var configAdapter: ConfigAdapter? = null
@@ -64,6 +71,9 @@ class MainActivity : AppCompatActivity() {
                 val total = intent.getStringExtra("total") ?: ""
                 tvSpeed.text = speed
                 tvTotal.text = total
+                liveDailyRx = intent.getLongExtra("liveDailyRx", -1L)
+                liveDailyTx = intent.getLongExtra("liveDailyTx", -1L)
+                liveTrackingDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
                 return
             }
 
@@ -98,6 +108,8 @@ class MainActivity : AppCompatActivity() {
                     if (isProxyMode && ::etProxyPort.isInitialized) {
                         etProxyPort.isEnabled = true
                     }
+                    activePendingRx = 0L
+                    activePendingTx = 0L
                 }
             }
         }
@@ -652,6 +664,14 @@ class MainActivity : AppCompatActivity() {
 
         val isOfficialBuild = buildStatus == "Official Release" || configCount > 0
 
+        // Read user preferences (Default is false/invisible)
+        val menuPrefs = getSharedPreferences("VayDNS_MenuPrefs", Context.MODE_PRIVATE)
+        val showAppUpdate = menuPrefs.getBoolean("show_check_app_update", false)
+        val showUpdateConfigs = menuPrefs.getBoolean("show_update_configs", false)
+        val showUpdateResolvers = menuPrefs.getBoolean("show_update_resolvers", false)
+        val showUploadConfigs = menuPrefs.getBoolean("show_upload_configs", false)
+        val showUploadResolvers = menuPrefs.getBoolean("show_upload_resolvers", false)
+
         if (!isOfficialBuild) {
             // Hide all private infrastructure options for public builds
             menu.findItem(R.id.action_verify)?.isVisible = false
@@ -662,14 +682,14 @@ class MainActivity : AppCompatActivity() {
             menu.findItem(R.id.action_upload_configs)?.isVisible = false
             menu.findItem(R.id.action_quick_scanner)?.isVisible = false
         } else {
-            // Ensure these items are visible if it is an official build
+            // Respect user preferences for visibility
             menu.findItem(R.id.action_verify)?.isVisible = true
-            menu.findItem(R.id.action_check_app_update)?.isVisible = true
-            menu.findItem(R.id.action_update_configs)?.isVisible = true
-            menu.findItem(R.id.action_update_resolvers)?.isVisible = true
-            menu.findItem(R.id.action_upload_resolvers)?.isVisible = true
-            menu.findItem(R.id.action_upload_configs)?.isVisible = true
             menu.findItem(R.id.action_quick_scanner)?.isVisible = true
+            menu.findItem(R.id.action_check_app_update)?.isVisible = showAppUpdate
+            menu.findItem(R.id.action_update_configs)?.isVisible = showUpdateConfigs
+            menu.findItem(R.id.action_update_resolvers)?.isVisible = showUpdateResolvers
+            menu.findItem(R.id.action_upload_configs)?.isVisible = showUploadConfigs
+            menu.findItem(R.id.action_upload_resolvers)?.isVisible = showUploadResolvers
 
             // Verification Logic
             val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
@@ -687,6 +707,77 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return super.onPrepareOptionsMenu(menu)
+    }
+
+    private fun showSettingsDialog() {
+        val prefs = getSharedPreferences("VayDNS_MenuPrefs", Context.MODE_PRIVATE)
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, 0)
+        }
+
+        val cbUpdateApp = android.widget.CheckBox(this).apply {
+            text = "Show 'Check for Update'"
+            isChecked = prefs.getBoolean("show_check_app_update", false)
+            textSize = 16f
+        }
+        val cbUpdateConfigs = android.widget.CheckBox(this).apply {
+            text = "Show 'Update Configs'"
+            isChecked = prefs.getBoolean("show_update_configs", false)
+            textSize = 16f
+        }
+        val cbUpdateResolvers = android.widget.CheckBox(this).apply {
+            text = "Show 'Update Resolvers'"
+            isChecked = prefs.getBoolean("show_update_resolvers", false)
+            textSize = 16f
+        }
+        val cbUploadConfigs = android.widget.CheckBox(this).apply {
+            text = "Show 'Upload Configs'"
+            isChecked = prefs.getBoolean("show_upload_configs", false)
+            textSize = 16f
+        }
+        val cbUploadResolvers = android.widget.CheckBox(this).apply {
+            text = "Show 'Upload Resolvers'"
+            isChecked = prefs.getBoolean("show_upload_resolvers", false)
+            textSize = 16f
+        }
+
+        // Add padding between checkboxes for better touch targets
+        val layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            bottomMargin = (12 * resources.displayMetrics.density).toInt()
+        }
+
+        container.addView(cbUpdateApp, layoutParams)
+        container.addView(cbUpdateConfigs, layoutParams)
+        container.addView(cbUpdateResolvers, layoutParams)
+        container.addView(cbUploadConfigs, layoutParams)
+        container.addView(cbUploadResolvers, layoutParams)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Menu Settings")
+            .setMessage("Select which items to display in the main menu:")
+            .setView(container)
+            .setPositiveButton("Save") { _, _ ->
+                // Save the new preferences
+                prefs.edit()
+                    .putBoolean("show_check_app_update", cbUpdateApp.isChecked)
+                    .putBoolean("show_update_configs", cbUpdateConfigs.isChecked)
+                    .putBoolean("show_update_resolvers", cbUpdateResolvers.isChecked)
+                    .putBoolean("show_upload_configs", cbUploadConfigs.isChecked)
+                    .putBoolean("show_upload_resolvers", cbUploadResolvers.isChecked)
+                    .apply()
+
+                // Force the menu to redraw with the new visibility settings
+                invalidateOptionsMenu()
+                Toast.makeText(this, "Settings saved.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showVerificationDialog() {
@@ -981,6 +1072,16 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
+            R.id.action_my_dns -> {
+                showCurrentDnsDialog()
+                true
+            }
+
+            R.id.action_daily_traffic -> {
+                showDailyTrafficDialog()
+                true
+            }
+
             R.id.action_how_to_use -> {
                 showHowToUseDialog()
                 true
@@ -1008,6 +1109,11 @@ class MainActivity : AppCompatActivity() {
                     layoutProxyControls.visibility = android.view.View.GONE
                     //Toast.makeText(this, "VPN Mode Enabled", Toast.LENGTH_SHORT).show()
                 }
+                true
+            }
+
+            R.id.action_settings -> {
+                showSettingsDialog()
                 true
             }
 
@@ -1040,6 +1146,205 @@ class MainActivity : AppCompatActivity() {
             }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format(java.util.Locale.US, "%.2f MB", mb)
+        val gb = mb / 1024.0
+        return String.format(java.util.Locale.US, "%.2f GB", gb)
+    }
+
+    private fun showDailyTrafficDialog() {
+        val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val displayFormat = java.text.SimpleDateFormat("MMM dd", java.util.Locale.US)
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+
+        // Gather data for the last 30 days
+        val calendar = java.util.Calendar.getInstance()
+        val daysData = mutableListOf<Triple<String, Long, Long>>() // Label, RX, TX
+        var maxTraffic = 1L // Prevent division by zero when calculating bar widths
+
+        for (i in 0 until 30) {
+            val dateStr = dateFormat.format(calendar.time)
+            var rx = prefs.getLong("rx_$dateStr", 0L)
+            var tx = prefs.getLong("tx_$dateStr", 0L)
+
+            if (i == 0 && liveTrackingDate == dateStr && liveDailyRx != -1L) {
+                if (liveDailyRx > rx) rx = liveDailyRx
+                if (liveDailyTx > tx) tx = liveDailyTx
+            }
+
+            val total = rx + tx
+            if (total > maxTraffic) maxTraffic = total
+
+            val label = if (i == 0) "Today" else displayFormat.format(calendar.time)
+            daysData.add(Triple(label, rx, tx))
+
+            // Move backward one day
+            calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+        }
+
+        // Reverse to show oldest first, newest at the bottom
+        daysData.reverse()
+
+        val onSurfaceColor = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, android.graphics.Color.BLACK)
+
+        for (day in daysData) {
+            val (label, rx, tx) = day
+
+            // Skip days with zero traffic to keep the list clean (Optional, but recommended for a 30-day list)
+            if (rx == 0L && tx == 0L && label != "Today") continue
+
+            // 1. Day Label & Text Stats
+            val textRow = TextView(this).apply {
+                text = "$label: ${formatBytes(rx)} ↓ / ${formatBytes(tx)} ↑"
+                textSize = 14f
+                setTextColor(onSurfaceColor)
+                setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, (4 * resources.displayMetrics.density).toInt())
+            }
+            container.addView(textRow)
+
+            // 2. Bar Chart Frame
+            val barContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (12 * resources.displayMetrics.density).toInt()
+                )
+                setBackgroundColor(android.graphics.Color.parseColor("#E0E0E0")) // Light grey empty track
+            }
+
+            // 3. Calculate dynamic bar widths relative to the highest traffic day
+            val weightRx = (rx.toFloat() / maxTraffic.toFloat()).coerceAtLeast(0.0001f)
+            val weightTx = (tx.toFloat() / maxTraffic.toFloat()).coerceAtLeast(0.0001f)
+            val weightEmpty = (1.0f - (weightRx + weightTx)).coerceAtLeast(0.0f)
+
+            // Download Bar (Blue)
+            if (rx > 0) {
+                val rxBar = android.view.View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weightRx)
+                    setBackgroundColor(android.graphics.Color.parseColor("#2196F3"))
+                }
+                barContainer.addView(rxBar)
+            }
+
+            // Upload Bar (Green)
+            if (tx > 0) {
+                val txBar = android.view.View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weightTx)
+                    setBackgroundColor(android.graphics.Color.parseColor("#4CAF50"))
+                }
+                barContainer.addView(txBar)
+            }
+
+            // Fill remaining space
+            val emptyBar = android.view.View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weightEmpty)
+            }
+            barContainer.addView(emptyBar)
+
+            container.addView(barContainer)
+        }
+
+        // Legend at the bottom
+        val legendRow = TextView(this).apply {
+            text = "■ Download (Blue)   ■ Upload (Green)"
+            textSize = 12f
+            setTextColor(onSurfaceColor)
+            setPadding(0, (16 * resources.displayMetrics.density).toInt(), 0, 0)
+            gravity = android.view.Gravity.CENTER
+        }
+        container.addView(legendRow)
+
+        val scrollView = android.widget.ScrollView(this).apply { addView(container) }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Daily Traffic (Last 30 Days)")
+            .setView(scrollView)
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun showCurrentDnsDialog() {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val activeNetwork = connectivityManager.activeNetwork
+        val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
+
+        val dnsServers = linkProperties?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList()
+
+        if (dnsServers.isEmpty()) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("My DNS Server")
+                .setMessage("Could not determine your current DNS servers. Please check your network connection.\n\n" +
+                        "امکان تشخیص سرورهای DNS فعلی شما وجود ندارد. لطفاً اتصال شبکه خود را بررسی کنید.")
+                .setPositiveButton("Close / بستن", null)
+                .setIcon(R.mipmap.ic_launcher_round)
+                .show()
+            return
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(pad, (16 * resources.displayMetrics.density).toInt(), pad, 0)
+        }
+
+        val onSurfaceColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, android.graphics.Color.BLACK)
+        val primaryColor = MaterialColors.getColor(this, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
+
+        val header = TextView(this).apply {
+            text = "Your current active DNS servers are:\n(Tap an IP to copy)\n\n" +
+                    "سرورهای DNS فعال و فعلی شما:\n(برای کپی روی IP تپ کنید)"
+            textSize = 15f
+            setTextColor(onSurfaceColor)
+            setPadding(0, 0, 0, (16 * resources.displayMetrics.density).toInt())
+        }
+        container.addView(header)
+
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+
+        for (ip in dnsServers) {
+            val tvIp = TextView(this).apply {
+                text = ip
+                textSize = 18f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(primaryColor)
+
+                val padVertical = (12 * resources.displayMetrics.density).toInt()
+                setPadding(0, padVertical, 0, padVertical)
+
+                // Add native Android tap ripple effect
+                val outValue = TypedValue()
+                theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+                setBackgroundResource(outValue.resourceId)
+                isClickable = true
+                isFocusable = true
+
+                setOnClickListener {
+                    val clip = android.content.ClipData.newPlainText("DNS IP", ip)
+                    clipboard.setPrimaryClip(clip)
+                    Toast.makeText(this@MainActivity, "Copied: $ip", Toast.LENGTH_SHORT).show()
+                }
+            }
+            container.addView(tvIp)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("My DNS Server")
+            .setView(container)
+            .setPositiveButton("Close / بستن", null)
+            .setIcon(R.mipmap.ic_launcher_round)
+            .show()
     }
 
     private fun getMultipathResolvers(configId: String, defaultAddr: String, mode: String): String {
@@ -1134,51 +1439,6 @@ class MainActivity : AppCompatActivity() {
 
             ۶. انتظارات از عملکرد: لطفاً توجه داشته باشید که تونل‌سازی DNS ذاتا کندتر از VPNهای معمولی است. بسته به شرایط شبکه، انتظار سرعتی بین ۱۰ تا ۲۰۰ کیلوبایت بر ثانیه را داشته باشید.
         """.trimIndent()
-        /**val instructions = """
-            1. Select Apps to Tunnel: Tap on SELECT APPS TO TUNNEL and choose a few specific apps (3–4 recommended) that you want to pass through the tunnel. Only selected apps will be routed; all other traffic will remain on your local network.
-
-            2. Add Your Configuration:
-               • To use your own server: Tap the Menu (three dots) and select "Add Config" or "Import Config".
-               • To use built-in servers: Toggle on "Use default configs" and select a server from the list.
-
-            3. Find a Usable Resolver: To establish a tunnel, you must find a functional DNS Resolver for your network.
-               • For new users the quickest way: From menu tap on Update Resolvers. Select a config and tap on pencil icon, then tap on "Use default resolvers" and select one from the list. Tap on START TUNNEL.
-               • To scan a fresh resolvers:
-               • Open the Menu and select "DNS Scanner".
-               • Use the default parameters and tap "START SCAN".
-               • Look for a resolver with a latency lower than 6000 ms.
-               • Tap the Set (Checkmark) icon to apply the fastest resolver to your config, or the Save icon to store a list of fast resolvers.
-               • Note: If no usable resolvers are found, go back and start a new scan to get a fresh random list.
-
-            4. Start the Tunnel: Return to the main menu and tap START TUNNEL. It may take up to 20 seconds to establish a stable connection.
-
-            5. Troubleshooting: Different configurations use different DNS record types (TXT, NULL, etc.). A resolver that works for one config may not work for another. If you cannot connect, try switching to a different configuration or record type.
-
-            6. Performance Expectations: DNS tunneling is inherently slower than traditional VPNs due to protocol overhead. Expect speeds ranging from 10 KB/sec to 200 KB/sec, depending on your network conditions.
-
-            --------------------------------------------------
-            
-            ۱. انتخاب برنامه‌ها برای تونل (Split Tunneling): روی گزینه SELECT APPS TO TUNNEL تپ کنید و چند برنامه خاص (پیشنهاد می‌شود ۳ تا ۴ برنامه) را برای عبور از تونل انتخاب کنید. فقط ترافیک برنامه‌های انتخاب شده از تونل عبور می‌کند و بقیه برنامه‌ها از اینترنت عادی شما استفاده خواهند کرد.
-
-            ۲. افزودن پیکربندی (Configuration):
-               • برای استفاده از سرور شخصی خود: منو (سه نقطه) را باز کرده و "Add Config" و یا "Import Config" را انتخاب کنید.
-               • برای استفاده از سرورهای پیش‌فرض: گزینه "Use default configs" را فعال کرده و یکی از سرورهای لیست را انتخاب کنید.
-
-            ۳. یافتن یک DNS (Resolver) مناسب: برای برقراری اتصال، باید یک Resolver فعال که با شبکه شما سازگار باشد پیدا کنید.
-            • سریع‌ترین روش برای کاربران جدید: از منو روی Update Resolvers تپ کنید. یک پیکربندی (Config) را انتخاب کرده و روی آیکون مداد تپ کنید، سپس گزینه "Use default resolvers" را بزنید و یکی را از لیست انتخاب کنید. در نهایت روی START TUNNEL تپ کنید.
-• برای اسکن Resolverهای جدید:
-               • از منو گزینه "DNS Scanner" را انتخاب کنید.
-               • از پارامترهای پیش‌فرض استفاده کنید و روی "START SCAN" تپ کنید.
-               • پس از اتمام اسکن، به دنبال موردی بگردید که تاخیر (Latency) آن کمتر از 6000 میلی‌ثانیه باشد.
-               • روی آیکون تأیید (Checkmark) تپ کنید تا سریع‌ترین Resolver مستقیماً روی تنظیمات شما اعمال شود، یا از آیکون ذخیره (Save) برای نگهداری لیست استفاده کنید.
-               • نکته: اگر هیچ Resolver مناسبی پیدا نشد، به عقب برگردید و اسکن جدیدی شروع کنید تا لیست تصادفی جدیدی دریافت کنید.
-
-            ۴. شروع اتصال (Start Tunnel): به منوی اصلی برگردید و روی "START TUNNEL" تپ کنید. برقراری اتصال پایدار ممکن است تا ۲۰ ثانیه زمان ببرد.
-
-            ۵. عیب‌یابی: پیکربندی‌های مختلف از انواع رکوردهای DNS (مانند TXT یا NULL) استفاده می‌کنند. ممکن است یک Resolver که برای یک سرور کار می‌کند، برای سرور دیگر مناسب نباشد. در صورت عدم اتصال، سرور یا نوع رکورد را تغییر دهید.
-
-            ۶. انتظارات از عملکرد: لطفاً توجه داشته باشید که تونل‌سازی DNS ذاتا کندتر از VPNهای معمولی است. بسته به شرایط شبکه، انتظار سرعتی بین ۱۰ تا ۲۰۰ کیلوبایت بر ثانیه را داشته باشید.
-        """.trimIndent()*/
 
         // Resolve dynamic text color for Day/Night modes
         val onSurfaceColor = com.google.android.material.color.MaterialColors.getColor(

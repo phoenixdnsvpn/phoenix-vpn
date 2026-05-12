@@ -5,124 +5,100 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"sync/atomic"	
 	"time"
 	"fmt"
-//	"net"
 	"net/http"
-//	"log"
-//	"runtime/debug"
-
+	"runtime"
+	"runtime/debug"
+	
 	"github.com/Starling226/vaydns-vpn/f35"
 )
 
 var (	
 	scanCancel context.CancelFunc
 	scanMu     sync.Mutex
+	
+	// --- THE POLLING QUEUE ---
+	scanStatus  string
+	scanError   string
+	resultQueue []string
+	resultMu    sync.Mutex
+	gcCounter int32
+	testCounter int32
 )
 
-// ScanResultCallback is an interface that Android can implement to receive results
-type ScanResultCallback interface {
-	OnResult(jsonResult string)
-}
-
 // StartF35Scan initiates a scan using the f35 engine logic.
-// Returns a JSON string of the initial configuration or an error JSON.
 func StartF35Scan(
-	isDefault bool,
-	configIndex int64,
-	dnsMode string,
-	customDomain string,
-	customPublicKey string,
-	resolversList string, // Comma-separated
-	baseDohUrl string,
-	proxyType string,
-	tunnelProtocol string,
-	proxyUser string,
-	proxyPass string,
-	ssMethod string,
-	recordType string,
-	idleTimeout string,
-	keepAlive string,
-	clientIdSize int,
-	mtu int,
-	workers int,          
-	tunnelWait int,   
-	udpTimeout int,        
-	probeTimeout int, 
-	retries int,
-	fastFailEnabled bool,
-	isQuickScan bool,
-	callback ScanResultCallback,
+	isDefault bool, configIndex int64, dnsMode string, customDomain string, customPublicKey string,
+	resolversList string, baseDohUrl string, proxyType string, tunnelProtocol string, proxyUser string,
+	proxyPass string, ssMethod string, recordType string, idleTimeout string, keepAlive string,
+	clientIdSize int, mtu int, workers int, tunnelWait int, udpTimeout int, probeTimeout int, 
+	retries int, lightE2EEnabled bool, engineQuickScan bool,
 ) string {
 	scanMu.Lock()
 	if scanCancel != nil {
-		scanCancel() // Stop any existing scan
+		scanCancel() 
 	}
 	   	
 	ctx, cancel := context.WithCancel(context.Background())
 	scanCancel = cancel
+	scanStatus = "started"
+	scanError = ""
 	scanMu.Unlock()
 	
-	fmt.Println("GO_DEBUG: StartF35Scan entry")
+	// Reset the results queue for a fresh scan
+	resultMu.Lock()
+	resultQueue = make([]string, 0)
+	resultMu.Unlock()
+	
+	fmt.Println("VAY_DEBUG: StartF35Scan entry")
 
-	// --- THE NATIVE VAULT LOGIC ---
 	domainToUse := customDomain
 	pubkeyToUse := customPublicKey
-
 
 	if isDefault {
 		domainToUse = getDefaultConfigDomain(configIndex)
 		pubkeyToUse = getDefaultConfigPubkey(configIndex)
-		
-		// Enforce official parameters to prevent tampering
 		recordType = GetDefaultConfigRecordType(configIndex)
 		idleTimeout = GetDefaultConfigIdleTimeout(configIndex)
 		keepAlive = GetDefaultConfigKeepAlive(configIndex)
 		clientIdSize = int(GetDefaultConfigClientIdSize(configIndex))
-		
-		// Fetch actual credentials from vault using internal lowercase getters
 		proxyUser = getDefaultConfigUser(configIndex)
 		proxyPass = getDefaultConfigPass(configIndex)
 	}
-
+	
+//	engineQuickScan = false //we will enable this in future
 	cfg := f35.DefaultConfig()
 	cfg.Mode = strings.ToLower(dnsMode)
 		
 	rawResolvers := strings.Split(resolversList, ",")
 	var cleaned []string
-    
-	// --- SECURITY TRANSLATION: Fake -> Real ---    
-	// We build a local map to quickly translate the results back to fake IPs later
 	realToFake := make(map[string]string) 
 
 	for _, r := range rawResolvers {
 		fakeFull := strings.TrimSpace(r)
 		if fakeFull != "" {
-			// Leverage the helper we already built in mobile.go!
-			// This splits the port, translates the IP, and re-attaches the port.
-			
 			realFull := fakeFull
 			if !strings.HasPrefix(fakeFull, "http") {
-				realFull = translateFakeToReal(fakeFull)
-			}
+				translated := translateFakeToReal(fakeFull)
+//				fmt.Printf("VAY_DEBUG %v %v\n",fakeFull,translated)
 
-			// Store the reverse mapping for the callback
+				if translated != "" {
+					realFull = translated
+				}
+			}
 			realToFake[realFull] = fakeFull       
-			
-			// Give the engine the REAL IP + PORT to scan
 			cleaned = append(cleaned, realFull) 
 		}
 	}
 	
 	if len(cleaned) == 0 {
-		status, _ := json.Marshal(map[string]string{"status": "error", "message": "No resolvers provided"})
-		return string(status)
+		return "error|No resolvers provided"
 	}
 
 	cfg.Resolvers = cleaned
-	cfg.Engine = "vaydns"
 	cfg.Domain = domainToUse
-	        
 	cfg.Probe = true
 	cfg.ProbeURL = "http://www.google.com/gen_204"
 	cfg.ProbeTimeout = time.Duration(probeTimeout) * time.Second
@@ -136,22 +112,21 @@ func StartF35Scan(
 	cfg.Upload = false
 	cfg.Engine = "vaydns"
 
-	// Handle Proxy Credentials (now securely populated from vault if isDefault)
 	if proxyUser != "" && proxyUser != "none" {
 		cfg.ProxyUser = proxyUser
 	}
 	if proxyPass != "" && proxyPass != "none" {
 		cfg.ProxyPass = proxyPass
 	}
+//    fmt.Printf("VAY_DEBUG:  proxyType %v  tunnelProtocol %v \n", proxyType, tunnelProtocol)
     
 	effectiveUdpTimeout := udpTimeout
     if strings.ToLower(dnsMode) == "doh" || strings.ToLower(dnsMode) == "dot" {
         if effectiveUdpTimeout < 5000 {
-            effectiveUdpTimeout = 5000 // Force at least 5 seconds for TLS overhead
+            effectiveUdpTimeout = 5000 
         }
     }
         
-	// Build ExtraArgs for vaydns
 	cfg.ExtraArgs = []string{
 		"-base-doh", baseDohUrl,
 		"-pubkey", pubkeyToUse,
@@ -163,95 +138,107 @@ func StartF35Scan(
 		"-idle-timeout", idleTimeout,
 		"-mtu", fmt.Sprintf("%d", mtu),		
 		"-udp-timeout", fmt.Sprintf("%dms", udpTimeout),
-		"-protocol", proxyType,
+		"-protocol", tunnelProtocol,
 		"-ss-method", ssMethod,
 		"-user", proxyUser,
 		"-pass", proxyPass,
-		"-fast-fail-enabled", fmt.Sprintf("%v", fastFailEnabled),
-		"-quick-scan", fmt.Sprintf("%v", isQuickScan),
+		"-fast-fail-enabled", fmt.Sprintf("%v", lightE2EEnabled),
+		"-quick-scan", fmt.Sprintf("%v", engineQuickScan),
 	}
 
 	cfg.Pubkey = pubkeyToUse 
 	if err := f35.ValidateConfig(cfg); err != nil {
-		status, _ := json.Marshal(map[string]string{"status": "error", "message": err.Error()})
-		return string(status)
+		return "error|" + err.Error()
 	}
 
 	hooks := f35.Hooks{
 		OnResult: func(res f35.Result) {
-			// Safety: If the scan was cancelled, stop calling Java
+//			fmt.Printf("GO_DEBUG: Result generated for %s - Latency: %d\n", res.Resolver, res.LatencyMS)
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				if callback != nil {
-					// --- SECURITY TRANSLATION: Real -> Fake ---
-					// The engine scanned the real IP, but we must hide it from Android
-					if fakeIP, exists := realToFake[res.Resolver]; exists {
-						res.Resolver = fakeIP 
-					}
-
-					b, _ := json.Marshal(res)
-					callback.OnResult(string(b))
+		
+				if fakeIP, exists := realToFake[res.Resolver]; exists {
+					res.Resolver = fakeIP 
 				}
+//				fmt.Printf("VAY_DEBUG: Progress - Resolver: %s  %d\n", res.Resolver, res.LatencyMS)
+				jsonMap := map[string]interface{}{
+					"resolver":   res.Resolver,
+					"latency_ms": res.LatencyMS,
+				}				
+				b, _ := json.Marshal(jsonMap)
+				
+				resultMu.Lock()
+				resultQueue = append(resultQueue, string(b))
+				resultMu.Unlock()
 			}
 		},
 	}
 	
-	// Running scan in a goroutine so it doesn't block the UI thread
 	go func() {	                	
-		// Recovery block to prevent process-wide crashes
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("GO_BRIDGE_PANIC: %v\n", r)
 			}
 		}()
 
-		// 1. Execute the actual scan
 		err := f35.ScanWithContext(ctx, cfg, hooks)
 		
-		fmt.Println("GO_DEBUG: Scan engine finished processing resolvers. Entering 3 seconds grace period...")
-
-		// 3. Notify the App that we are truly finished
-		if callback != nil {
-			if err != nil && err != context.Canceled {
-				fmt.Printf("GO_SCAN_ERROR: %v\n", err)
-				errMsg, _ := json.Marshal(map[string]string{"status": "finished", "error": err.Error()})
-				callback.OnResult(string(errMsg))
-			} else {
-				doneMsg, _ := json.Marshal(map[string]string{"status": "finished"})
-				callback.OnResult(string(doneMsg))
-			}
+		// Update Engine Status when finished
+		scanMu.Lock()
+		if err != nil && err != context.Canceled {
+			scanStatus = "error"
+			scanError = err.Error()
+		} else {
+			scanStatus = "finished"
 		}
+		scanMu.Unlock()
 
 		time.Sleep(3 * time.Second)
-		// 4. Final Resource Termination
 		cancel() 
 
 		scanMu.Lock()
 		scanCancel = nil
 		scanMu.Unlock()
-		
 	}()	
 	
-	status, _ := json.Marshal(map[string]string{"status": "started", "engine": "vaydns"})
-	return string(status)
+	return "started"
 }
 
-// StopF35Scan stops any currently running scan immediately
+func GetScanResults() string {
+	resultMu.Lock()
+	defer resultMu.Unlock()
+	
+	if len(resultQueue) == 0 {
+		return ""
+	}
+	
+	res := strings.Join(resultQueue, "\n")
+	resultQueue = make([]string, 0) // Empty the queue instantly
+	return res
+}
+
+// KOTLIN FETCHES THE ENGINE STATUS ONCE A SECOND
+func GetScanStatus() string {
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	if scanStatus == "error" {
+		return "error|" + scanError
+	}
+	return scanStatus
+}
+
 func StopF35Scan() {
 	scanMu.Lock()
 	if scanCancel != nil {
 		scanCancel()
 		scanCancel = nil
 	}
+	scanStatus = "stopped"
 	scanMu.Unlock()
 
-	// 1. Terminate all lingering HTTP Keep-Alive connections
 	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
 		transport.CloseIdleConnections()
 	}
-
-	fmt.Println("VAY_DEBUG: Scanner stopped. Network resources will release naturally via IdleTimeout.")
 }
-

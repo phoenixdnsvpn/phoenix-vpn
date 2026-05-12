@@ -116,7 +116,7 @@
                 android:id="@+id/tv_multipath_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Multipath Resolvers (Select max 3):"
+                android:text="Multipath Resolvers:"
                 android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="16dp"
                 android:textStyle="bold" />
@@ -125,7 +125,7 @@
                 android:id="@+id/tv_multipath_desc"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Selective Multipath will race these 3 IPs for faster connection."
+                android:text="Selective Multipath will race Up to 3 IPs for faster connection."
                 android:textSize="11sp"
                 android:textColor="?android:attr/textColorSecondary"
                 android:layout_marginBottom="4dp" />

@@ -164,24 +164,6 @@
                 android:thumbTint="?attr/colorPrimary" />
 
             <Switch
-                android:id="@+id/switch_config_resolvers"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Use default resolvers"
-                android:textColor="?attr/colorOnSurface"
-                android:layout_marginTop="20dp"
-                android:thumbTint="?attr/colorPrimary" />
-
-            <Switch
-                android:id="@+id/switch_conservative"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Use Conservative Scan"
-                android:textColor="?attr/colorOnSurface"
-                android:layout_marginTop="20dp"
-                android:thumbTint="?attr/colorPrimary" />
-
-            <Switch
                 android:id="@+id/switch_cidr_mode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -198,38 +180,53 @@
                 android:layout_marginTop="20dp"
                 android:textStyle="bold" />
 
-            <LinearLayout
+            <RadioGroup
+                android:id="@+id/rg_resolver_source"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="8dp">
+                android:layout_marginTop="8dp"
+                android:orientation="vertical">
 
-                <Button
-                    android:id="@+id/btn_default_resolvers"
-                    android:layout_width="0dp"
+                <RadioButton
+                    android:id="@+id/rb_source_default"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Default"
-                    android:backgroundTint="?attr/colorPrimary"
-                    android:textColor="?attr/colorOnPrimary"
-                    android:layout_marginEnd="8dp" />
+                    android:text="Use default resolvers"
+                    android:checked="true"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
 
-                <Button
-                    android:id="@+id/btn_custom_resolvers"
-                    android:layout_width="0dp"
+                <RadioButton
+                    android:id="@+id/rb_source_custom"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Custom"
-                    android:backgroundTint="?attr/colorPrimary"
-                    android:textColor="?attr/colorOnPrimary"
-                    android:layout_marginStart="8dp" />
-            </LinearLayout>
+                    android:text="Use custom resolvers"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_source_paste"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Use Copy &amp; Paste resolvers"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_source_encrypted"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Use encrypted resolvers"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+            </RadioGroup>
 
             <Button
-                android:id="@+id/btn_paste_resolvers"
+                android:id="@+id/btn_action_resolvers"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Paste Resolvers"
+                android:text="DEFAULT RESOLVERS"
+                android:enabled="false"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:layout_marginTop="8dp" />
@@ -287,6 +284,15 @@
                 android:text="5000" />
 
             <Switch
+                android:id="@+id/switch_conservative"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use Conservative Scan"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="20dp"
+                android:thumbTint="?attr/colorPrimary" />
+
+            <Switch
                 android:id="@+id/switch_random"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -296,15 +302,75 @@
                 android:layout_marginTop="20dp"
                 android:thumbTint="?attr/colorPrimary" />
 
-            <Switch
-                android:id="@+id/switch_fast_fail"
+            <TextView
+                android:id="@+id/tv_e2e_mode_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Scan Mode:"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="20dp"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/rg_e2e_mode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Enable Fast-Fail Check"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rb_light_e2e"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Light E2E"
+                    android:checked="true"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_true_e2e"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="True E2E"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+            </RadioGroup>
+
+            <TextView
+                android:id="@+id/tv_quick_scan_mode_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Quick Scan Mode:"
                 android:textColor="?attr/colorOnSurface"
-                android:checked="true"
                 android:layout_marginTop="20dp"
-                android:thumbTint="?attr/colorPrimary" />
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <RadioGroup
+                android:id="@+id/rg_quick_scan_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <RadioButton
+                    android:id="@+id/rb_quick_dns_check"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Quick DNS Check"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_light_e2e_quick"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Light E2E"
+                    android:checked="true"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+            </RadioGroup>
 
             <TextView
                 android:layout_width="wrap_content"

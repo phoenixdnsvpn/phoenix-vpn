@@ -9,21 +9,22 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
+import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
 import kotlin.random.Random
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import mobile.Mobile
-import mobile.ScanResultCallback
 import android.util.Log
-
+import android.os.Handler
+import android.os.Looper
 class DnsScannerActivity : AppCompatActivity() {
 
     private lateinit var switchPublicDns: Switch
     private lateinit var etDomain: EditText
     private lateinit var rgProxy: RadioGroup
     private lateinit var switchConservative: Switch
-    private lateinit var btnDefaultResolvers: Button
-    private lateinit var btnCustomResolvers: Button
     private lateinit var tvResolversCount: TextView
     private lateinit var etNumResolvers: EditText
     private lateinit var switchRandom: Switch
@@ -34,7 +35,6 @@ class DnsScannerActivity : AppCompatActivity() {
     private lateinit var etRetries: EditText
     private lateinit var btnStartScan: Button
 
-    private lateinit var btnPasteResolvers: Button
     private var selectedIdleTimeout = "10s"
     private var selectedKeepAlive = "2s"
     private var selectedClientIdSize = 2L
@@ -52,19 +52,27 @@ class DnsScannerActivity : AppCompatActivity() {
     private var selectedPass = "none"
     private var resolversList: List<String> = emptyList()
     private var isDefaultConfig = false
-    private lateinit var switchConfigResolvers: Switch
-    private lateinit var switchFastFail: Switch
+    private lateinit var tvE2eModeLabel: TextView
+    private lateinit var rgE2eMode: RadioGroup
+    private lateinit var tvQuickScanModeLabel: TextView
+    private lateinit var rgQuickScanMode: RadioGroup
     private lateinit var switchCidrMode: Switch
     private lateinit var layoutCidrSelection: LinearLayout
     private lateinit var tvSelectedCidr: TextView
     private lateinit var btnSelectCidr: ImageButton
-
     private var loadedCidrs: List<String> = emptyList()
     private var selectedCidrs = mutableSetOf<String>()
     private lateinit var switchSkipQuickCheck: Switch
     private lateinit var rgTunnelMode: RadioGroup
-
+    private var lightE2EEnabled = true
     private var isQuickScanner = false
+    private lateinit var rgResolverSource: RadioGroup
+    private lateinit var rbSourceDefault: RadioButton
+    private lateinit var rbSourceCustom: RadioButton
+    private lateinit var rbSourcePaste: RadioButton
+    private lateinit var rbSourceEncrypted: RadioButton
+    private lateinit var btnActionResolvers: Button
+    private var hasEncryptedResolvers = false
     private val customResolverPickerLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -107,28 +115,24 @@ class DnsScannerActivity : AppCompatActivity() {
         rgTunnelMode = findViewById(R.id.rg_tunnel_mode)
         val tvTunnelModeLabel = findViewById<TextView>(R.id.tv_tunnel_mode_label)
 
-        // Toggle Tunnel Mode RadioGroup visibility
-        /*if (isQuickScanner) {
-            rgTunnelMode?.visibility = android.view.View.VISIBLE
-            tvTunnelModeLabel?.visibility = android.view.View.VISIBLE
-            etDomain?.isEnabled = false
-            switchFastFail.visibility = android.view.View.GONE
-            switchFastFail.isChecked = true
-        } else {
-            rgTunnelMode?.visibility = android.view.View.GONE
-            tvTunnelModeLabel?.visibility = android.view.View.GONE
-            switchFastFail.visibility = android.view.View.VISIBLE
-        }*/
-
-// Toggle visibility based on Scanner Mode
+        // Toggle visibility based on Scanner Mode
         if (isQuickScanner) {
             rgTunnelMode?.visibility = android.view.View.VISIBLE
             tvTunnelModeLabel?.visibility = android.view.View.VISIBLE
             etDomain?.isEnabled = false
 
-            // Hide Fast-Fail toggle
-            switchFastFail.visibility = android.view.View.GONE
-            switchFastFail.isChecked = true
+            // HIDE Conservative Scan (Irrelevant for Light E2E / Quick Scan)
+            switchConservative.visibility = android.view.View.GONE
+            switchConservative.isChecked = false
+
+            // HIDE E2E Mode selection and force Light E2E for Quick Scanner
+            tvE2eModeLabel.visibility = android.view.View.GONE
+            rgE2eMode.visibility = android.view.View.GONE
+            rgE2eMode.check(R.id.rb_light_e2e)
+
+            // SHOW Quick Scanner Mode selection
+            tvQuickScanModeLabel.visibility = android.view.View.VISIBLE
+            rgQuickScanMode.visibility = android.view.View.VISIBLE
 
             // HIDE UNUSED QUICK SCAN PARAMETERS
             findViewById<TextView>(R.id.tv_tunnel_wait_label)?.visibility = android.view.View.GONE
@@ -143,7 +147,16 @@ class DnsScannerActivity : AppCompatActivity() {
         } else {
             rgTunnelMode?.visibility = android.view.View.GONE
             tvTunnelModeLabel?.visibility = android.view.View.GONE
-            switchFastFail.visibility = android.view.View.VISIBLE
+
+            //  SHOW Conservative Scan for True E2E
+            switchConservative.visibility = android.view.View.VISIBLE
+            // SHOW E2E Mode selection for standard DNS Scanner
+            tvE2eModeLabel.visibility = android.view.View.VISIBLE
+            rgE2eMode.visibility = android.view.View.VISIBLE
+
+            // HIDE Quick Scanner Mode selection
+            tvQuickScanModeLabel.visibility = android.view.View.GONE
+            rgQuickScanMode.visibility = android.view.View.GONE
 
             // Ensure they are visible for normal Full E2E Scans
             findViewById<TextView>(R.id.tv_tunnel_wait_label)?.visibility = android.view.View.VISIBLE
@@ -170,8 +183,17 @@ class DnsScannerActivity : AppCompatActivity() {
 
         setupListeners()
 
+        if (isQuickScanner) {
+            etWorkers.setText("40")
+        } else if (!switchConservative.isChecked) {
+            etWorkers.setText(if (rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e) "40" else "20")
+        }
+
         // Load default resolvers on start
         loadDefaultResolvers()
+
+        showBatteryPermissionDialogIfNecessary()
+
     }
 
     private fun initViews() {
@@ -179,8 +201,6 @@ class DnsScannerActivity : AppCompatActivity() {
         etDomain = findViewById(R.id.et_domain)
         rgProxy = findViewById(R.id.rg_proxy)
         switchConservative = findViewById(R.id.switch_conservative)
-        btnDefaultResolvers = findViewById(R.id.btn_default_resolvers)
-        btnCustomResolvers = findViewById(R.id.btn_custom_resolvers)
         tvResolversCount = findViewById(R.id.tv_resolvers_count)
         etNumResolvers = findViewById(R.id.et_num_resolvers)
         switchRandom = findViewById(R.id.switch_random)
@@ -190,18 +210,36 @@ class DnsScannerActivity : AppCompatActivity() {
         etProbeTimeout = findViewById(R.id.et_probe_timeout)
         etRetries = findViewById(R.id.et_retries)
         btnStartScan = findViewById(R.id.btn_start_scan)
-        switchConfigResolvers = findViewById(R.id.switch_config_resolvers)
-
         switchCidrMode = findViewById(R.id.switch_cidr_mode)
         layoutCidrSelection = findViewById(R.id.layout_cidr_selection)
         tvSelectedCidr = findViewById(R.id.tv_selected_cidr)
         btnSelectCidr = findViewById(R.id.btn_select_cidr)
-        btnPasteResolvers = findViewById(R.id.btn_paste_resolvers)
+        tvE2eModeLabel = findViewById(R.id.tv_e2e_mode_label)
+        rgE2eMode = findViewById(R.id.rg_e2e_mode)
+        tvQuickScanModeLabel = findViewById(R.id.tv_quick_scan_mode_label)
+        rgQuickScanMode = findViewById(R.id.rg_quick_scan_mode)
+        rgResolverSource = findViewById(R.id.rg_resolver_source)
+        rbSourceDefault = findViewById(R.id.rb_source_default)
+        rbSourceCustom = findViewById(R.id.rb_source_custom)
+        rbSourcePaste = findViewById(R.id.rb_source_paste)
+        rbSourceEncrypted = findViewById(R.id.rb_source_encrypted)
+        btnActionResolvers = findViewById(R.id.btn_action_resolvers)
 
-        switchFastFail = findViewById<Switch>(R.id.switch_fast_fail)
+        // CHECK FOR ENCRYPTED RESOLVERS
+        hasEncryptedResolvers = false
+        if (isDefaultConfig) {
+            val count = Mobile.getDefaultConfigCount()
+            for (i in 0 until count) {
+                if (Mobile.getDefaultConfigDisplayResolvers(i.toLong()).isNotEmpty()) {
+                    hasEncryptedResolvers = true
+                    break
+                }
+            }
+        }
 
-        if (!isDefaultConfig) {
-            switchConfigResolvers.visibility = android.view.View.GONE
+        // Disable the radio button if none exist
+        if (!hasEncryptedResolvers) {
+            rbSourceEncrypted.isEnabled = false
         }
 
         // Set domain from config
@@ -217,94 +255,135 @@ class DnsScannerActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupListeners() {
-        //btnDefaultResolvers.setOnClickListener { loadDefaultResolvers() }
-        btnDefaultResolvers.setOnClickListener {
-            if (switchCidrMode.isChecked) loadDefaultCidrs() else loadDefaultResolvers()
-        }
-        btnCustomResolvers.setOnClickListener { chooseCustomResolvers() }
-        btnPasteResolvers.setOnClickListener { showPasteResolversDialog() }
+    private fun showBatteryPermissionDialogIfNecessary() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val isIgnoring = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pm.isIgnoringBatteryOptimizations(packageName)
+        } else true
 
-        // IMPLEMENTED LOGIC: Guardrail to prevent scanning through a VPN
+        if (!isIgnoring) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Background Activity Required / نیاز به فعالیت در پس‌زمینه")
+                .setMessage("To prevent the scan from stopping, you must enable one setting manually:\n\n" +
+                        "1. Tap 'Open Settings' below.\n" +
+                        "2. Tap on 'Battery' (or Battery usage).\n" +
+                        "3. Enable 'Allow background activity'.\n\n" +
+                        "--------------------------------------------------\n\n" +
+                        "برای جلوگیری از توقف اسکن، باید یک تنظیم را به صورت دستی فعال کنید:\n\n" +
+                        "۱. روی «Open Settings» در پایین بزنید.\n" +
+                        "۲. روی گزینه «Battery» (باتری) یا «Battery usage» بزنید.\n" +
+                        "۳. گزینه «Allow background activity» (اجازه فعالیت در پس‌زمینه) را فعال کنید.")
+                .setPositiveButton("Open Settings / باز کردن تنظیمات") { dialog, _ ->
+                    dialog.dismiss()
+
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        try {
+                            // This takes the user to the App Info page (Uninstall/Force Stop)
+                            // which is the only way to reach the Battery sub-menu on Realme.
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.fromParts("package", packageName, null)
+                            }
+                            startActivity(intent)
+                        } catch (e: Exception) {
+                            val intent = Intent(Settings.ACTION_SETTINGS)
+                            startActivity(intent)
+                        }
+                    }, 400)
+                }
+                .setNegativeButton("Proceed Anyway / ادامه بدون تغییر", null)
+                .show()
+        }
+    }
+
+    private fun setupListeners() {
+
         btnStartScan.setOnClickListener {
+            // Log to Logcat so you can see if the button is even working
+            Log.d("VAY_DEBUG", "Start Scan Button Tapped")
+
             if (isVpnActive()) {
                 AlertDialog.Builder(this)
                     .setTitle("VPN Active Detected")
-                    .setMessage("Scanning while a VPN is active can produce inaccurate results. Please disconnect your VPN to scan your local network environment directly.")
+                    .setMessage("Please disconnect your VPN first.")
                     .setPositiveButton("OK", null)
                     .show()
             } else {
+
                 startScan()
             }
         }
 
+        // 🟢 DYNAMIC RESOLVER SOURCE LOGIC
+        rgResolverSource.setOnCheckedChangeListener { _, checkedId ->
+            // First, unlock UI in case it was locked by Encrypted mode
+            switchPublicDns.isEnabled = true
+            switchCidrMode.isEnabled = true
+            etNumResolvers.isEnabled = true
+            etNumResolvers.alpha = 1.0f
+
+            when (checkedId) {
+                R.id.rb_source_default -> {
+                    btnActionResolvers.text = "DEFAULT RESOLVERS"
+                    btnActionResolvers.isEnabled = false
+                    if (switchCidrMode.isChecked) loadDefaultCidrs() else loadDefaultResolvers()
+                }
+                R.id.rb_source_custom -> {
+                    btnActionResolvers.text = "IMPORT RESOLVERS"
+                    btnActionResolvers.isEnabled = true
+                }
+                R.id.rb_source_paste -> {
+                    btnActionResolvers.text = "PASTE RESOLVERS"
+                    btnActionResolvers.isEnabled = true
+                }
+                R.id.rb_source_encrypted -> {
+                    btnActionResolvers.text = "ENCRYPTED RESOLVERS"
+                    btnActionResolvers.isEnabled = false
+                    loadEncryptedResolvers()
+                }
+            }
+        }
+
+        // ACTION BUTTON LOGIC
+        btnActionResolvers.setOnClickListener {
+            when (rgResolverSource.checkedRadioButtonId) {
+                R.id.rb_source_custom -> chooseCustomResolvers()
+                R.id.rb_source_paste -> showPasteResolversDialog()
+            }
+        }
+
+        //  UPDATE CIDR MODE SWITCH
         switchCidrMode.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 layoutCidrSelection.visibility = android.view.View.VISIBLE
-                switchConfigResolvers.isChecked = false
-                switchConfigResolvers.isEnabled = false
-                loadDefaultCidrs()
+                rbSourceEncrypted.isEnabled = false // Disable encrypted in CIDR mode
+
+                if (rgResolverSource.checkedRadioButtonId == R.id.rb_source_encrypted) {
+                    rgResolverSource.check(R.id.rb_source_default)
+                }
+                if (rgResolverSource.checkedRadioButtonId == R.id.rb_source_default) {
+                    loadDefaultCidrs()
+                }
             } else {
                 layoutCidrSelection.visibility = android.view.View.GONE
-                switchConfigResolvers.isEnabled = isDefaultConfig
-                loadDefaultResolvers()
+                rbSourceEncrypted.isEnabled = hasEncryptedResolvers // Re-enable if applicable
+
+                if (rgResolverSource.checkedRadioButtonId == R.id.rb_source_default) {
+                    loadDefaultResolvers()
+                }
+            }
+        }
+
+        rgE2eMode.setOnCheckedChangeListener { _, checkedId ->
+            if (!switchConservative.isChecked) { // Don't override if they are in conservative mode
+                if (checkedId == R.id.rb_light_e2e) {
+                    etWorkers.setText("40")
+                } else {
+                    etWorkers.setText("20")
+                }
             }
         }
 
         btnSelectCidr.setOnClickListener { showCidrSelectionDialog() }
-
-        switchConfigResolvers.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                // --- 1. PROACTIVE DATA CHECK (No UI changes yet) ---
-                val count = Mobile.getDefaultConfigCount()
-                val allResolvers = mutableSetOf<String>()
-
-                for (i in 0 until count) {
-                    val defaultResolversStr = Mobile.getDefaultConfigDisplayResolvers(i.toLong())
-                    if (defaultResolversStr.isNotEmpty()) {
-                        allResolvers.addAll(defaultResolversStr.split(",").map { it.trim() }.filter { it.isNotEmpty() })
-                    }
-                }
-
-                // --- 2. ABORT IF EMPTY (Before locking anything) ---
-                if (allResolvers.isEmpty()) {
-                    Toast.makeText(this, "No default resolvers found. Try updating from the main menu.", Toast.LENGTH_LONG).show()
-
-                    // Resetting to false will skip the rest of this 'if' block
-                    // and trigger the 'else' branch to ensure the UI is in its default state.
-                    switchConfigResolvers.isChecked = false
-                    return@setOnCheckedChangeListener
-                }
-
-                // --- 3. LOCK UI (Only if data was found) ---
-                btnDefaultResolvers.isEnabled = false
-                btnCustomResolvers.isEnabled = false
-                btnPasteResolvers.isEnabled = false
-                switchPublicDns.isChecked = false
-                switchPublicDns.isEnabled = false
-                switchCidrMode.isEnabled = false
-
-                etNumResolvers.isEnabled = false
-                etNumResolvers.alpha = 0.5f
-
-                resolversList = allResolvers.toList()
-                tvResolversCount.text = "Loaded all official resolvers: ${resolversList.size}"
-                Toast.makeText(this, "Isolated to official resolvers only.", Toast.LENGTH_SHORT).show()
-
-            } else {
-                // --- 4. UNLOCK UI ---
-                btnDefaultResolvers.isEnabled = true
-                btnCustomResolvers.isEnabled = true
-                btnPasteResolvers.isEnabled = true
-                switchPublicDns.isEnabled = true
-                switchCidrMode.isEnabled = true
-
-                etNumResolvers.isEnabled = true
-                etNumResolvers.alpha = 1.0f
-
-                loadDefaultResolvers()
-            }
-        }
 
         // Update workers and wait when conservative mode changes
         switchConservative.setOnCheckedChangeListener { _, isChecked ->
@@ -317,13 +396,49 @@ class DnsScannerActivity : AppCompatActivity() {
                 etRetries.setText("2")
             } else {
                 // High-performance settings
-                etWorkers.setText("20")
+                if (isQuickScanner) {
+                    etWorkers.setText("40")
+                } else if (rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e) {
+                    etWorkers.setText("40")
+                } else {
+                    etWorkers.setText("20")
+                }
                 etTunnelWait.setText("3000")
                 etUdpTimeout.setText("1000")
                 etProbeTimeout.setText("15")
                 etRetries.setText("1")
             }
         }
+    }
+
+    private fun loadEncryptedResolvers() {
+        val count = Mobile.getDefaultConfigCount()
+        val allResolvers = mutableSetOf<String>()
+
+        for (i in 0 until count) {
+            val defaultResolversStr = Mobile.getDefaultConfigDisplayResolvers(i.toLong())
+            if (defaultResolversStr.isNotEmpty()) {
+                allResolvers.addAll(defaultResolversStr.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+            }
+        }
+
+        if (allResolvers.isEmpty()) {
+            Toast.makeText(this, "No encrypted resolvers found.", Toast.LENGTH_LONG).show()
+            rgResolverSource.check(R.id.rb_source_default)
+            return
+        }
+
+        // LOCK UI elements incompatible with the encrypted list
+        switchPublicDns.isChecked = false
+        switchPublicDns.isEnabled = false
+        switchCidrMode.isChecked = false
+        switchCidrMode.isEnabled = false
+        etNumResolvers.isEnabled = false
+        etNumResolvers.alpha = 0.5f
+
+        resolversList = allResolvers.toList()
+        tvResolversCount.text = "Loaded encrypted resolvers: ${resolversList.size}"
+        Toast.makeText(this, "Isolated to encrypted resolvers only.", Toast.LENGTH_SHORT).show()
     }
 
     private fun loadDefaultResolvers() {
@@ -349,6 +464,47 @@ class DnsScannerActivity : AppCompatActivity() {
         }
     }
     private fun loadCustomResolversFromUri(uri: Uri) {
+        try {
+            val inputStream = contentResolver.openInputStream(uri)
+            if (inputStream != null) {
+                val content = inputStream.bufferedReader().use { it.readText() }
+
+                // Extract and remove duplicates
+                val parsedLines = content.split(Regex("[\\s,;]+"))
+                    .map { it.replace("\"", "").trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+
+                if (parsedLines.isNotEmpty()) {
+                    if (switchCidrMode.isChecked) {
+                        // FIX: Filter out IPv6 and invalid data upfront for CIDRs!
+                        loadedCidrs = parsedLines.filter { isValidCidr(it) }
+                        tvResolversCount.text = "Loaded custom CIDR blocks: ${loadedCidrs.size}"
+
+                        selectedCidrs.clear()
+                        tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+
+                        Toast.makeText(this, "Loaded ${loadedCidrs.size} valid CIDR blocks", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // FIX: Filter out IPv6 and invalid data upfront for Static IPs!
+                        resolversList = validateAndFilterResolvers(parsedLines, selectedMode)
+                        tvResolversCount.text = "Loaded custom resolvers: ${resolversList.size}"
+
+                        etNumResolvers.setText(resolversList.size.toString())
+                        Toast.makeText(this, "Loaded ${resolversList.size} valid resolvers", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(this, "File is empty or invalid format.", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this, "Could not open file.", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error reading file: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun loadCustomResolversFromUri2(uri: Uri) {
         try {
             val inputStream = contentResolver.openInputStream(uri)
             if (inputStream != null) {
@@ -1044,7 +1200,20 @@ class DnsScannerActivity : AppCompatActivity() {
             R.id.rb_http -> "http"
             else -> "socks5h"
         }
-        val fastFailEnabled = switchFastFail.isChecked
+
+        val lightE2EEnabled = if (isQuickScanner) {
+            rgQuickScanMode.checkedRadioButtonId == R.id.rb_light_e2e_quick
+        } else {
+            rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e
+        }
+
+        val engineQuickScan = if (isQuickScanner) {
+            rgQuickScanMode.checkedRadioButtonId == R.id.rb_quick_dns_check
+        } else {
+            false // DNS Scanner never uses Quick DNS Check ping
+        }
+
+        //val fastFailEnabled = rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e
         val baseDohUrl = if (selectedMode.lowercase() == "doh") selectedDnsAddress else ""
 
         val intent = Intent(this, DnsScannerResultActivity::class.java).apply {
@@ -1071,9 +1240,10 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("UDP_TIMEOUT", udpTimeout)
             putExtra("PROBE_TIMEOUT", probeTimeout)
             putExtra("RETRIES", retries)
-            putExtra("IS_DEFAULT_RESOLVERS", switchConfigResolvers.isChecked)
+            putExtra("IS_DEFAULT_RESOLVERS", rgResolverSource.checkedRadioButtonId == R.id.rb_source_default)
 //            putExtra("SKIP_QUICK_CHECK", switchSkipQuickCheck.isChecked)
-            putExtra("FAST_FAIL_ENABLED", fastFailEnabled)
+            putExtra("LIGHT_E2E_ENABLED", lightE2EEnabled)
+            putExtra("ENGINE_QUICK_SCAN", engineQuickScan)
 
             if (finalResolvers.size < 8216) {
                 // ✅ SMALL LIST: Use Intent Extra (Faster)

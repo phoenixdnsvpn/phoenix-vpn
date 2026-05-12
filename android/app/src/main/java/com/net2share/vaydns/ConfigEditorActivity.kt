@@ -128,10 +128,6 @@ class ConfigEditorActivity : AppCompatActivity() {
 
             if (isDefault) {
                 //  HIDE ALL MULTIPATH UI FOR DEFAULTS
-                /**tvMultipathLabel.visibility = View.GONE
-                tvMultipathDesc.visibility = View.GONE
-                layoutMultipathControls.visibility = View.GONE*/
-                //findViewById<TextView>(R.id.tv_mtu_label)?.visibility = View.VISIBLE
 
                 val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
                 etName.setText(mobile.Mobile.getDefaultConfigName(index))

@@ -44,6 +44,12 @@ class VayVpnService : VpnService() {
     private var initialTxBytes = 0L
     private var previousRxBytes = 0L
     private var previousTxBytes = 0L
+    private var pendingRxSave = 0L
+    private var pendingTxSave = 0L
+    private var statsTickCount = 0
+    private var absoluteDailyRx = 0L
+    private var absoluteDailyTx = 0L
+    private var currentTrackingDate = ""
 
     private val statsRunnable = object : Runnable {
         override fun run() {
@@ -59,6 +65,14 @@ class VayVpnService : VpnService() {
                     val currentRx = parts[0].toLong()
                     val currentTx = parts[1].toLong()
 
+                    val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                    if (currentTrackingDate != dateStr) {
+                        val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+                        absoluteDailyRx = prefs.getLong("rx_$dateStr", 0L)
+                        absoluteDailyTx = prefs.getLong("tx_$dateStr", 0L)
+                        currentTrackingDate = dateStr
+                    }
+
                     // 2. Safe Math: Prevent Kotlin background crashes
                     val diffRx = currentRx - previousRxBytes
                     val diffTx = currentTx - previousTxBytes
@@ -69,6 +83,33 @@ class VayVpnService : VpnService() {
                     previousRxBytes = currentRx
                     previousTxBytes = currentTx
 
+                    absoluteDailyRx += rxSpeed
+                    absoluteDailyTx += txSpeed
+
+                    // Accumulate in RAM, flush to disk every 10 seconds
+                    pendingRxSave += rxSpeed
+                    pendingTxSave += txSpeed
+                    statsTickCount++
+
+                    if (statsTickCount >= 10) {
+                        if (pendingRxSave > 0 || pendingTxSave > 0) {
+                            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                            val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+                            val dailyRx = prefs.getLong("rx_$dateStr", 0L) + pendingRxSave
+                            val dailyTx = prefs.getLong("tx_$dateStr", 0L) + pendingTxSave
+
+                            prefs.edit()
+                                .putLong("rx_$dateStr", dailyRx)
+                                .putLong("tx_$dateStr", dailyTx)
+                                .apply()
+
+                            // Reset the buckets after saving
+                            pendingRxSave = 0L
+                            pendingTxSave = 0L
+                        }
+                        statsTickCount = 0
+                    }
+
                     // 3. Format strings
                     val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
                     val totalStr = "Total: ${formatBytes(currentRx)} ↓   ${formatBytes(currentTx)} ↑"
@@ -77,6 +118,8 @@ class VayVpnService : VpnService() {
                     sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
                         putExtra("speed", speedStr)
                         putExtra("total", totalStr)
+                        putExtra("liveDailyRx", absoluteDailyRx)
+                        putExtra("liveDailyTx", absoluteDailyTx)
                         setPackage(packageName)
                     })
 
@@ -143,6 +186,19 @@ class VayVpnService : VpnService() {
             } catch (e: Exception) {
                 true // Return true on error during shutdown
             }
+        }
+    }
+
+    private fun flushPendingTraffic() {
+        if (pendingRxSave > 0 || pendingTxSave > 0) {
+            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putLong("rx_$dateStr", absoluteDailyRx) // 🟢 Write the absolute total!
+                .putLong("tx_$dateStr", absoluteDailyTx)
+                .apply()
+            pendingRxSave = 0L
+            pendingTxSave = 0L
         }
     }
 
@@ -304,17 +360,6 @@ class VayVpnService : VpnService() {
                         // Default: If nothing is selected, only tunnel VayDNS itself
                         try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
                     }
-
-                    // App Filtering
-                    /*val sharedPref = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
-                    val selectedApps = sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
-                    if (selectedApps.isNotEmpty()) {
-                        for (pkg in selectedApps) {
-                            try { builder.addAllowedApplication(pkg) } catch (e: Exception) {}
-                        }
-                    } else {
-                        try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
-                    }*/
 
                     protector = AndroidProtector(this@VayVpnService)
                     tunInterface = builder.establish()
@@ -486,6 +531,7 @@ class VayVpnService : VpnService() {
 
         Log.e("VAY_DEBUG", "PURGE: Killing network resources...")
         statsHandler.removeCallbacks(statsRunnable)
+        flushPendingTraffic()
 
         synchronized(goLock) {
             try {
