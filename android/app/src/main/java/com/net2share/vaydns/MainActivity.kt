@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.EditText
 import android.util.TypedValue
 import android.util.Base64
+import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -31,6 +32,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
 import com.net2share.vaydns.ConfigEditorActivity.Companion.loadAllConfigs
 import com.net2share.vaydns.ConfigEditorActivity.Companion.saveAllConfigs
+import kotlinx.coroutines.*
 import java.net.URL
 
 private lateinit var rgMode: RadioGroup   // kept only for editor (we don't use it here anymore)
@@ -58,10 +60,17 @@ private var activePendingTx = 0L
 private var liveDailyRx = -1L
 private var liveDailyTx = -1L
 private var liveTrackingDate = ""
-
+private lateinit var tvProxyIpLabel: TextView
 class MainActivity : AppCompatActivity() {
 
     private var configAdapter: ConfigAdapter? = null
+    private var hasRunStartupPing = false
+    private var currentSortMode = SortMode.NONE
+
+    enum class SortMode {
+        NONE, NAME_ASC, NAME_DESC, LATENCY_ASC, LATENCY_DESC
+    }
+
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             // ... (VPN_STATS_UPDATE block stays the same) ...
@@ -81,6 +90,8 @@ class MainActivity : AppCompatActivity() {
             when (status) {
                 "CONNECTED" -> {
                     isVpnConnected = true
+                    val realAddr = intent.getStringExtra("proxy_address") ?: "127.0.0.1"
+                    tvProxyIpLabel.text = "IP: ${realAddr.substringBefore(":")}"
                     updateUIState(true)
 
                     // Lock the port field while running
@@ -90,6 +101,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 "ERROR" -> {
                     isVpnConnected = false
+                    tvProxyIpLabel.text = "IP: 127.0.0.1"
                     updateUIState(false)
 
                     // Unlock the port field so they can try a new one
@@ -102,6 +114,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 "DISCONNECTED", "STOPPED" -> {
                     isVpnConnected = false
+                    tvProxyIpLabel.text = "IP: 127.0.0.1"
                     updateUIState(false)
 
                     // Unlock the port field
@@ -215,7 +228,7 @@ class MainActivity : AppCompatActivity() {
         layoutProxyControls = findViewById(R.id.layout_proxy_controls)
         //tvProxyAddress = findViewById(R.id.tv_proxy_address)
         etProxyPort = findViewById(R.id.et_proxy_port)
-
+        tvProxyIpLabel = findViewById(R.id.tv_proxy_ip_label)
         val configCount = mobile.Mobile.getDefaultConfigCount()
         val buildStatus = mobile.Mobile.getBuildStatus()
         //val isOfficialBuild = mobile.Mobile.getBuildStatus() == "Official Release"
@@ -246,10 +259,52 @@ class MainActivity : AppCompatActivity() {
         // Load saved configs and selected ID
 
 //        Log.i("NativeConfigs", "Loaded $count default configs from JSON")
-
+        // Read the startup preference and apply it to the switch natively
+        //val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        //switchDefault.isChecked = appPrefs.getBoolean("default_configs_at_start", false)
         loadSelectedConfig()
 
-        switchDefault.setOnCheckedChangeListener { _, _ ->
+        switchDefault.setOnCheckedChangeListener { _, isChecked ->
+            getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE).edit()
+                .putBoolean("default_configs_at_start", isChecked)
+                .apply()
+
+            refreshConfigList()
+        }
+
+        // BIND SORTING CONTROLS ON THE HEADER BAR
+        val btnSortName = findViewById<LinearLayout>(R.id.btn_sort_name)
+        val btnSortLatency = findViewById<LinearLayout>(R.id.btn_sort_latency)
+        val tvHeaderName = findViewById<TextView>(R.id.tv_header_name)
+        val tvHeaderLatency = findViewById<TextView>(R.id.tv_header_latency)
+
+        btnSortName.setOnClickListener {
+            // Cycle through: NONE -> NAME_ASC -> NAME_DESC -> back to NONE
+            currentSortMode = when (currentSortMode) {
+                SortMode.NONE -> SortMode.NAME_ASC
+                SortMode.NAME_ASC -> SortMode.NAME_DESC
+                else -> SortMode.NONE
+            }
+
+            // Update the UI header label dynamically to show the active state
+            tvHeaderName.text = when (currentSortMode) {
+                SortMode.NAME_ASC -> "Config Name ▲"
+                SortMode.NAME_DESC -> "Config Name ▼"
+                else -> "Config Name" // No arrow means original layout order!
+            }
+
+            tvHeaderLatency.text = "Latency" // Reset the latency column label
+
+            refreshConfigList()
+        }
+
+        btnSortLatency.setOnClickListener {
+            currentSortMode = if (currentSortMode == SortMode.LATENCY_ASC) SortMode.LATENCY_DESC else SortMode.LATENCY_ASC
+
+            // Render directional flags & reset alternate rows
+            tvHeaderLatency.text = if (currentSortMode == SortMode.LATENCY_ASC) "Latency ▲" else "Latency ▼"
+            tvHeaderName.text = "Config Name"
+
             refreshConfigList()
         }
 
@@ -257,12 +312,24 @@ class MainActivity : AppCompatActivity() {
         recyclerConfigs.layoutManager = LinearLayoutManager(this)
         refreshConfigList()
 
+        //triggerStartupPings(configList)
+
         //updateButtonStates(false)
 
         btnToggle.setOnClickListener {
             if (isVpnConnected) {
                 stopVpnService()
             } else {
+                val config = configList.find { it.id == selectedConfigId }
+
+                if (config != null && config.protocol.lowercase() == "http" && !isProxyMode) {
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                        .setTitle("VPN Mode Unavailable")
+                        .setMessage("This default configuration uses an HTTP proxy. HTTP proxies cannot be used in VPN Mode.\n\nPlease switch to Proxy Mode to use this server.\n\n---\n\nاین پیکربندی پیش‌فرض از یک پروکسی HTTP استفاده می‌کند. پروکسی‌های HTTP در حالت VPN قابل استفاده نیستند.\n\nلطفاً برای استفاده از این سرور به حالت پروکسی (Proxy Mode) تغییر وضعیت دهید.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                    return@setOnClickListener // Block connection
+                }
                 if (!isProxyMode) {
                     // Safety check: Prevent starting VPN with no apps selected
                     if (selectedApps.isEmpty()) {
@@ -302,6 +369,90 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun applyCurrentSort() {
+        when (currentSortMode) {
+            SortMode.NAME_ASC -> configList.sortBy { it.name.lowercase() }
+            SortMode.NAME_DESC -> configList.sortByDescending { it.name.lowercase() }
+            SortMode.LATENCY_ASC -> {
+                configList.sortWith(Comparator { c1, c2 ->
+                    val lat1 = ConfigAdapter.pingCache[c1.id] ?: -1L
+                    val lat2 = ConfigAdapter.pingCache[c2.id] ?: -1L
+                    compareLatencies(lat1, lat2, asc = true)
+                })
+            }
+            SortMode.LATENCY_DESC -> {
+                configList.sortWith(Comparator { c1, c2 ->
+                    val lat1 = ConfigAdapter.pingCache[c1.id] ?: -1L
+                    val lat2 = ConfigAdapter.pingCache[c2.id] ?: -1L
+                    compareLatencies(lat1, lat2, asc = false)
+                })
+            }
+            SortMode.NONE -> { /* Leave as default file order */ }
+        }
+    }
+
+    private fun compareLatencies(lat1: Long, lat2: Long, asc: Boolean): Int {
+        // Normalize unpinged and dead codes to heavy ceiling values
+        // to cleanly cluster them at the bottom of standard ascending checks
+        val v1 = if (lat1 > 0 && lat1 < 99999) lat1 else if (lat1 == -2L) 100000L else 100001L
+        val v2 = if (lat2 > 0 && lat2 < 99999) lat2 else if (lat2 == -2L) 100000L else 100001L
+
+        return if (asc) v1.compareTo(v2) else v2.compareTo(v1)
+    }
+    private fun triggerStartupPings(configs: List<Config>) {
+        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        if (!appPrefs.getBoolean("ping_at_start", false)) {
+            return // Setting is OFF, do nothing
+        }
+
+        Log.i("VAY_DEBUG", "Startup Ping sequence initiated...")
+
+        val safeConfigs = configs.toList()
+
+        CoroutineScope(Dispatchers.IO).launch {
+
+            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+            val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
+            val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
+            val workers = tunnelPrefs.getInt("workers", 20).toLong()
+            val tWait = tunnelPrefs.getInt("tunnel_wait", 3000).toLong()
+            val pTimeout = tunnelPrefs.getInt("probe_timeout", 15000).toLong()
+            val uTimeout = tunnelPrefs.getInt("udp_timeout", 1000).toLong()
+            val retries = tunnelPrefs.getInt("retries", 0).toLong()
+
+            for ((index, config) in safeConfigs.withIndex()) {
+                val addressToPing = config.dnsAddress.split(",").firstOrNull()?.trim() ?: ""
+                if (addressToPing.isEmpty()) continue
+
+                val configIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else 0L
+
+                withContext(Dispatchers.Main) {
+                    val holder = recyclerConfigs.findViewHolderForAdapterPosition(index)
+                    if (holder != null) {
+                        val tvLatency = holder.itemView.findViewById<TextView>(R.id.tv_latency)
+                        tvLatency?.text = "Ping..."
+                    }
+                }
+
+                val latencyMs = mobile.Mobile.pingServer(
+                    config.isDefault, configIndex, addressToPing, config.mode,
+                    config.domain, config.pubkey, "https://cloudflare-dns.com/dns-query",
+                    proxyType, config.authProtocol, config.user, config.pass, config.ssMethod,
+                    config.recordType, config.idleTimeout, config.keepAlive, config.clientIdSize,
+                    lightE2E, workers, tWait, pTimeout, uTimeout, retries
+                )
+
+                withContext(Dispatchers.Main) {
+                    // 🟢 SAVE TO CENTRAL CACHE BY ID
+                    ConfigAdapter.pingCache[config.id] = if (latencyMs > 0 && latencyMs < 99999) latencyMs else -2L
+
+                    // Force the row redraw natively
+                    configAdapter?.notifyItemChanged(index)
+                }
+            }
+        }
+    }
+
     private fun loadSelectedConfig() {
         val prefs = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
         selectedConfigId = prefs.getString("selected_config_id", null)
@@ -326,6 +477,8 @@ class MainActivity : AppCompatActivity() {
         // 3. COMBINE AND FILTER: Remove any config marked as freeScanner
         val filteredList = (userConfigs + defaultConfigs).filter { !it.freeScanner }
         configList.addAll(filteredList)
+
+        applyCurrentSort()
 
         // Check if adapter already exists
         if (recyclerConfigs.adapter == null) {
@@ -569,7 +722,7 @@ class MainActivity : AppCompatActivity() {
                 val backend = pathSegments[1]    // e.g., "socks", "ssh"
                 val tag = uri.fragment ?: "Imported"
 
-            // Map Query Parameters to Config
+                // Map Query Parameters to Config
                 newConfig = Config(
                     name = getUniqueName(tag, loadAllConfigs(this)),
                     domain = domain,
@@ -635,7 +788,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Imported: ${newConfig.name}", Toast.LENGTH_SHORT).show()
 
         } catch (e: Exception) {
-             AlertDialog.Builder(this)
+            AlertDialog.Builder(this)
                 .setTitle("Import Error")
                 .setMessage(e.message ?: "Failed to parse dnst:// profile")
                 .setPositiveButton("OK", null)
@@ -707,77 +860,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return super.onPrepareOptionsMenu(menu)
-    }
-
-    private fun showSettingsDialog() {
-        val prefs = getSharedPreferences("VayDNS_MenuPrefs", Context.MODE_PRIVATE)
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (20 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad, pad, 0)
-        }
-
-        val cbUpdateApp = android.widget.CheckBox(this).apply {
-            text = "Show 'Check for Update'"
-            isChecked = prefs.getBoolean("show_check_app_update", false)
-            textSize = 16f
-        }
-        val cbUpdateConfigs = android.widget.CheckBox(this).apply {
-            text = "Show 'Update Configs'"
-            isChecked = prefs.getBoolean("show_update_configs", false)
-            textSize = 16f
-        }
-        val cbUpdateResolvers = android.widget.CheckBox(this).apply {
-            text = "Show 'Update Resolvers'"
-            isChecked = prefs.getBoolean("show_update_resolvers", false)
-            textSize = 16f
-        }
-        val cbUploadConfigs = android.widget.CheckBox(this).apply {
-            text = "Show 'Upload Configs'"
-            isChecked = prefs.getBoolean("show_upload_configs", false)
-            textSize = 16f
-        }
-        val cbUploadResolvers = android.widget.CheckBox(this).apply {
-            text = "Show 'Upload Resolvers'"
-            isChecked = prefs.getBoolean("show_upload_resolvers", false)
-            textSize = 16f
-        }
-
-        // Add padding between checkboxes for better touch targets
-        val layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            bottomMargin = (12 * resources.displayMetrics.density).toInt()
-        }
-
-        container.addView(cbUpdateApp, layoutParams)
-        container.addView(cbUpdateConfigs, layoutParams)
-        container.addView(cbUpdateResolvers, layoutParams)
-        container.addView(cbUploadConfigs, layoutParams)
-        container.addView(cbUploadResolvers, layoutParams)
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Menu Settings")
-            .setMessage("Select which items to display in the main menu:")
-            .setView(container)
-            .setPositiveButton("Save") { _, _ ->
-                // Save the new preferences
-                prefs.edit()
-                    .putBoolean("show_check_app_update", cbUpdateApp.isChecked)
-                    .putBoolean("show_update_configs", cbUpdateConfigs.isChecked)
-                    .putBoolean("show_update_resolvers", cbUpdateResolvers.isChecked)
-                    .putBoolean("show_upload_configs", cbUploadConfigs.isChecked)
-                    .putBoolean("show_upload_resolvers", cbUploadResolvers.isChecked)
-                    .apply()
-
-                // Force the menu to redraw with the new visibility settings
-                invalidateOptionsMenu()
-                Toast.makeText(this, "Settings saved.", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     private fun showVerificationDialog() {
@@ -1020,6 +1102,11 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
+            R.id.action_tunnel_settings -> {
+                startActivity(Intent(this, TunnelSettingsActivity::class.java))
+                true
+            }
+
             R.id.action_import -> {
                 showImportDialog()
                 true
@@ -1113,7 +1200,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             R.id.action_settings -> {
-                showSettingsDialog()
+                startActivity(Intent(this, GlobalSettingsActivity::class.java))
                 true
             }
 
@@ -1276,6 +1363,162 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showCurrentDnsDialog() {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val activeNetwork = connectivityManager.activeNetwork
+        val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
+
+        // Extract DNS and Local IPs
+        val dnsServers = linkProperties?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList()
+        val localIps = linkProperties?.linkAddresses?.mapNotNull { it.address.hostAddress }
+            ?.filter { !it.contains(":") } ?: emptyList() // Filter out long IPv6 for cleaner UI
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(pad, (16 * resources.displayMetrics.density).toInt(), pad, 0)
+        }
+
+        val onSurfaceColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, android.graphics.Color.BLACK)
+        val primaryColor = MaterialColors.getColor(this, android.R.attr.colorPrimary, android.graphics.Color.BLUE)
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+
+        val header = TextView(this).apply {
+            text = "Network Details / جزئیات شبکه\n(Tap an IP to copy / برای کپی روی IP تپ کنید)\n"
+            textSize = 15f
+            setTextColor(onSurfaceColor)
+            setPadding(0, 0, 0, (8 * resources.displayMetrics.density).toInt())
+        }
+        container.addView(header)
+
+        // Helper function to maintain your exact Ripple Effect and styling for the new IP rows
+        fun addClickableRow(label: String, initialValue: String, isFetching: Boolean = false): TextView {
+            val titleView = TextView(this).apply {
+                text = label
+                textSize = 12f
+                setTextColor(android.graphics.Color.GRAY)
+                setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
+            }
+            container.addView(titleView)
+
+            val valueView = TextView(this).apply {
+                text = initialValue
+                textSize = 18f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(primaryColor)
+
+                val padVertical = (8 * resources.displayMetrics.density).toInt()
+                setPadding(0, padVertical, 0, (12 * resources.displayMetrics.density).toInt())
+
+                // Apply ripple effect only if we aren't waiting for the background thread
+                if (!isFetching) {
+                    val outValue = TypedValue()
+                    theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+                    setBackgroundResource(outValue.resourceId)
+                    isClickable = true
+                    isFocusable = true
+
+                    setOnClickListener {
+                        val clip = android.content.ClipData.newPlainText(label, text)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(this@MainActivity, "Copied: $text", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            container.addView(valueView)
+            return valueView
+        }
+
+        // 1. Local IP
+        if (localIps.isNotEmpty()) {
+            addClickableRow("Local IP / آی‌پی داخلی", localIps.first())
+        }
+
+        // 2. Public IP (Starts as "Fetching...")
+        val tvPublicIp = addClickableRow("Public IP / آی‌پی عمومی", "Fetching... / در حال دریافت", isFetching = true)
+
+        // 3. DNS Servers
+        val dnsTitle = TextView(this).apply {
+            text = "DNS Servers / سرورهای دی‌ان‌اس"
+            textSize = 12f
+            setTextColor(android.graphics.Color.GRAY)
+            setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
+        }
+        container.addView(dnsTitle)
+
+        if (dnsServers.isNotEmpty()) {
+            for (ip in dnsServers) {
+                val tvIp = TextView(this).apply {
+                    text = ip
+                    textSize = 18f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(primaryColor)
+
+                    val padVertical = (8 * resources.displayMetrics.density).toInt()
+                    setPadding(0, padVertical, 0, padVertical)
+
+                    // Add native Android tap ripple effect
+                    val outValue = TypedValue()
+                    theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+                    setBackgroundResource(outValue.resourceId)
+                    isClickable = true
+                    isFocusable = true
+
+                    setOnClickListener {
+                        val clip = android.content.ClipData.newPlainText("DNS IP", ip)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(this@MainActivity, "Copied: $ip", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                container.addView(tvIp)
+            }
+        } else {
+            val noDns = TextView(this).apply {
+                text = "None detected / یافت نشد"
+                textSize = 16f
+                setTextColor(onSurfaceColor)
+                setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, (16 * resources.displayMetrics.density).toInt())
+            }
+            container.addView(noDns)
+        }
+
+        // Wrap in a ScrollView to prevent UI cutoff on small screens
+        val scrollView = android.widget.ScrollView(this).apply { addView(container) }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("My Network")
+            .setView(scrollView)
+            .setPositiveButton("Close / بستن", null)
+            .setIcon(R.mipmap.ic_launcher_round)
+            .show()
+
+        // 4. Fetch Public IP asynchronously via lightweight API
+        Thread {
+            try {
+                val publicIp = java.net.URL("https://api.ipify.org").readText(Charsets.UTF_8)
+                runOnUiThread {
+                    tvPublicIp.text = publicIp
+
+                    // Re-enable the ripple effect and click listener now that it has loaded
+                    val outValue = TypedValue()
+                    theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+                    tvPublicIp.setBackgroundResource(outValue.resourceId)
+                    tvPublicIp.isClickable = true
+                    tvPublicIp.isFocusable = true
+
+                    tvPublicIp.setOnClickListener {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Public IP", publicIp))
+                        Toast.makeText(this@MainActivity, "Copied: $publicIp", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    tvPublicIp.text = "Unavailable / در دسترس نیست"
+                }
+            }
+        }.start()
+    }
+
+    private fun showCurrentDnsDialog2() {
         val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val activeNetwork = connectivityManager.activeNetwork
         val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
@@ -1739,6 +1982,7 @@ class MainActivity : AppCompatActivity() {
             putExtra("DNSTT_COMPATIBLE", finalConfig.dnsttCompatible)
             putExtra("USE_AUTH", finalConfig.useAuth)
             putExtra("PROTOCOL", finalConfig.protocol)
+            putExtra("AUTH_PROTOCOL", finalConfig.authProtocol)
 
             // Apply the "none" fallback logic here as well for safety
             //val finalUser = if (config.useAuth) config.user.ifEmpty { "none" } else "none"
@@ -1827,9 +2071,30 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+
+        // INSTANT SYNC: Check the startup behavior settings every time we return to this screen
+        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val defaultConfigsEnabled = appPrefs.getBoolean("default_configs_at_start", false)
+
+        // Update the switch visually without triggering the manual listener twice
+        switchDefault.setOnCheckedChangeListener(null)
+        switchDefault.isChecked = defaultConfigsEnabled
+        switchDefault.setOnCheckedChangeListener { _, isChecked ->
+            getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE).edit()
+                .putBoolean("default_configs_at_start", isChecked)
+                .apply()
+            refreshConfigList()
+        }
+
         loadSelectedApps()
         checkForPendingDnsUpdates()
         refreshConfigList()   // refresh after returning from editor
+
+        // 🟢 2. NOW we trigger the pings, ensuring it only happens once per app launch
+        if (!hasRunStartupPing) {
+            hasRunStartupPing = true
+            triggerStartupPings(configList)
+        }
     }
 
     override fun onDestroy() {

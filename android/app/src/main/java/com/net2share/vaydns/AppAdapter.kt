@@ -55,4 +55,9 @@ class AppAdapter(
     }
 
     override fun getItemCount() = apps.size
+
+    fun updateList(newApps: List<AppListItem>) {
+        this.apps = newApps
+        notifyDataSetChanged()
+    }
 }

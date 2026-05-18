@@ -23,47 +23,44 @@
 
         <TextView
             android:id="@+id/tv_config_name"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:textSize="16sp"
             android:textColor="?attr/colorOnSurface"
             android:ellipsize="end"
             android:maxLines="1"
             android:textStyle="normal"
-            app:layout_constrainedWidth="true"
-            app:layout_constraintHorizontal_bias="0"
-            app:layout_constraintHorizontal_chainStyle="packed"
+            android:layout_marginEnd="8dp"
             app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toStartOf="@+id/tv_separator"
+            app:layout_constraintEnd_toStartOf="@+id/tv_latency"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             android:text="Home" />
 
         <TextView
-            android:id="@+id/tv_separator"
+            android:id="@+id/tv_latency"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text=" | "
-            android:textColor="?android:attr/textColorSecondary"
-            android:textSize="16sp"
-            app:layout_constraintBottom_toBottomOf="@+id/tv_config_name"
-            app:layout_constraintEnd_toStartOf="@+id/tv_domain"
-            app:layout_constraintStart_toEndOf="@+id/tv_config_name"
-            app:layout_constraintTop_toTopOf="@+id/tv_config_name" />
+            android:text="-- ms"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginEnd="8dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/btn_ping"
+            app:layout_constraintTop_toTopOf="parent" />
 
-        <TextView
-            android:id="@+id/tv_domain"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:textSize="15sp"
-            android:textColor="?android:attr/textColorSecondary"
-            android:ellipsize="end"
-            android:maxLines="1"
+        <ImageView
+            android:id="@+id/btn_ping"
+            android:layout_width="35dp"
+            android:layout_height="35dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            android:src="@drawable/ic_ping"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/btn_export"
-            app:layout_constraintStart_toEndOf="@+id/tv_separator"
             app:layout_constraintTop_toTopOf="parent"
-            android:text="domain.com" />
+            app:tint="?attr/colorPrimary" />
 
         <ImageView
             android:id="@+id/btn_edit"

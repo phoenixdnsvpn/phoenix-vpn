@@ -1,23 +1,28 @@
 package com.net2share.vaydns
 
+import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.Drawable
 import android.os.Bundle
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.EditText
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.content.Context
-import com.net2share.vaydns.AppAdapter
-import com.net2share.vaydns.AppListItem
 
 class AppSelectorActivity : AppCompatActivity() {
+
+    // Persistent storage arrays for tracking application queries safely across threads
+    private var fullAppList = listOf<AppListItem>()
+    private var appAdapter: AppAdapter? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -29,7 +34,12 @@ class AppSelectorActivity : AppCompatActivity() {
             insets
         }
 
-        // --- START OF NEW LOGIC ---
+        // BIND TOOLBAR AND SET NAVIGATION CLICK LISTENER
+        val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar_app_selector)
+        toolbar.setNavigationOnClickListener {
+            finish() // Closes this activity and safely returns to MainActivity
+        }
+
         loadApps()
     }
 
@@ -40,7 +50,7 @@ class AppSelectorActivity : AppCompatActivity() {
                 addCategory(Intent.CATEGORY_LAUNCHER)
             }
 
-            // Get all launchable apps
+            // Fetch all system launchable application details
             val resolvedInfos = packageManager.queryIntentActivities(mainIntent, 0)
 
             for (info in resolvedInfos) {
@@ -48,38 +58,63 @@ class AppSelectorActivity : AppCompatActivity() {
                 val pkgName = info.activityInfo.packageName
                 val icon = info.loadIcon(packageManager)
 
-                // Skip VayDNS itself so we don't tunnel the tunnel!
+                // Skip VayDNS itself so we don't tunnel the tunnel loop
                 if (pkgName == packageName) continue
 
                 appList.add(AppListItem(appName, pkgName, icon))
             }
 
-            // Sort alphabetically
-            val sortedList = appList.sortedBy { it.name.lowercase() }
+            // Pre-compile full alphabetical fallback cache array
+            fullAppList = appList.sortedBy { it.name.lowercase() }
 
             withContext(Dispatchers.Main) {
-                // Initialize the adapter with the sorted list and the "Save" logic
-                val adapter =
-                    AppAdapter(this@AppSelectorActivity, sortedList) { pkgName, isChecked ->
-                        // This block runs every time a checkbox is clicked in the list
-                        val currentSet = getSelectedApps().toMutableSet()
-                        if (isChecked) {
-                            currentSet.add(pkgName)
-                        } else {
-                            currentSet.remove(pkgName)
-                        }
-                        saveSelectedApps(currentSet)
+                appAdapter = AppAdapter(this@AppSelectorActivity, fullAppList) { pkgName, isChecked ->
+                    val currentSet = getSelectedApps().toMutableSet()
+                    if (isChecked) {
+                        currentSet.add(pkgName)
+                    } else {
+                        currentSet.remove(pkgName)
                     }
+                    saveSelectedApps(currentSet)
+                }
 
-                // Find the RecyclerView from your XML and attach the adapter
                 val recyclerView = findViewById<RecyclerView>(R.id.app_recycler_view)
                 recyclerView.layoutManager = LinearLayoutManager(this@AppSelectorActivity)
-                recyclerView.adapter = adapter
+                recyclerView.adapter = appAdapter
+
+                // 🟢 ATTACH REAL-TIME INPUT OBSERVER LOGIC
+                setupSearchListener()
             }
         }
     }
 
-    // --- SAVE SELECTION ---
+    private fun setupSearchListener() {
+        val etSearch = findViewById<EditText>(R.id.et_search_apps)
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                filterApps(s?.toString() ?: "")
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+    }
+
+    private fun filterApps(query: String) {
+        val cleanQuery = query.trim().lowercase()
+
+        if (cleanQuery.isEmpty()) {
+            // Restore clean full cache view array if input cleared
+            appAdapter?.updateList(fullAppList)
+        } else {
+            // High-speed dual sub-string filter check on localized variables
+            val filtered = fullAppList.filter {
+                it.name.lowercase().contains(cleanQuery) ||
+                        it.packageName.lowercase().contains(cleanQuery)
+            }
+            appAdapter?.updateList(filtered)
+        }
+    }
+
     private fun saveSelectedApps(selectedPackages: Set<String>) {
         val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
         with(sharedPref.edit()) {
@@ -88,10 +123,8 @@ class AppSelectorActivity : AppCompatActivity() {
         }
     }
 
-    // --- LOAD SELECTION (To show which boxes are already checked) ---
     private fun getSelectedApps(): Set<String> {
         val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
         return sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
     }
-
 }

@@ -17,29 +17,35 @@ android {
         applicationId = "com.net2share.vaydns"
         minSdk = 24
         targetSdk = 36
-        versionCode = 31
-        versionName = "1.10.1"
+        versionCode = 32
+        versionName = "1.11.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
+        /**ndk {
+            abiFilters.clear()
+            abiFilters.add("armeabi-v7a")
+        }*/
     }
 
     packaging {
-        resources {
-            val targetAbi = project.findProperty("android.injected.abi") as String?
+        val targetAbi = project.findProperty("android.injected.abi") as String?
 
-            if (targetAbi == "arm64-v8a") {
-                // If building for 64-bit, remove 32-bit junk
-                excludes.add("lib/armeabi-v7a/*")
-                excludes.add("lib/x86/*")
-                excludes.add("lib/x86_64/*")
-            } else if (targetAbi == "armeabi-v7a") {
-                // If building for 32-bit, remove 64-bit junk
-                excludes.add("lib/arm64-v8a/*")
-                excludes.add("lib/x86/*")
-                excludes.add("lib/x86_64/*")
+        if (targetAbi != null) {
+            jniLibs {
+                if (targetAbi == "arm64-v8a") {
+                    // If building for 64-bit, remove 32-bit and emulator junk
+                    excludes.add("lib/armeabi-v7a/**")
+                    excludes.add("lib/x86/**")
+                    excludes.add("lib/x86_64/**")
+                } else if (targetAbi == "armeabi-v7a") {
+                    // If building for 32-bit, remove 64-bit and emulator junk
+                    excludes.add("lib/arm64-v8a/**")
+                    excludes.add("lib/x86/**")
+                    excludes.add("lib/x86_64/**")
+                }
             }
         }
+
         jniLibs {
             // This forces the APK to compress the Go library.
             // It makes the APK file smaller, but slightly slower to 'install'.
@@ -73,5 +79,6 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     // Dynamic AAR selection based on the architecture being built
     val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-arm64.aar"
+    //val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-armv7.aar"
     implementation(files("libs/$targetAar"))
 }

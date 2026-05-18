@@ -189,8 +189,10 @@ class DnsScannerActivity : AppCompatActivity() {
             etWorkers.setText(if (rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e) "40" else "20")
         }
 
-        // Load default resolvers on start
-        loadDefaultResolvers()
+        // Set initial view components state to match Custom Resolvers default
+        btnActionResolvers.text = "IMPORT RESOLVERS"
+        btnActionResolvers.isEnabled = true
+        tvResolversCount.text = "Loaded resolvers: 0"
 
         showBatteryPermissionDialogIfNecessary()
 

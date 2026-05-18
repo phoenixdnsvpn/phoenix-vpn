@@ -289,13 +289,12 @@ class VayVpnService : VpnService() {
                     val dnsttCompatible = intent?.getBooleanExtra("DNSTT_COMPATIBLE", false) ?: false
                     val useAuth = intent?.getBooleanExtra("USE_AUTH", false) ?: false
                     val protocol = intent?.getStringExtra("PROTOCOL") ?: "socks5"
+                    val authProtocol = intent?.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                     val ssMethod = intent?.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
                     val user = intent?.getStringExtra("USER") ?: ""
                     val pass = intent?.getStringExtra("PASS") ?: ""
 
-                    if (isDefaultConfig) {
-                        mobile.Mobile.initVault(filesDir.absolutePath)
-                    }
+                    mobile.Mobile.initVault(filesDir.absolutePath)
 
                     var udp = ""
                     var tcp = ""
@@ -361,6 +360,37 @@ class VayVpnService : VpnService() {
                         try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
                     }
 
+                    // 1. RUN THE PRE-SCAN BEFORE ESTABLISHING THE TUNNEL
+                    // This uses raw Wi-Fi/Data because the TUN interface doesn't exist yet!
+                    Log.i("VAY_DEBUG", "Starting Pre-Scan from Kotlin...")
+
+                    // --- LOAD PRE-SCANNER SETTINGS ---
+                    val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                    val enableScan = prefs.getBoolean("enable_prescan", false)
+
+                    var finalUdp = udp
+                    var finalTcp = tcp
+                    var finalDoh = doh
+                    var finalDot = dot
+
+                    if (enableScan) {
+                        Log.i("VAY_DEBUG", "Running Custom Pre-Tunnel Scan...")
+                        val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
+                        val lightE2E = prefs.getBoolean("light_e2e", false)
+                        val workers = prefs.getInt("workers", 20).toLong()
+                        val tWait = prefs.getInt("tunnel_wait", 3000).toLong()
+                        val pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
+                        val uTimeout = prefs.getInt("udp_timeout", 1000).toLong()
+                        val retries = prefs.getInt("retries", 0).toLong()
+
+                        finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                        finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                        finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                        finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                    }
+
+                    Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
+
                     protector = AndroidProtector(this@VayVpnService)
                     tunInterface = builder.establish()
                     if (tunInterface == null) return@synchronized
@@ -374,7 +404,7 @@ class VayVpnService : VpnService() {
                     val fd = tunInterface?.fd ?: -1
 
                     //val fd = tunInterface?.detachFd() ?: -1
-// 2. Immediately wipe the reference so Java 'forgets' it
+                    // 2. Immediately wipe the reference so Java 'forgets' it
                     //tunInterface = null
 
                     // 6. Start Native Engine
@@ -384,10 +414,10 @@ class VayVpnService : VpnService() {
                             fd.toLong(),
                             isDefaultConfig,
                             configIndex,
-                            udp,
-                            tcp,
-                            doh,
-                            dot,
+                            finalUdp,
+                            finalTcp,
+                            finalDoh,
+                            finalDot,
                             baseDohUrl,
                             domain,
                             pubkey,
@@ -399,6 +429,7 @@ class VayVpnService : VpnService() {
                             dnsttCompatible,
                             useAuth,
                             protocol,
+                            authProtocol,
                             ssMethod,
                             user,
                             pass,

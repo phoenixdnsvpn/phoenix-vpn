@@ -1,0 +1,295 @@
+package com.net2share.vaydns
+
+import android.content.Context
+import android.os.Bundle
+import android.view.View
+import android.widget.Button
+import android.widget.EditText
+import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import java.io.File
+
+class MultipathResolverActivity : AppCompatActivity() {
+
+    private lateinit var configId: String
+    private lateinit var tunnelMode: String
+    private val resolverEntries = mutableListOf<ConfigEditorActivity.ResolverEntry>()
+    private lateinit var adapter: CheckBoxResolverAdapter
+    private var isCheckAllActive = true
+    private var initialSnapshot: String = "" // Freezes original map array configuration
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContentView(R.layout.activity_multipath_resolver)
+
+        configId = intent.getStringExtra("CONFIG_ID") ?: "new_temp_config"
+        tunnelMode = intent.getStringExtra("TUNNEL_MODE") ?: "udp"
+
+        val toolbar = findViewById<MaterialToolbar>(R.id.toolbar_resolvers)
+        setSupportActionBar(toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
+        // 🟢 WARNING CHECK 1: Clicked the header bar navigation icon
+        toolbar.setNavigationOnClickListener { handleBackPressWithWarning() }
+
+        // 🟢 WARNING CHECK 2: Triggered Android physical back buttons/gestures
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                handleBackPressWithWarning()
+            }
+        })
+
+        setupDataPipeline()
+        initialSnapshot = captureCurrentSnapshot() // Freeze snapshot configuration state immediately
+
+        val recyclerView = findViewById<RecyclerView>(R.id.rv_resolvers)
+        recyclerView.layoutManager = LinearLayoutManager(this)
+        adapter = CheckBoxResolverAdapter(resolverEntries, tunnelMode, { updateSubtitleCount(); updateToggleAllButtonState() }, { ip, mode -> sanitizeInput(ip, mode) })
+        recyclerView.adapter = adapter
+
+        findViewById<Button>(R.id.btn_import_resolvers).setOnClickListener { showImportDialog() }
+
+        // 🟢 Toggle All Button Actions Bar Core Engine
+        val btnToggleAll = findViewById<Button>(R.id.btn_toggle_all_resolvers)
+        btnToggleAll.setOnClickListener {
+            resolverEntries.forEach { entry ->
+                if (entry.address.isNotBlank() && sanitizeInput(entry.address, tunnelMode) != null) {
+                    entry.isChecked = isCheckAllActive
+                } else if (!isCheckAllActive) {
+                    entry.isChecked = false
+                }
+            }
+            isCheckAllActive = !isCheckAllActive
+            btnToggleAll.text = if (isCheckAllActive) "CHECK ALL" else "UNCHECK ALL"
+            adapter.notifyDataSetChanged()
+            updateSubtitleCount()
+        }
+
+        findViewById<Button>(R.id.btn_save_resolvers).setOnClickListener { executeSaveSequence() }
+
+        // DELETIONS ARE STAGED IN RAM ONLY (Allows Undo via Discard)
+        findViewById<Button>(R.id.btn_delete_resolvers).setOnClickListener {
+            val checkedItems = resolverEntries.filter { it.isChecked && it.address.isNotEmpty() }
+
+            if (checkedItems.isEmpty()) {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("No Selection / هیچ انتخابی انجام نشده")
+                    .setMessage(
+                        "You must check at least one resolver to delete.\n\n" +
+                                "لطفاً حداقل یک رِزولور را برای حذف انتخاب کنید."
+                    )
+                    .setPositiveButton("OK", null)
+                    .show()
+                return@setOnClickListener
+            }
+
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Delete Selected? / حذف موارد انتخاب‌شده؟")
+                .setMessage(
+                    "Are you sure you want to remove the selected resolvers from this view?\n\n" +
+                            "آیا مطمئن هستید که می‌خواهید رِزولورهای انتخاب‌شده را از این نما حذف کنید؟"
+                )
+                .setPositiveButton("Delete") { _, _ ->
+                    val iterator = resolverEntries.iterator()
+                    while (iterator.hasNext()) {
+                        val entry = iterator.next()
+                        if (entry.isChecked && entry.address.isNotEmpty()) {
+                            if (entry.isManual) {
+                                // Clear manual slots to preserve your 20-row template grid space
+                                entry.address = ""
+                                entry.isChecked = false
+                            } else {
+                                // Drop scanned results directly out of live memory
+                                iterator.remove()
+                            }
+                        }
+                    }
+
+                    // Refresh UI components instantly
+                    adapter.notifyDataSetChanged()
+                    updateSubtitleCount()
+                    updateToggleAllButtonState()
+
+                    Toast.makeText(this, "Removed from view (Tap SAVE to confirm) / از لیست نما حذف شد", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        updateSubtitleCount()
+        updateToggleAllButtonState()
+    }
+
+    private fun captureCurrentSnapshot(): String {
+        // Serializes fields linearly to quickly check for structural edits later
+        return resolverEntries.joinToString("|") { "${it.address}:${it.isChecked}" }
+    }
+
+    private fun handleBackPressWithWarning() {
+        if (captureCurrentSnapshot() != initialSnapshot) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Discard Changes? / صرف‌نظر از تغییرات؟")
+                .setMessage(
+                    "You have unsaved changes. Do you want to discard them and exit?\n\n" +
+                            "تغییرات ذخیره نشده‌ای دارید. آیا می‌خواهید آن‌ها را نادیده گرفته و خارج شوید؟"
+                )
+                .setPositiveButton("Discard & Exit") { _, _ -> finish() }
+                .setNegativeButton("Keep Editing", null)
+                .show()
+        } else {
+            finish()
+        }
+    }
+
+    private fun updateToggleAllButtonState() {
+        val btnToggleAll = findViewById<Button>(R.id.btn_toggle_all_resolvers)
+        val validEntriesCount = resolverEntries.count { it.address.isNotBlank() && sanitizeInput(it.address, tunnelMode) != null }
+        val checkedCount = resolverEntries.count { it.isChecked }
+
+        isCheckAllActive = checkedCount < validEntriesCount
+        btnToggleAll.text = if (isCheckAllActive) "CHECK ALL" else "UNCHECK ALL"
+    }
+
+    private fun updateSubtitleCount() {
+        val totalSelected = resolverEntries.count { it.isChecked }
+        supportActionBar?.subtitle = "$totalSelected IPs selected"
+    }
+
+    private fun setupDataPipeline() {
+        resolverEntries.clear()
+
+        // 1. Read scanner inputs
+        val scanFile = File(filesDir, "resolvers_$configId.txt")
+        if (scanFile.exists()) {
+            scanFile.readLines().forEach { line ->
+                val parts = line.split(",")
+                val ip = parts.getOrNull(0)?.trim() ?: ""
+                val lat = parts.getOrNull(1)?.trim() ?: ""
+                if (ip.isNotEmpty()) {
+                    resolverEntries.add(ConfigEditorActivity.ResolverEntry(ip, isChecked = false, isManual = false, latency = lat))
+                }
+            }
+        }
+
+        // 2. Load manual inputs
+        val manualFile = File(filesDir, "manual_resolvers_$configId.txt")
+        val savedManuals = if (manualFile.exists()) manualFile.readLines() else emptyList()
+        for (i in 0 until 20) {
+            val addr = savedManuals.getOrNull(i) ?: ""
+            resolverEntries.add(ConfigEditorActivity.ResolverEntry(addr, isChecked = false, isManual = true, latency = ""))
+        }
+
+        // 3. Sync checklist state maps
+        val selectedFile = File(filesDir, "selected_multipath_$configId.txt")
+        val selections = if (selectedFile.exists()) selectedFile.readLines().toSet() else emptySet()
+        resolverEntries.forEach { if (selections.contains(it.address)) it.isChecked = true }
+    }
+
+    private fun showImportDialog() {
+        val input = EditText(this).apply {
+            hint = "Paste IPs (comma, space, or newline separated)..."
+            setLines(5)
+            setPadding(45, 45, 45, 45)
+            gravity = android.view.Gravity.TOP
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Import Resolvers")
+            .setView(input)
+            .setPositiveButton("Import") { _, _ ->
+                val parsed = input.text.toString().split(Regex("[\\s,;]+")).map { it.replace("\"", "").trim() }.filter { it.isNotEmpty() }
+                val validIps = parsed.mapNotNull { sanitizeInput(it, tunnelMode) }.distinct()
+
+                if (validIps.isNotEmpty()) {
+                    val imported = validIps.take(20)
+                    var targetIdx = 0
+                    resolverEntries.filter { it.isManual }.forEach { entry ->
+                        if (targetIdx < imported.size) {
+                            entry.address = imported[targetIdx++]
+                            entry.isChecked = true
+                        } else {
+                            entry.address = ""
+                            entry.isChecked = false
+                        }
+                    }
+                    adapter.notifyDataSetChanged()
+                    updateSubtitleCount()
+                    updateToggleAllButtonState()
+                    Toast.makeText(this, "Imported ${imported.size} IPs", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "No valid IPs found for $tunnelMode mode.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun executeSaveSequence() {
+        var formattingErrorsEncountered = false
+
+        resolverEntries.filter { it.isManual }.forEach { entry ->
+            if (entry.address.isNotBlank()) {
+                val clean = sanitizeInput(entry.address, tunnelMode)
+                if (clean != null) {
+                    entry.address = clean
+                } else {
+                    entry.address = ""
+                    entry.isChecked = false
+                    formattingErrorsEncountered = true
+                }
+            } else {
+                entry.isChecked = false
+            }
+        }
+
+        // ONE-SHOT DISK COMMITS FOR MANUAL, SCANNED, AND SELECTIONS
+        // 1. Persist manual text lines
+        val manualPayload = resolverEntries.filter { it.isManual }.map { it.address }
+        File(filesDir, "manual_resolvers_$configId.txt").writeText(manualPayload.joinToString("\n"))
+
+        // 2. Persist updated scanned lines (Commits any scanned deletions cleanly!)
+        val scannedPayload = resolverEntries.filter { !it.isManual }.map { "${it.address},${it.latency}" }
+        File(filesDir, "resolvers_$configId.txt").writeText(scannedPayload.joinToString("\n"))
+
+        // 3. Persist check state map configurations
+        val selectedPayload = resolverEntries.filter { it.isChecked && it.address.isNotEmpty() }.map { it.address }
+        File(filesDir, "selected_multipath_$configId.txt").writeText(selectedPayload.joinToString("\n"))
+
+        if (formattingErrorsEncountered) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Invalid IPs Cleared")
+                .setMessage("Incorrectly formatted entries for ${tunnelMode.uppercase()} mode were auto-removed to avoid failures.")
+                .setPositiveButton("OK") { _, _ -> finish() }
+                .show()
+        } else {
+            Toast.makeText(this, "All changes saved successfully! / تمام تغییرات ذخیره شدند", Toast.LENGTH_SHORT).show()
+            finish()
+        }
+    }
+
+    private fun sanitizeInput(input: String, mode: String): String? {
+        val lines = input.split(Regex("[\\s,;]+")).map { it.replace("\"", "").trim() }.filter { it.isNotEmpty() }
+        for (line in lines) {
+            if (mode.lowercase() == "doh") {
+                if (line.startsWith("https://") || isValidIpv4WithOptionalPort(line)) return line
+            } else {
+                if (!line.startsWith("http://") && !line.startsWith("https://") && isValidIpv4WithOptionalPort(line)) return line
+            }
+        }
+        return null
+    }
+
+    private fun isValidIpv4WithOptionalPort(input: String): Boolean {
+        val core = if (input.contains(":")) input.split(":").first() else input
+        val parts = core.split(".")
+        if (parts.size != 4) return false
+        return parts.all { it.toIntOrNull() in 0..255 }
+    }
+}

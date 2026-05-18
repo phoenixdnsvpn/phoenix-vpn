@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingVertical="1dp"
+    android:paddingHorizontal="12dp">
+
+    <androidx.appcompat.widget.AppCompatCheckBox
+        android:id="@+id/cb_resolver"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:buttonTint="?attr/colorPrimary" />
+
+    <EditText
+        android:id="@+id/et_resolver_address"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="14sp"
+        android:singleLine="true"
+        android:maxLines="1"
+        android:inputType="text"
+        android:paddingVertical="6dp"
+        android:textColor="?attr/colorOnSurface"
+        android:backgroundTint="?attr/colorOnSurface" />
+
+    <TextView
+        android:id="@+id/tv_resolver_latency"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:layout_marginStart="8dp"
+        android:visibility="gone" />
+</LinearLayout>

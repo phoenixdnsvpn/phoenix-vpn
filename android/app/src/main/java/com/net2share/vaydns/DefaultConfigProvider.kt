@@ -22,6 +22,9 @@ object DefaultConfigProvider {
             val isFreeScanner = mobile.Mobile.getDefaultConfigIsFreeScanner(i)
             val originalName = mobile.Mobile.getDefaultConfigName(i).ifEmpty { "Official Server ${i.toInt() + 1}" }
             val customName = overrides.getString("${id}_name", originalName) ?: originalName
+            val nativeProxy = mobile.Mobile.getDefaultConfigProxy(i)
+            val nativeProto = mobile.Mobile.getDefaultConfigProtocol(i)
+            val authProto = if (nativeProto == "ssh" || nativeProto == "shadowsocks") nativeProto else "socks"
 
             val config = Config(
                 id = id,
@@ -42,6 +45,7 @@ object DefaultConfigProvider {
                 dnsttCompatible = mobile.Mobile.getDefaultConfigDnsttCompatible(i),
                 ssMethod = mobile.Mobile.getDefaultConfigMethod(i),
                 protocol = mobile.Mobile.getDefaultConfigProtocol(i),
+                authProtocol = authProto,
                 useSshKey = mobile.Mobile.getDefaultConfigUseSshKey(i),
 
                 useAuth = hasAuth,

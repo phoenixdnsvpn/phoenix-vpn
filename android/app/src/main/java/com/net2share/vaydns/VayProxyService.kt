@@ -185,6 +185,7 @@ class VayProxyService : Service() {
                 val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
                 val useAuth = intent.getBooleanExtra("USE_AUTH", false)
                 val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
+                val authProtocol = intent?.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                 val ssMethod = intent.getStringExtra("SS_METHOD") ?: ""
                 val user = intent.getStringExtra("USER") ?: ""
                 val pass = intent.getStringExtra("PASS") ?: ""
@@ -198,9 +199,39 @@ class VayProxyService : Service() {
                     "dot" -> dot = dnsAddress
                 }
 
+                Log.i("VAY_DEBUG", "Starting Pre-Scan from Kotlin...")
+
+                // Note: Go's 'int' for clientIdSize is converted to 'Long' in Kotlin by Gomobile
+                // --- LOAD PRE-SCANNER SETTINGS ---
+                val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                val enableScan = prefs.getBoolean("enable_prescan", false)
+
+                var finalUdp = udp
+                var finalTcp = tcp
+                var finalDoh = doh
+                var finalDot = dot
+
+                if (enableScan) {
+                    Log.i("VAY_DEBUG", "Running Custom Pre-Tunnel Scan...")
+                    val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
+                    val lightE2E = prefs.getBoolean("light_e2e", false)
+                    val workers = prefs.getInt("workers", 20).toLong()
+                    val tWait = prefs.getInt("tunnel_wait", 3000).toLong()
+                    val pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
+                    val uTimeout = prefs.getInt("udp_timeout", 1000).toLong()
+                    val retries = prefs.getInt("retries", 0).toLong()
+
+                    finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                    finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                    finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                    finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                }
+
+                Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
+
                 // Call the new Proxy function!
                 val result = Mobile.startProxy(
-                    isDefaultConfig, configIndex, udp, tcp,doh, dot, baseDohUrl, domain, pubkey,
+                    isDefaultConfig, configIndex, finalUdp, finalTcp,finalDoh, finalDot, baseDohUrl, domain, pubkey,
                     recordType, idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible,
                     useAuth, protocol, ssMethod, user, pass, proxyPort
                 )
@@ -210,9 +241,11 @@ class VayProxyService : Service() {
 
                     sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
                         putExtra("status", "CONNECTED")
+                        putExtra("proxy_address", proxyAddress)
                         setPackage(packageName)
                     })
-                    updateNotification("Proxy running on 127.0.0.1:$proxyPort")
+                    //updateNotification("Proxy running on 127.0.0.1:$proxyPort")
+                    updateNotification("Proxy running on $proxyAddress")
                     initialRxBytes = 0L
                     initialTxBytes = 0L
                     statsHandler.post(statsRunnable)

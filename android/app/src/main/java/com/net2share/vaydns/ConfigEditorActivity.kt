@@ -1,6 +1,7 @@
 package com.net2share.vaydns
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.text.method.HideReturnsTransformationMethod
 import android.widget.Button
@@ -77,7 +78,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         val etMtu = findViewById<EditText>(R.id.et_mtu)
         val swDnstt = findViewById<SwitchCompat>(R.id.sw_dnstt)
         val swAuth = findViewById<SwitchCompat>(R.id.sw_auth)
-        val rgProtocol = findViewById<RadioGroup>(R.id.rg_protocol)
+        val rgProxyProtocol = findViewById<RadioGroup>(R.id.rg_proxy_protocol)
+        val rgAuthProtocol = findViewById<RadioGroup>(R.id.rg_auth_protocol)
         val etUser = findViewById<EditText>(R.id.et_user)
         val etPass = findViewById<EditText>(R.id.et_pass)
         val btnSave = findViewById<Button>(R.id.btn_save_config)
@@ -86,15 +88,17 @@ class ConfigEditorActivity : AppCompatActivity() {
         val tvUserLabel = findViewById<TextView>(R.id.tv_user_label)
         val tvPassLabel = findViewById<TextView>(R.id.tv_pass_label)
         val tvSsMethodLabel = findViewById<TextView>(R.id.tv_ss_method_label)
+        val tvAuthProtocolLabel = findViewById<TextView>(R.id.tv_auth_protocol_label)
         val swUseDefaultResolvers = findViewById<SwitchCompat>(R.id.sw_use_default_resolvers)
         swUseDefaultResolvers.visibility = View.GONE
-
+        val tvProxyProtocolLabel = findViewById<TextView>(R.id.tv_proxy_protocol_label)
         // MULTIPATH BINDINGS
         tvMultipathStatus = findViewById(R.id.tv_multipath_status)
         btnSelectMultipath = findViewById(R.id.btn_select_multipath)
         layoutMultipathControls = findViewById(R.id.layout_multipath_controls)
         tvMultipathLabel = findViewById(R.id.tv_multipath_label)
         tvMultipathDesc = findViewById(R.id.tv_multipath_desc)
+
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
 
@@ -119,9 +123,19 @@ class ConfigEditorActivity : AppCompatActivity() {
         // Load Data into memory (does not build UI yet)
         setupMultipathData(editingConfigId ?: "new_temp_config")
 
-        // The clock icon now OPENS THE DIALOG
+        // The clock icon now opens the dedicated Full Screen Activity window
         btnSelectMultipath.setOnClickListener {
-            showMultipathDialog()
+            val mode = when (rgMode.checkedRadioButtonId) {
+                R.id.rb_tcp -> "tcp"
+                R.id.rb_tls -> "dot"
+                R.id.rb_https -> "doh"
+                else -> "udp"
+            }
+            val intent = Intent(this, MultipathResolverActivity::class.java).apply {
+                putExtra("CONFIG_ID", editingConfigId ?: "new_temp_config")
+                putExtra("TUNNEL_MODE", mode)
+            }
+            startActivity(intent)
         }
 
         if (editingConfigId != null) {
@@ -160,10 +174,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swUseDefaultResolvers.visibility = View.VISIBLE
                 swUseDefaultResolvers.setOnCheckedChangeListener { _, isChecked ->
                     if (isChecked) {
-                        //val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
-
-                        // Ask Go for the decrypted comma-separated string of resolvers for this config
-                        //val defaultResolversStr = mobile.Mobile.getDefaultConfigResolvers(index)
                         val defaultResolversStr = mobile.Mobile.getDefaultConfigDisplayResolvers(index)
 
                         if (defaultResolversStr.isEmpty()) {
@@ -214,17 +224,24 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val ssMethod = mobile.Mobile.getDefaultConfigMethod(index)
                 val user = "********"
                 val pass = "********"
-                val protocol = mobile.Mobile.getDefaultConfigProtocol(index) // e.g. "socks", "ssh"
                 val useSshKey = mobile.Mobile.getDefaultConfigUseSshKey(index)
+
+                // EXTRACT NATIVE PROTOCOLS
+                val nativeProto = mobile.Mobile.getDefaultConfigProtocol(index)
+                val authProto = if (nativeProto == "ssh" || nativeProto == "shadowsocks") nativeProto else "basic"
 
                 etUser.setText(user)
                 etPass.setText(pass)
 
-                when(protocol.lowercase()) {
-                    "ssh" -> rgProtocol.check(R.id.rb_ssh)
-                    "shadowsocks" -> rgProtocol.check(R.id.rb_shadowsocks)
-                    else -> rgProtocol.check(R.id.rb_socks)
+                // SET RADIO BUTTONS
+                rgProxyProtocol.check(R.id.rb_proxy_socks) // Official servers are always SOCKS5 proxy
+
+                when(authProto.lowercase()) {
+                    "ssh" -> rgAuthProtocol.check(R.id.rb_auth_ssh)
+                    "shadowsocks" -> rgAuthProtocol.check(R.id.rb_auth_shadowsocks)
+                    else -> rgAuthProtocol.check(R.id.rb_auth_socks)
                 }
+
                 swSshKey.isChecked = useSshKey
                 swSshKey.isEnabled = false
 
@@ -233,21 +250,33 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swAuth.isChecked = (user.isNotEmpty() || pass.isNotEmpty())
                 swAuth.isEnabled = false
 
-                rgProtocol.check(R.id.rb_socks)
-
-                for (i in 0 until rgProtocol.childCount) {
-                    val v = rgProtocol.getChildAt(i)
-                    v.isEnabled = false
-                    v.alpha = 0.5f // Visual cue that they are disabled
+                val proxyType = mobile.Mobile.getDefaultConfigProxy(index)
+                if (proxyType.lowercase() == "http") {
+                    rgProxyProtocol.check(R.id.rb_proxy_http)
+                } else {
+                    rgProxyProtocol.check(R.id.rb_proxy_socks)
                 }
 
-                // Visual protection for defaults
+                tvProxyProtocolLabel.visibility = View.VISIBLE
+                rgProxyProtocol.visibility = View.VISIBLE
 
-                rgProtocol.check(R.id.rb_socks)
+
+                // VISUAL PROTECTION: Disable interacting with the locked default configs
+                for (i in 0 until rgProxyProtocol.childCount) {
+                    val v = rgProxyProtocol.getChildAt(i)
+                    v.isEnabled = false
+                    v.alpha = 0.5f
+                }
+
+                for (i in 0 until rgAuthProtocol.childCount) {
+                    val v = rgAuthProtocol.getChildAt(i)
+                    v.isEnabled = false
+                    v.alpha = 0.5f
+                }
+
                 swAuth.isEnabled = false
                 etUser.isEnabled = false
                 etPass.isEnabled = false
-                //etName.isEnabled = false
                 etDomain.isEnabled = false
                 etPubkey.isEnabled = false
                 spRecordType.isEnabled = false
@@ -262,25 +291,27 @@ class ConfigEditorActivity : AppCompatActivity() {
 
                 etDomain.visibility = View.GONE
                 etPubkey.visibility = View.GONE
-                // We target the labels by finding them via their text if they don't have IDs,
-                // but usually, it's safer to hide the ones we know:
                 tvUserLabel.visibility = View.GONE
                 tvPassLabel.visibility = View.GONE
                 etMtu.visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tv_mtu_label).visibility = View.VISIBLE
 
-                // Hide Advanced Inputs
+                // HIDE ADVANCED INPUTS FROM DEFAULTS
                 spRecordType.visibility = View.GONE
                 etIdleTimeout.visibility = View.GONE
                 etKeepAlive.visibility = View.GONE
                 etClientIdSize.visibility = View.GONE
                 swDnstt.visibility = View.GONE
                 swAuth.visibility = View.GONE
-                rgProtocol.visibility = View.GONE
                 swSshKey.visibility = View.GONE
                 spSsMethod.visibility = View.GONE
                 etUser.visibility = View.GONE
                 etPass.visibility = View.GONE
+                rgProxyProtocol.visibility = View.VISIBLE
+                rgAuthProtocol.visibility = View.GONE
+                tvAuthProtocolLabel.visibility = View.GONE
+                // Hide the new Radio Groups
+                //rgProxyProtocol.visibility = View.GONE
 
                 val parentLayout = etName.parent as ViewGroup
                 for (i in 0 until parentLayout.childCount) {
@@ -291,7 +322,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                             "Tunnel Domain:", "Server Public Key:",
                             "Following parameters", "Record Type:",
                             "Idle Timeout:", "Keep Alive:",
-                            "Client ID Size:", "Protocol"
+                            // "Client ID Size:", "Local Proxy Protocol:", "Authentication Protocol"
                         )
                         if (forbiddenLabels.any { txt.contains(it) }) {
                             view.visibility = View.GONE
@@ -303,6 +334,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                 // 1. Load the data to calculate the index and values before calling the helper
                 val configs = loadAllConfigs(this)
                 val config = configs.find { it.id == editingConfigId }
+                tvProxyProtocolLabel.visibility = View.GONE
+                rgProxyProtocol.visibility = View.GONE
 
                 if (config != null) {
                     val rtIndex = recordTypes.indexOf(config.recordType.uppercase())
@@ -322,11 +355,12 @@ class ConfigEditorActivity : AppCompatActivity() {
                         swDnstt, config.dnsttCompatible,
                         swAuth, config.useAuth,
                         swSshKey, config.useSshKey,
-                        rgProtocol, config.protocol,
+                        rgProxyProtocol, config.protocol,
+                        rgAuthProtocol, config.authProtocol,
                         spSsMethod, config.ssMethod,
                         etUser, config.user,
                         etPass, config.pass,
-                        tvUserLabel, tvPassLabel // Pass the labels here
+                        tvUserLabel, tvPassLabel
                     )
                 }
                 toolbar.title = "Edit Config"
@@ -341,18 +375,20 @@ class ConfigEditorActivity : AppCompatActivity() {
             etIdleTimeout.setText("10s")
             etKeepAlive.setText("2s")
             etClientIdSize.setText("2")
-
-            // Set Auth defaults
+            tvProxyProtocolLabel.visibility = View.GONE
+            rgProxyProtocol.visibility = View.GONE
+            // Set Default Protocols
             swAuth.isChecked = false
-            rgProtocol.check(R.id.rb_socks)
+            rgProxyProtocol.check(R.id.rb_proxy_socks)
+            rgAuthProtocol.check(R.id.rb_auth_socks)
             swSshKey.isChecked = false
 
             // --- THIS IS THE MANUALLY TRIGGERED INITIAL STATE ---
-            // Even though the views are visible, we lock them because swAuth is false
+            // Even though the views are visible, we lock Auth inputs because swAuth is false
             etUser.isEnabled = false
             etPass.isEnabled = false
             swSshKey.isEnabled = false
-            // Ensure they are visible (incase XML had them hidden)
+
             etUser.visibility = View.VISIBLE
             etPass.visibility = View.VISIBLE
             swSshKey.visibility = View.VISIBLE
@@ -360,12 +396,12 @@ class ConfigEditorActivity : AppCompatActivity() {
             tvUserLabel.visibility = View.VISIBLE
             tvPassLabel.visibility = View.VISIBLE
 
-            for (i in 0 until rgProtocol.childCount) {
-                val v = rgProtocol.getChildAt(i)
+            // Only disable the AUTH group, NOT the Proxy group!
+            for (i in 0 until rgAuthProtocol.childCount) {
+                val v = rgAuthProtocol.getChildAt(i)
                 v.isEnabled = false
                 v.alpha = 0.5f
             }
-            swSshKey.isEnabled = false
         }
 
         swSshKey.setOnCheckedChangeListener { _, isChecked ->
@@ -377,8 +413,11 @@ class ConfigEditorActivity : AppCompatActivity() {
                 etPass.isEnabled = true
                 tvPassLabel.text = "SSH Private Key:"
                 etPass.hint = "Paste Private Key here"
-
-                // Force plain text visibility for the key
+                etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                etPass.minLines = 15
+                etPass.maxLines = 40
+                etPass.setHorizontallyScrolling(false)
+                etPass.gravity = android.view.Gravity.TOP
                 etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
             } else {
                 // Restore defaults for Password mode
@@ -386,6 +425,13 @@ class ConfigEditorActivity : AppCompatActivity() {
                 etUser.hint = "Optional"
                 tvPassLabel.text = "Password:"
                 etPass.hint = "Optional"
+                //etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT
+                etPass.minLines = 1
+                etPass.maxLines = 1
+                etPass.gravity = android.view.Gravity.CENTER_VERTICAL
+                //etPass.transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
+                etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
             }
         }
 
@@ -399,36 +445,33 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
 
-        rgProtocol.setOnCheckedChangeListener { _, checkedId ->
+        rgAuthProtocol.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
-                R.id.rb_ssh -> {
+                R.id.rb_auth_ssh -> {
                     swSshKey.isEnabled = swAuth.isChecked
-
                     tvUserLabel.visibility = View.VISIBLE
                     etUser.visibility = View.VISIBLE
                     tvSsMethodLabel.visibility = View.GONE
                     spSsMethod.visibility = View.GONE
                 }
-                R.id.rb_shadowsocks -> {
+                R.id.rb_auth_shadowsocks -> {
                     swSshKey.isChecked = false
                     swSshKey.isEnabled = false
-
-                    // Shadowsocks uses a Method instead of a User
                     tvUserLabel.visibility = View.GONE
                     etUser.visibility = View.GONE
                     tvSsMethodLabel.visibility = View.VISIBLE
                     spSsMethod.visibility = View.VISIBLE
                 }
-                else -> {
+                else -> { // Basic
                     swSshKey.isChecked = false
                     swSshKey.isEnabled = false
-
                     tvUserLabel.visibility = View.VISIBLE
                     etUser.visibility = View.VISIBLE
                     tvSsMethodLabel.visibility = View.GONE
                     spSsMethod.visibility = View.GONE
                 }
             }
+
         }
 
         swAuth.setOnCheckedChangeListener { _, isChecked ->
@@ -437,16 +480,15 @@ class ConfigEditorActivity : AppCompatActivity() {
             etPass.isEnabled = isChecked
 
             // 2. Enable/Disable the Protocol RadioGroup buttons
-            for (i in 0 until rgProtocol.childCount) {
-                val v = rgProtocol.getChildAt(i)
+            for (i in 0 until rgAuthProtocol.childCount) {
+                val v = rgAuthProtocol.getChildAt(i)
                 v.isEnabled = isChecked
-                // Optional: reduce alpha to make it look clearly disabled
                 v.alpha = if (isChecked) 1.0f else 0.5f
             }
 
             // 3. Handle the SSH Key toggle logic
             // It should only be enabled if Auth is ON AND the selected protocol is SSH
-            if (isChecked && rgProtocol.checkedRadioButtonId == R.id.rb_ssh) {
+            if (isChecked && rgAuthProtocol.checkedRadioButtonId == R.id.rb_auth_ssh) {
                 swSshKey.isEnabled = true
             } else {
                 swSshKey.isEnabled = false
@@ -481,9 +523,10 @@ class ConfigEditorActivity : AppCompatActivity() {
             val dnstt = swDnstt.isChecked
             val useAuth = swAuth.isChecked
             val useSshKey = swSshKey.isChecked
-            val protocol = when (rgProtocol.checkedRadioButtonId) {
-                R.id.rb_ssh -> "ssh"
-                R.id.rb_shadowsocks -> "shadowsocks"
+            val proxyProtocol = if (rgProxyProtocol.checkedRadioButtonId == R.id.rb_proxy_http) "http" else "socks5"
+            val authProtocol = when (rgAuthProtocol.checkedRadioButtonId) {
+                R.id.rb_auth_ssh -> "ssh"
+                R.id.rb_auth_shadowsocks -> "shadowsocks"
                 else -> "socks"
             }
             val user = etUser.text.toString().trim()
@@ -546,7 +589,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             saveOrUpdateConfig(
                 configId,
                 name, domain, pubkey, dns, mode, rt, idle, keep,
-                clientIdSize, mtu,dnstt, useAuth, useSshKey, protocol, ssMethod, user, pass
+                clientIdSize, mtu,dnstt, useAuth, useSshKey, proxyProtocol, authProtocol, ssMethod, user, pass
             )
             finish()
 
@@ -646,7 +689,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
     }
 
-    private fun showMultipathDialog() {
+    /*private fun showMultipathDialog() {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val pad = (16 * resources.displayMetrics.density).toInt()
@@ -731,7 +774,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                                 Toast.makeText(this@ConfigEditorActivity, "Imported ${imported.size} IPs", Toast.LENGTH_SHORT).show()
                             }
 
-                            // 🔴 REFRESH THE UI
+                            // REFRESH THE UI
                             multipathDialog?.dismiss()
                             showMultipathDialog()
                         } else {
@@ -951,7 +994,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 handleDialogClose(false) // Secondary Action: Scrub and close without saving to txt
             }
             .show()
-    }
+    }*/
 
     private fun loadConfigForEditing(
         etName: EditText, nameValue: String,
@@ -967,11 +1010,12 @@ class ConfigEditorActivity : AppCompatActivity() {
         swDnstt: SwitchCompat, dnsttValue: Boolean,
         swAuth: SwitchCompat, useAuth: Boolean,
         swSshKey: SwitchCompat, useSshKey: Boolean,
-        rgProtocol: RadioGroup, protocolValue: String,
+        rgProxyProtocol: RadioGroup, proxyProtocolValue: String,
+        rgAuthProtocol: RadioGroup, authProtocolValue: String,
         spSsMethod: Spinner, ssMethodValue: String,
         etUser: EditText, userValue: String,
         etPass: EditText, passValue: String,
-        tvUserLabel: TextView, tvPassLabel: TextView // Added these to update labels
+        tvUserLabel: TextView, tvPassLabel: TextView
     ) {
         // 1. Basic Text Fields
         etName.setText(nameValue)
@@ -984,15 +1028,19 @@ class ConfigEditorActivity : AppCompatActivity() {
         etMtu.setText(mtuValue.toString())
         etUser.setText(userValue)
         etPass.setText(passValue)
-        val adapter = spSsMethod.adapter as ArrayAdapter<String>
-        val methodIndex = adapter.getPosition(ssMethodValue)
-        if (methodIndex >= 0) spSsMethod.setSelection(methodIndex)
+
+        val adapter = spSsMethod.adapter as? ArrayAdapter<String>
+        if (adapter != null) {
+            val methodIndex = adapter.getPosition(ssMethodValue)
+            if (methodIndex >= 0) spSsMethod.setSelection(methodIndex)
+        }
 
         etUser.isEnabled = useAuth
         etPass.isEnabled = useAuth
 
-        for (i in 0 until rgProtocol.childCount) {
-            val v = rgProtocol.getChildAt(i)
+        // ONLY disable the Auth group based on the Auth Switch (leave Proxy Group alone)
+        for (i in 0 until rgAuthProtocol.childCount) {
+            val v = rgAuthProtocol.getChildAt(i)
             v.isEnabled = useAuth
             v.alpha = if (useAuth) 1.0f else 0.5f
         }
@@ -1017,43 +1065,76 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
 
-        // 3. Protocol Selection
-        when (protocolValue.lowercase()) {
+        // 3. Proxy Protocol Selection
+        when (proxyProtocolValue.lowercase()) {
+            "http" -> rgProxyProtocol.check(R.id.rb_proxy_http)
+            else -> rgProxyProtocol.check(R.id.rb_proxy_socks)
+        }
+
+        // 4. Auth Protocol Selection
+        when (authProtocolValue.lowercase()) {
             "ssh" -> {
-                rgProtocol.check(R.id.rb_ssh)
+                rgAuthProtocol.check(R.id.rb_auth_ssh)
                 swSshKey.isEnabled = true
                 swSshKey.isChecked = useSshKey
             }
             "shadowsocks" -> {
-                rgProtocol.check(R.id.rb_shadowsocks)
+                rgAuthProtocol.check(R.id.rb_auth_shadowsocks)
                 swSshKey.isEnabled = false
                 swSshKey.isChecked = false
             }
             else -> {
-                rgProtocol.check(R.id.rb_socks)
+                rgAuthProtocol.check(R.id.rb_auth_socks)
                 swSshKey.isEnabled = false
                 swSshKey.isChecked = false
             }
         }
 
-        // 4. SSH Key Label Logic
-        if (useSshKey && protocolValue.lowercase() == "ssh") {
+        // 5. SSH Key Label Logic & Visibility (Restored)
+        if (useSshKey && authProtocolValue.lowercase() == "ssh") {
             tvPassLabel.text = "SSH Private Key"
             etPass.hint = "Paste your private key here..."
-//            swSshKey.isEnabled = true
+            etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            etPass.minLines = 15
+            etPass.maxLines = 40
+            etPass.setHorizontallyScrolling(false)
+            etPass.gravity = android.view.Gravity.TOP
+            etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
         } else {
-            tvPassLabel.text = "Password"
-            etPass.hint = ""
-//            swSshKey.isEnabled = false
+            tvPassLabel.text = "Password:"
+            etPass.hint = "Optional"
+            //etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT
+            etPass.minLines = 1
+            etPass.maxLines = 1
+            etPass.gravity = android.view.Gravity.CENTER_VERTICAL
+            //etPass.transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
+            etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
         }
 
-        // 5. Auth and Extras
+        // Dynamic visibility for SS Method vs Username based on auth type
+        val tvSsMethodLabel = findViewById<TextView>(R.id.tv_ss_method_label)
+        when (authProtocolValue.lowercase()) {
+            "ssh", "socks" -> {
+                tvUserLabel.visibility = View.VISIBLE
+                etUser.visibility = View.VISIBLE
+                tvSsMethodLabel?.visibility = View.GONE
+                spSsMethod.visibility = View.GONE
+            }
+            "shadowsocks" -> {
+                tvUserLabel.visibility = View.GONE
+                etUser.visibility = View.GONE
+                tvSsMethodLabel?.visibility = View.VISIBLE
+                spSsMethod.visibility = View.VISIBLE
+            }
+        }
+
+        // 6. Auth and Extras
         swDnstt.isChecked = dnsttValue
         swAuth.isChecked = useAuth || userValue.isNotEmpty() || passValue.isNotEmpty()
         if (rtIndex >= 0) spRecordType.setSelection(rtIndex)
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
-//        syncAuthUi(useAuth)
     }
 
     private fun saveOrUpdateConfig(
@@ -1071,7 +1152,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         dnsttCompatible: Boolean,
         useAuth: Boolean,
         useSshKey: Boolean,
-        protocol: String,
+        proxyProtocolValue: String,
+        authProtocolValue: String,
         ssMethod: String,
         user: String,
         pass: String
@@ -1086,13 +1168,12 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putLong("${editingConfigId}_mtu", mtu)
             }.apply()
 
-//            Toast.makeText(this, "Default parameters updated!", Toast.LENGTH_SHORT).show()
             // IMPORTANT: finish() here so it doesn't run the user-config save logic below
             finish()
             return
         }
 
-// 2. Handle User Configs
+        // 2. Handle User Configs
         val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
         val configsString = sharedPref.getString("configs", "[]") ?: "[]"
         val jsonArray = JSONArray(configsString)
@@ -1102,7 +1183,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val obj = jsonArray.getJSONObject(i)
                 if (obj.getString("id") == editingConfigId) {
                     populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
-                        idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth, useSshKey, protocol, ssMethod, user, pass)
+                        idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
+                        useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass)
                     break
                 }
             }
@@ -1110,7 +1192,8 @@ class ConfigEditorActivity : AppCompatActivity() {
             val newObj = JSONObject()
             newObj.put("id", java.util.UUID.randomUUID().toString())
             populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
-                idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth, useSshKey, protocol, ssMethod, user, pass)
+                idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
+                useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass)
             jsonArray.put(newObj)
 
             val tempManual = java.io.File(filesDir, "manual_resolvers_new_temp_config.txt")
@@ -1121,14 +1204,14 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         sharedPref.edit().putString("configs", jsonArray.toString()).apply()
-
-//        Toast.makeText(this, "Config saved!", Toast.LENGTH_SHORT).show()
     }
 
     private fun populateJsonObject(
-        obj: JSONObject, name: String, domain: String, pubkey: String, dns: String, mode: String,
-        recordType: String, idleTimeout: String, keepAlive: String,
-        clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean, useSshKey: Boolean, protocol: String, ssMethod: String, user: String, pass: String
+        obj: JSONObject, name: String, domain: String, pubkey: String, dns: String,
+        mode: String, recordType: String, idleTimeout: String, keepAlive: String,
+        clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean,
+        useSshKey: Boolean, proxyProtocolValue: String, authProtocolValue: String,
+        ssMethod: String, user: String, pass: String
     ) {
         obj.put("name", name)
         obj.put("domain", domain)
@@ -1139,14 +1222,27 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("idleTimeout", idleTimeout)
         obj.put("keepAlive", keepAlive)
         obj.put("clientIdSize", clientIdSize)
-        obj.put("dnsttCompatible", dnsttCompatible)
         obj.put("mtu", mtu)
+        obj.put("dnsttCompatible", dnsttCompatible)
         obj.put("useAuth", useAuth)
         obj.put("useSshKey", useSshKey)
-        obj.put("protocol", protocol)
+        obj.put("protocol", proxyProtocolValue)
+        obj.put("authProtocol", authProtocolValue)
         obj.put("ssMethod", ssMethod)
         obj.put("user", user)
         obj.put("pass", pass)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh the subtitle summary values immediately upon returning to window
+        val currentId = editingConfigId ?: "new_temp_config"
+        val selectedFile = java.io.File(filesDir, "selected_multipath_$currentId.txt")
+        val currentSelectionsCount = if (selectedFile.exists()) selectedFile.readLines().filter { it.isNotEmpty() }.size else 0
+
+        if (::tvMultipathStatus.isInitialized) {
+            tvMultipathStatus.text = "$currentSelectionsCount IPs selected"
+        }
     }
 
     companion object {
@@ -1158,6 +1254,8 @@ class ConfigEditorActivity : AppCompatActivity() {
 
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
+                val finalProxyProto = obj.optString("protocol", "socks5")
+                val finalAuthProto = obj.optString("authProtocol", "socks")
 
                 list.add(
                     Config(
@@ -1173,11 +1271,10 @@ class ConfigEditorActivity : AppCompatActivity() {
                         clientIdSize = obj.optLong("clientIdSize", 2),
                         mtu = obj.optLong("mtu", 0L),
                         dnsttCompatible = obj.optBoolean("dnsttCompatible", false),
-
-                        // --- Updated Protocol & Auth Fields ---
                         useAuth = obj.optBoolean("useAuth", false),
                         useSshKey = obj.optBoolean("useSshKey", false),
-                        protocol = obj.optString("protocol", "socks"),
+                        protocol = finalProxyProto,
+                        authProtocol = finalAuthProto,
                         ssMethod = obj.optString("ssMethod", "chacha20-ietf-poly1305"),
                         user = obj.optString("user", ""),
                         pass = obj.optString("pass", ""),
@@ -1214,6 +1311,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("useAuth", config.useAuth)
                         put("useSshKey", config.useSshKey)
                         put("protocol", config.protocol)
+                        put("authProtocol", config.authProtocol)
                         put("ssMethod", config.ssMethod)
                         put("user", config.user)
                         put("pass", config.pass)

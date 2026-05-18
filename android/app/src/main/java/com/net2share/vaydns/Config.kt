@@ -19,9 +19,11 @@ data class Config(
     val useAuth: Boolean = false,
     val useSshKey: Boolean = false,
     val protocol: String = "socks",
+    val authProtocol: String = "socks",
     val user: String = "",
     val pass: String = "",
     val ssMethod: String = "chacha20-ietf-poly1305",
     val isDefault: Boolean = false,
-    val freeScanner: Boolean = false
+    val freeScanner: Boolean = false,
+    var lastLatency: Long = -1L
 )

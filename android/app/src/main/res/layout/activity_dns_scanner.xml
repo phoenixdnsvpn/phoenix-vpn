@@ -188,19 +188,11 @@
                 android:orientation="vertical">
 
                 <RadioButton
-                    android:id="@+id/rb_source_default"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Use default resolvers"
-                    android:checked="true"
-                    android:textColor="?attr/colorOnSurface"
-                    android:buttonTint="?attr/colorPrimary" />
-
-                <RadioButton
                     android:id="@+id/rb_source_custom"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Use custom resolvers"
+                    android:checked="true"
                     android:textColor="?attr/colorOnSurface"
                     android:buttonTint="?attr/colorPrimary" />
 
@@ -209,6 +201,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Use Copy &amp; Paste resolvers"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_source_default"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Use default resolvers"
                     android:textColor="?attr/colorOnSurface"
                     android:buttonTint="?attr/colorPrimary" />
 
@@ -225,8 +225,8 @@
                 android:id="@+id/btn_action_resolvers"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="DEFAULT RESOLVERS"
-                android:enabled="false"
+                android:text="IMPORT RESOLVERS"
+                android:enabled="true"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:layout_marginTop="8dp" />

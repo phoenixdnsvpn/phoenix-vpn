@@ -43,6 +43,7 @@ type DefaultConfig struct {
 	ClientIdSize    int    `json:"clientIdSize"`
 	DnsttCompatible bool   `json:"dnsttCompatible"`
 	Protocol        string `json:"protocol"`
+	Proxy           string `json:"proxy"`
 	UseSshKey       bool   `json:"useSshKey"`
 	SSMethod        string `json:"method"`
 	User            string `json:"user"`
@@ -554,10 +555,36 @@ func GetDefaultConfigIsFreeScanner(index int64) bool {
 	ensureParsed()
 	configMu.Lock()
 	defer configMu.Unlock()
+	
+/*	
+	if int(index) >= 0 && int(index) < len(defaultConfigs) {
+		cfg := defaultConfigs[index]
+		
+		// LOGGING FOR DEBUGGING
+		// This will show up in logcat under the "GoLog" or "Go" tag
+		fmt.Printf("VAY_DEBUG_GO: Checking Index %d | Name: %s | isFreeScanner: %v\n", 
+			index, cfg.Name, cfg.FreeScanner)
+
+		return cfg.FreeScanner
+	}
+		
+	fmt.Printf("VAY_DEBUG_GO: Index %d is OUT OF BOUNDS (Size: %d)\n", index, len(defaultConfigs))
+*/	
 		
 	// Ensure we are checking the defaultConfigs slice, not the display map
 	if int(index) >= 0 && int(index) < len(defaultConfigs) {
 		return defaultConfigs[index].FreeScanner
 	}
 	return false
+}
+
+func GetDefaultConfigProxy(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return "socks"
+	}
+	if defaultConfigs[index].Proxy == "" {
+		return "socks" // Default internally
+	}
+	return strings.ToLower(defaultConfigs[index].Proxy)
 }
