@@ -199,11 +199,6 @@ func StartVpn(
 	realTcp := translateMultipathFakeToReal(tcp)
 	realDoh := translateMultipathFakeToReal(doh)
 	realDot := translateMultipathFakeToReal(dot)
-	
-	/*realUdp := translateFakeToReal(udp)
-	realTcp := translateFakeToReal(tcp)
-	realDoh := translateFakeToReal(doh)
-	realDot := translateFakeToReal(dot)*/
 		
 	tCfg := bridge.TunnelConfig{
 		BaseDohURL:       baseDohUrl,
@@ -245,7 +240,7 @@ func StartVpn(
 	// The base transport scheme (http or socks5)
 	scheme := protocol
 
-	// 🚨 MASTER GUARDRAIL: Override the scheme if the user selected an advanced Auth Protocol
+	// MASTER GUARDRAIL: Override the scheme if the user selected an advanced Auth Protocol
 	if useAuth {
 		if authProtocol == "ssh" {
 			if user == "" || user == "none" {
@@ -457,16 +452,6 @@ func StartProxy(
     realDoh := translateMultipathFakeToReal(doh)
     realDot := translateMultipathFakeToReal(dot)
     	    
-//   fmt.Printf("VAY_DEBUG UDP %+v\n", realUdp)
-//    fmt.Printf("VAY_DEBUG TCP %+v\n", realTcp)
-//    fmt.Printf("VAY_DEBUG DoH %+v\n", realDoh)
-//    fmt.Printf("VAY_DEBUG DoT %+v\n", realDot)            
-    
-	/*realUdp := translateFakeToReal(udp)
-	realTcp := translateFakeToReal(tcp)
-	realDoh := translateFakeToReal(doh)
-	realDot := translateFakeToReal(dot)*/
-	
 	// Note: Protector is nil because Proxy Mode doesn't need to bypass Android's VpnService
 	tCfg := bridge.TunnelConfig{
 		BaseDohURL:       baseDohUrl,
@@ -756,7 +741,6 @@ waitLoop:
 
 // Returns latency in milliseconds, or -1 if the server is dead/timed out.
 // PingServer performs a synchronous latency test for a single server using StartF35Scan.
-// PingServer performs a synchronous latency test for a single server using StartF35Scan.
 func PingServer(
 	isDefault bool, configIndex int64,
 	address string, dnsMode string, domain string, pubkey string, baseDohUrl string,
@@ -780,33 +764,6 @@ func PingServer(
 
 	log.Printf("VAY_DEBUG: [Ping] Triggering f35 scan for %s...", address)
 
-
-	/*fmt.Printf("VAY_DEBUG: --- StartF35Scan Parameters ---\n")
-	fmt.Printf("VAY_DEBUG: isDefault: %t\n", isDefault)
-	fmt.Printf("VAY_DEBUG: configIndex: %d\n", configIndex)
-	fmt.Printf("VAY_DEBUG: dnsMode: %q\n", dnsMode)
-	fmt.Printf("VAY_DEBUG: customDomain: %q\n", domain)
-	fmt.Printf("VAY_DEBUG: customPublicKey: %q\n", pubkey)
-	fmt.Printf("VAY_DEBUG: resolversList length: %d chars\n", len(baseDohUrl))
-	fmt.Printf("VAY_DEBUG: baseDohUrl: %q\n", baseDohUrl)
-	fmt.Printf("VAY_DEBUG: proxyType: %q\n", proxyType)
-	fmt.Printf("VAY_DEBUG: tunnelProtocol: %q\n", authProtocol)
-	fmt.Printf("VAY_DEBUG: proxyUser: %q\n", user)
-	fmt.Printf("VAY_DEBUG: proxyPass: %q\n", pass)
-	fmt.Printf("VAY_DEBUG: ssMethod: %q\n", ssMethod)
-	fmt.Printf("VAY_DEBUG: recordType: %q\n", recordType)
-	fmt.Printf("VAY_DEBUG: idleTimeout: %q\n", idleTimeout)
-	fmt.Printf("VAY_DEBUG: keepAlive: %q\n", keepAlive)
-	fmt.Printf("VAY_DEBUG: clientIdSize: %d\n", clientIdSize)
-	fmt.Printf("VAY_DEBUG: mtu: %d\n", mtu)
-	fmt.Printf("VAY_DEBUG: workers: %d\n", workers)
-	fmt.Printf("VAY_DEBUG: tunnelWait: %d\n", tunnelWait)
-	fmt.Printf("VAY_DEBUG: udpTimeout: %d\n", udpTimeout)
-	fmt.Printf("VAY_DEBUG: probeTimeout: %d\n", probeTimeout)
-	fmt.Printf("VAY_DEBUG: retries: %d\n", retries)
-	fmt.Printf("VAY_DEBUG: lightE2EEnabled: %t\n", lightE2EEnabled)
-	fmt.Printf("VAY_DEBUG: engineQuickScan: %t\n", engineQuickScan)
-	fmt.Printf("VAY_DEBUG: --------------------------------\n")*/
 
 	// 2. StartF35Scan handles the Native Vault and SSH formatting internally!
 	StartF35Scan(

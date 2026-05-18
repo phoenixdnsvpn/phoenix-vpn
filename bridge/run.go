@@ -174,34 +174,6 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 //	tunnel.PacketQueueSize = 512
 //	tunnel.KCPWindowSize = 0	
 
-/*
-	//  THE ARCHITECTURAL FIX: Prevent "Delayed Double-Close"
-	done := make(chan struct{})
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			// Scenario A: Context cancelled (User clicked stop, or scan timed out).
-			// ListenAndServe is still blocking. We MUST forcefully close it.
-			if c.IsScanner {
-				time.Sleep(3 * time.Second)
-			} else {
-				time.Sleep(500 * time.Millisecond)
-			}
-
-			defer func() { recover() }()
-			if tunnel != nil {
-				tunnel.Close()
-			}
-
-		case <-done:
-			// Scenario B: ListenAndServe exited on its own (IP is dead).
-			// It has ALREADY cleaned up its own memory. 
-			// We exit this goroutine immediately to prevent the 0x70 panic!
-			return
-		}
-	}()
-*/
 
 // Context cancellation handler
 	if !c.IsScanner { // ONLY the VPN is allowed to explicitly close the tunnel
@@ -215,18 +187,6 @@ func RunTunnel(ctx context.Context, c TunnelConfig) error {
 		}()
 	}
 
-	// Context cancellation handler
-/*	go func() {
-		<-ctx.Done()
-		log.Info("VAY_DEBUG: Context cancelled - shutting down tunnel")
-		if tunnel != nil {
-			// THE 0x70 PANIC CURE
-			// KCP-go panics if closed while SMUX streams are actively flushing.
-			// Yielding for 500ms ensures all upper-layer traffic is completely settled.
-			time.Sleep(500 * time.Millisecond)
-			tunnel.Close()
-		}
-	}()*/
 
 	if c.ListenAddr == "" {
 		c.ListenAddr = "127.0.0.1:10808"
