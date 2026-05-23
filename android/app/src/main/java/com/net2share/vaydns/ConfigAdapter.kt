@@ -1,6 +1,7 @@
 package com.net2share.vaydns
 
 import android.content.Context
+import android.content.Intent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -8,6 +9,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -26,6 +28,7 @@ class ConfigAdapter(
     // CENTRAL THREAD-SAFE CACHE: Stores latencies by unique config ID
     companion object {
         val pingCache = ConcurrentHashMap<String, Long>()
+        val activePings = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     }
 
     fun updateSelectedId(newId: String?) {
@@ -110,40 +113,85 @@ class ConfigAdapter(
         }
 
         holder.pingBtn.setOnClickListener {
+
+            val context = holder.itemView.context
+
+            if (activePings.contains(config.id)) {
+                Toast.makeText(context, "Ping already in progress for this server...", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (context is MainActivity && context.isPingRunning) {
+                Toast.makeText(context, "Bulk ping is running. Please wait...", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            activePings.add(config.id)
             holder.latency.text = "Ping..."
 
-            CoroutineScope(Dispatchers.IO).launch {
-                val addressToPing = config.dnsAddress.split(",").firstOrNull()?.trim() ?: ""
-                val configIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else 0L
+            val appPrefs = context.getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+            val useAllResolvers = appPrefs.getBoolean("use_all_resolvers_for_ping", false)
+            val mainActivity = context as MainActivity
+            val finalConfig = if (config.isDefault) DefaultConfigProvider.getActualConfig(mainActivity, config) else config
 
-                val prefs = holder.itemView.context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-                val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
-                val lightE2E = prefs.getBoolean("light_e2e", false)
-                val workers = prefs.getInt("workers", 20).toLong()
-                val tWait = prefs.getInt("tunnel_wait", 3000).toLong()
-                val pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
-                val uTimeout = prefs.getInt("udp_timeout", 1000).toLong()
-                val retries = prefs.getInt("retries", 0).toLong()
+            val multipathDnsList = if (useAllResolvers) {
+                mainActivity.getMultipathResolvers(config.id, finalConfig.dnsAddress, finalConfig.mode)
+            } else {
+                finalConfig.dnsAddress.split(",").firstOrNull()?.trim() ?: ""
+            }
 
-                val latencyMs = mobile.Mobile.pingServer(
-                    config.isDefault, configIndex, addressToPing, config.mode,
-                    config.domain, config.pubkey, "https://cloudflare-dns.com/dns-query",
-                    proxyType, config.authProtocol, config.user, config.pass, config.ssMethod,
-                    config.recordType, config.idleTimeout, config.keepAlive, config.clientIdSize,
-                    lightE2E, workers, tWait, pTimeout, uTimeout, retries
-                )
+            val configIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
 
-                withContext(Dispatchers.Main) {
-                    // SAVE TO CENTRAL CACHE
-                    pingCache[config.id] = if (latencyMs > 0 && latencyMs < 99999) latencyMs else -2L
+            val prefs = context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+            val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
+            val lightE2E = prefs.getBoolean("light_e2e", false)
+            val workers = prefs.getInt("workers", 20)
+            val tWait = prefs.getInt("tunnel_wait", 3000)
+            val uTimeout = prefs.getInt("udp_timeout", 1000)
+            val retries = prefs.getInt("retries", 0)
+            var pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
 
-                    val currentPos = holder.bindingAdapterPosition
-                    if (currentPos != RecyclerView.NO_POSITION) {
-                        notifyItemChanged(currentPos)
-                    }
+            val currentMode = config.mode.lowercase()
+            if (!lightE2E && (currentMode == "udp" || currentMode == "tcp")) {
+                if (pTimeout > 10000L) {
+                    pTimeout = 10000L
                 }
             }
+
+            val safeWorkers = if (currentMode == "udp" && workers > 20) {
+                20
+            } else {
+                workers
+            }
+
+            val serviceIntent = Intent(context, VayRowPingService::class.java).apply {
+                putExtra("CONFIG_ID", config.id)
+                putExtra("IS_DEFAULT", config.isDefault)
+                putExtra("CONFIG_INDEX", configIndex)
+                putExtra("MODE", finalConfig.mode)
+                putExtra("DOMAIN", finalConfig.domain)
+                putExtra("PUBKEY", finalConfig.pubkey)
+                putExtra("MULTIPATH_DNS", multipathDnsList)
+                putExtra("BASE_DOH_URL", if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else "")
+                putExtra("PROXY_TYPE", proxyType)
+                putExtra("PROTOCOL", finalConfig.protocol)
+                putExtra("USER", finalConfig.user)
+                putExtra("PASS", finalConfig.pass)
+                putExtra("SS_METHOD", finalConfig.ssMethod)
+                putExtra("RECORD_TYPE", finalConfig.recordType)
+                putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)
+                putExtra("KEEP_ALIVE", finalConfig.keepAlive)
+                putExtra("CLIENT_ID_SIZE", finalConfig.clientIdSize)
+                putExtra("MTU", finalConfig.mtu)
+                putExtra("WORKERS", safeWorkers.toLong())
+                putExtra("TUNNEL_WAIT", tWait.toLong())
+                putExtra("UDP_TIMEOUT", uTimeout.toLong())
+                putExtra("PROBE_TIMEOUT", pTimeout)
+                putExtra("RETRIES", retries.toLong())
+                putExtra("LIGHT_E2E", lightE2E)
+            }
+            context.startService(serviceIntent)
         }
+
     }
 
     override fun getItemCount() = configs.size

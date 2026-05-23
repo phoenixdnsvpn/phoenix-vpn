@@ -56,7 +56,7 @@
             android:layout_height="35dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
-            android:src="@drawable/ic_ping"
+            android:src="@drawable/ic_network_ping"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/btn_export"
             app:layout_constraintTop_toTopOf="parent"

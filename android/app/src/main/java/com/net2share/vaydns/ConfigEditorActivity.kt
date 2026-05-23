@@ -830,75 +830,6 @@ class ConfigEditorActivity : AppCompatActivity() {
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
     }
 
-    private fun saveOrUpdateConfig(
-        configId: String,
-        name: String,
-        domain: String,
-        pubkey: String,
-        dns: String,
-        mode: String,
-        recordType: String,
-        idleTimeout: String,
-        keepAlive: String,
-        clientIdSize: Long,
-        mtu: Long,
-        dnsttCompatible: Boolean,
-        useAuth: Boolean,
-        useSshKey: Boolean,
-        proxyProtocolValue: String,
-        authProtocolValue: String,
-        ssMethod: String,
-        user: String,
-        pass: String
-    ) {
-        if (editingConfigId?.startsWith("default_") == true) {
-            // Save only DNS and Mode to a separate preference file
-            val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-            prefs.edit().apply {
-                putString("${editingConfigId}_name", name)
-                putString("${editingConfigId}_dns", dns)
-                putString("${editingConfigId}_mode", mode)
-                putLong("${editingConfigId}_mtu", mtu)
-            }.apply()
-
-            // IMPORTANT: finish() here so it doesn't run the user-config save logic below
-            finish()
-            return
-        }
-
-        // 2. Handle User Configs
-        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
-        val configsString = sharedPref.getString("configs", "[]") ?: "[]"
-        val jsonArray = JSONArray(configsString)
-
-        if (editingConfigId != null) {
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                if (obj.getString("id") == editingConfigId) {
-                    populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
-                        idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
-                        useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass)
-                    break
-                }
-            }
-        } else {
-            val newObj = JSONObject()
-            newObj.put("id", java.util.UUID.randomUUID().toString())
-            populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
-                idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
-                useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass)
-            jsonArray.put(newObj)
-
-            val tempManual = java.io.File(filesDir, "manual_resolvers_new_temp_config.txt")
-            if (tempManual.exists()) tempManual.renameTo(java.io.File(filesDir, "manual_resolvers_$configId.txt"))
-
-            val tempSelected = java.io.File(filesDir, "selected_multipath_new_temp_config.txt")
-            if (tempSelected.exists()) tempSelected.renameTo(java.io.File(filesDir, "selected_multipath_$configId.txt"))
-        }
-
-        sharedPref.edit().putString("configs", jsonArray.toString()).apply()
-    }
-
     private fun populateJsonObject(
         obj: JSONObject, name: String, domain: String, pubkey: String, dns: String,
         mode: String, recordType: String, idleTimeout: String, keepAlive: String,
@@ -924,6 +855,87 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("ssMethod", ssMethod)
         obj.put("user", user)
         obj.put("pass", pass)
+    }
+
+    private fun saveOrUpdateConfig(
+        passedConfigId: String,
+        name: String,
+        domain: String,
+        pubkey: String,
+        dns: String,
+        mode: String,
+        recordType: String,
+        idleTimeout: String,
+        keepAlive: String,
+        clientIdSize: Long,
+        mtu: Long,
+        dnsttCompatible: Boolean,
+        useAuth: Boolean,
+        useSshKey: Boolean,
+        proxyProtocolValue: String,
+        authProtocolValue: String,
+        ssMethod: String,
+        user: String,
+        pass: String
+    ) {
+        if (editingConfigId?.startsWith("default_") == true) {
+            val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+            prefs.edit().apply {
+                putString("${editingConfigId}_name", name)
+                putString("${editingConfigId}_dns", dns)
+                putString("${editingConfigId}_mode", mode)
+                putLong("${editingConfigId}_mtu", mtu)
+            }.apply()
+            finish()
+            return
+        }
+
+        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val configsString = sharedPref.getString("configs", "[]") ?: "[]"
+        val jsonArray = JSONArray(configsString)
+
+        // FIX: This tracks the absolute final configuration token string written to memory
+        val finalAssignedId: String
+
+        if (editingConfigId != null) {
+            finalAssignedId = editingConfigId!!
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                if (obj.getString("id") == editingConfigId) {
+                    populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
+                        idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
+                        useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass)
+                    break
+                }
+            }
+        } else {
+            // Generate the real random string ID before making file moves
+            finalAssignedId = java.util.UUID.randomUUID().toString()
+            val newObj = JSONObject()
+            newObj.put("id", finalAssignedId)
+            populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
+                idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
+                useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass)
+            jsonArray.put(newObj)
+
+            // File remapping targets now point to finalAssignedId, not temp placeholders!
+            val tempManual = java.io.File(filesDir, "manual_resolvers_new_temp_config.txt")
+            if (tempManual.exists()) {
+                tempManual.renameTo(java.io.File(filesDir, "manual_resolvers_${finalAssignedId}.txt"))
+            }
+
+            val tempSelected = java.io.File(filesDir, "selected_multipath_new_temp_config.txt")
+            if (tempSelected.exists()) {
+                tempSelected.renameTo(java.io.File(filesDir, "selected_multipath_${finalAssignedId}.txt"))
+            }
+
+            val tempScanned = java.io.File(filesDir, "resolvers_new_temp_config.txt")
+            if (tempScanned.exists()) {
+                tempScanned.renameTo(java.io.File(filesDir, "resolvers_${finalAssignedId}.txt"))
+            }
+        }
+
+        sharedPref.edit().putString("configs", jsonArray.toString()).apply()
     }
 
     override fun onResume() {

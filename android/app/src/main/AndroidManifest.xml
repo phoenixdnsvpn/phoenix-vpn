@@ -62,6 +62,11 @@
         </activity>
 
         <activity
+            android:name=".PasteResolversActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Vaydns" />
+
+        <activity
             android:name=".MultipathResolverActivity"
             android:exported="false"
             android:theme="@style/Theme.Vaydns" />
@@ -92,10 +97,20 @@
             android:exported="false" />
 
         <service
+            android:name=".VayPingService"
+            android:exported="false"
+            android:process=":ping" />
+
+        <service
+            android:name=".VayRowPingService"
+            android:exported="false"
+            android:process=":rowping" />
+
+        <service
             android:name=".VayScannerService"
             android:process=":scanner"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="dataSync">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Continuous DNS Scanning" />

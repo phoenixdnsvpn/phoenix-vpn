@@ -78,7 +78,6 @@ class DnsScannerResultActivity : AppCompatActivity() {
             result.data?.data?.let { uri ->
                 try {
                     contentResolver.openOutputStream(uri)?.use { outputStream ->
-                        // Extract only the healthy IPs and separate them by a new line
                         val successfulIps = globalResults.filter { it.probe == "ok" }.map { it.ip }.joinToString("\n")
                         outputStream.write(successfulIps.toByteArray())
                     }
@@ -94,7 +93,6 @@ class DnsScannerResultActivity : AppCompatActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 "SCANNER_UI_REFRESH" -> {
-                    // Receive IPC Data from the Sandbox
                     val ips = intent.getStringArrayListExtra("IPS") ?: arrayListOf()
                     val latencies = intent.getIntegerArrayListExtra("LATENCIES") ?: arrayListOf()
                     val scannedAdd = intent.getIntExtra("SCANNED_ADD", 0)
@@ -118,13 +116,13 @@ class DnsScannerResultActivity : AppCompatActivity() {
                     }
                 }
                 "SCANNER_BATCH_FINISHED" -> {
-                    // 🟢 BATCH FINISHED: The sandbox will now kill itself. We wait 1.5s, then start next batch.
+                    Mobile.manualCleanup()
                     currentBatchIndex++
                     Handler(Looper.getMainLooper()).postDelayed({
-                        if (isRunning) { // Only continue if user hasn't pressed STOP manually
+                        if (isRunning) {
                             startNextBatch()
                         }
-                    }, 1500)
+                    }, 20000)
                 }
             }
         }
@@ -163,7 +161,6 @@ class DnsScannerResultActivity : AppCompatActivity() {
         probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 15L)
         retries = intent.getLongExtra("RETRIES", 0L)
 
-        // Load Resolvers
         val resolversFilePath = intent.getStringExtra("RESOLVERS_FILE") ?: ""
         val resolversCommaSeparated = if (resolversFilePath.isNotEmpty()) {
             try { java.io.File(resolversFilePath).readText() } catch (e: Exception) { "" }
@@ -188,21 +185,16 @@ class DnsScannerResultActivity : AppCompatActivity() {
         }
 
         btnSet.setOnClickListener {
-            // 1. Find the fastest successful resolver from the new Sandbox list
             val fastest = globalResults.filter { it.probe == "ok" }.minByOrNull { it.latencyMs }
-
             if (fastest == null) {
                 Toast.makeText(this, "No successful resolvers to set.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            // 2. Ask for confirmation
             MaterialAlertDialogBuilder(this)
                 .setTitle("Apply Fastest Resolver")
                 .setMessage("Set ${fastest.ip} (${fastest.latencyMs} ms) as the DNS server for this configuration?")
                 .setPositiveButton("Apply") { _, _ ->
-
-                    // 🟢 RESTORED: Write the physical update file
                     try {
                         val updateFile = java.io.File(filesDir, "apply_dns_${configId}.txt")
                         updateFile.writeText(fastest.ip)
@@ -210,25 +202,18 @@ class DnsScannerResultActivity : AppCompatActivity() {
                         Toast.makeText(this, "Failed to write temp file: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
 
-                    // 🟢 RESTORED: Update the actual Configuration memory
                     if (configId.startsWith("default_")) {
-                        // --- Logic for Official/Default Configs ---
                         val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                         prefs.edit().putString("${configId}_dns", fastest.ip).apply()
                         Toast.makeText(this, "Applied to Default Config!", Toast.LENGTH_SHORT).show()
-
                     } else {
-                        // --- Logic for Custom User Configs ---
                         try {
-                            // Load existing list using the companion object in ConfigEditorActivity
                             val currentConfigs = com.net2share.vaydns.ConfigEditorActivity.loadAllConfigs(this).toMutableList()
                             val index = currentConfigs.indexOfFirst { it.id == configId }
 
                             if (index != -1) {
                                 val updatedConfig = currentConfigs[index].copy(dnsAddress = fastest.ip)
                                 currentConfigs[index] = updatedConfig
-
-                                // Save the updated list back to SharedPreferences
                                 com.net2share.vaydns.ConfigEditorActivity.saveAllConfigs(this, currentConfigs)
                                 Toast.makeText(this, "Fastest resolver applied!", Toast.LENGTH_SHORT).show()
                             } else {
@@ -265,43 +250,26 @@ class DnsScannerResultActivity : AppCompatActivity() {
             if (isRunning) {
                 stopScanProcess()
             } else {
-                startScanLifecycle() // Resume starts from scratch
+                startScanLifecycle()
             }
-        }
-
-        Mobile.initVault(filesDir.absolutePath)
-
-        if (savedInstanceState == null) {
-            startScanLifecycle()
         }
 
         btnShare.setOnClickListener {
-            if (globalResults.isEmpty()) {
-                Toast.makeText(this, "No results to share", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            // 1. Filter for successful probes
             val successfulResults = globalResults.filter { it.probe == "ok" }
-
             if (successfulResults.isEmpty()) {
                 Toast.makeText(this, "No successful IPs to share", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            // 2. Map to a formatted string
             val shareText = "VayDNS Scan Results:\n" + successfulResults.joinToString("\n") {
                 "${it.ip} (${it.latencyMs} ms)"
             }
 
-            // 3. Create the Share Intent
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, "VayDNS Scan Results")
                 putExtra(Intent.EXTRA_TEXT, shareText)
             }
-
-            // 4. Launch the Android Chooser (WhatsApp, Email, Telegram, etc.)
             startActivity(Intent.createChooser(shareIntent, "Share Resolvers via"))
         }
 
@@ -323,7 +291,6 @@ class DnsScannerResultActivity : AppCompatActivity() {
                     val maxLatencyStr = input.text.toString()
                     val maxLatency = maxLatencyStr.toIntOrNull() ?: Int.MAX_VALUE
 
-                    // Filter and sort the global Sandbox results
                     val filteredAndSorted = globalResults
                         .filter { it.probe == "ok" && it.latencyMs <= maxLatency }
                         .sortedBy { it.latencyMs }
@@ -331,9 +298,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
                     if (filteredAndSorted.isEmpty()) {
                         Toast.makeText(this, "No resolvers found under ${maxLatency}ms.", Toast.LENGTH_SHORT).show()
                     } else {
-                        // Format: "1.1.1.1,45" per line
                         val dataToSave = filteredAndSorted.joinToString("\n") { "${it.ip},${it.latencyMs}" }
-
                         try {
                             val file = java.io.File(filesDir, "resolvers_$configId.txt")
                             file.writeText(dataToSave)
@@ -346,21 +311,28 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 .setNegativeButton("Cancel", null)
                 .show()
         }
-    }
 
-    override fun onResume() {
-        super.onResume()
+        Mobile.initVault(filesDir.absolutePath)
+
+        // 🟢 REGISTRATION REGISTERED ONCE IN ONCREATE
         val filter = IntentFilter().apply {
             addAction("SCANNER_UI_REFRESH")
             addAction("SCANNER_BATCH_FINISHED")
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(uiReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(uiReceiver, filter)
         }
 
+        if (savedInstanceState == null) {
+            startScanLifecycle()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 🟢 Cleaned: Merged data collected in the background into UI rows instantly
         adapter.notifyDataSetChanged()
         tvProgress.text = "$scannedCount / $totalResolvers"
         tvPassed.text = "$passedCount passed"
@@ -368,19 +340,17 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        unregisterReceiver(uiReceiver)
+        // 🟢 Cleaned: Removed unregisterReceiver() from here to keep scanning active!
     }
 
     private fun stopScanProcess() {
         if (isRunning) {
-            // Stopping the service triggers onDestroy(), which calls System.exit(0) in the sandbox
             stopService(Intent(this, VayScannerService::class.java))
             btnStopResume.text = "Resume"
             isRunning = false
         }
     }
 
-    // Starts the entire multi-batch process from the beginning
     private fun startScanLifecycle() {
         currentBatchIndex = 0
         totalResolvers = allResolvers.size
@@ -395,11 +365,9 @@ class DnsScannerResultActivity : AppCompatActivity() {
         startNextBatch()
     }
 
-    // Handles picking the next chunk and sending it to the Sandbox Service
     private fun startNextBatch() {
         val startIndex = currentBatchIndex * BATCH_SIZE
         if (startIndex >= allResolvers.size) {
-            // ALL BATCHES COMPLETE
             isRunning = false
             btnStopResume.text = "Resume"
             Toast.makeText(this, "Scan complete!", Toast.LENGTH_SHORT).show()
@@ -412,13 +380,12 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
         try {
             val serviceIntent = Intent(this, VayScannerService::class.java).apply {
-                // Pass all config parameters
                 putExtra("isDefaultConfig", isDefaultConfig)
                 putExtra("configIndex", configIndex)
                 putExtra("selectedMode", selectedMode)
                 putExtra("domain", domain)
                 putExtra("pubkey", pubkey)
-                putExtra("resolvers", resolversString) // ONLY the current batch
+                putExtra("resolvers", resolversString)
                 putExtra("baseDohUrl", baseDohUrl)
                 putExtra("proxyType", proxyType)
                 putExtra("tunnelProtocol", tunnelProtocol)
@@ -439,7 +406,6 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 putExtra("engineQuickScan", engineQuickScan)
                 putExtra("isQuickScanner", isQuickScanner)
 
-                // Pass visual state so the Sandbox notification knows where it's at
                 putExtra("totalResolvers", totalResolvers)
                 putExtra("scannedSoFar", scannedCount)
                 putExtra("passedSoFar", passedCount)
@@ -456,6 +422,12 @@ class DnsScannerResultActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // 🟢 SAFELY REMOVE LINK ONLY WHEN THE ACTIVITY DISAPPEARS COMPLETELY
+        try {
+            unregisterReceiver(uiReceiver)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         super.onDestroy()
         if (isFinishing) {
             stopScanProcess()

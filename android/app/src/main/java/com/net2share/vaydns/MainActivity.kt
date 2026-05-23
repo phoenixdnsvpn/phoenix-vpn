@@ -14,7 +14,9 @@ import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
+import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
@@ -61,11 +63,13 @@ private var liveDailyRx = -1L
 private var liveDailyTx = -1L
 private var liveTrackingDate = ""
 private lateinit var tvProxyIpLabel: TextView
+
 class MainActivity : AppCompatActivity() {
 
     private var configAdapter: ConfigAdapter? = null
     private var hasRunStartupPing = false
     private var currentSortMode = SortMode.NONE
+    var isPingRunning = false
 
     enum class SortMode {
         NONE, NAME_ASC, NAME_DESC, LATENCY_ASC, LATENCY_DESC
@@ -128,6 +132,48 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val pingReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "PING_ALL_FINISHED") {
+                val resultsJson = intent.getStringExtra("RESULTS_JSON") ?: return
+
+                try {
+                    val resultsObj = org.json.JSONObject(resultsJson)
+                    val keys = resultsObj.keys()
+                    while (keys.hasNext()) {
+                        val configId = keys.next()
+                        val latency = resultsObj.getLong(configId)
+                        ConfigAdapter.pingCache[configId] = latency
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("VAY_DEBUG", "Failed to deserialize ping results: ${e.message}")
+                }
+                // 1. Refresh the UI with the new latencies
+                configAdapter?.notifyDataSetChanged()
+
+                // 2. UNLOCK THE UI
+                isPingRunning = false
+
+                // 3. Notify the user it's safe to ping again
+                Toast.makeText(this@MainActivity, "Ping sequence complete.", Toast.LENGTH_SHORT).show()
+            }
+
+            if (intent?.action == "ROW_PING_FINISHED") {
+                val configId = intent.getStringExtra("CONFIG_ID") ?: return
+                val latency = intent.getLongExtra("LATENCY", -2L)
+
+                // UNLOCK THE UI FOR THIS SPECIFIC ROW
+                ConfigAdapter.activePings.remove(configId)
+
+                // Update the thread-safe cache
+                ConfigAdapter.pingCache[configId] = latency
+
+                // Tell the adapter to refresh that specific row
+                configAdapter?.notifyDataSetChanged()
+            }
+        }
+    }
+
     private fun updateUIState(connected: Boolean) {
         runOnUiThread {
             if (connected) {
@@ -150,6 +196,26 @@ class MainActivity : AppCompatActivity() {
                 tvTotal.text = "Total: 0 B ↓  0 B ↑"
             }
             btnToggle.isEnabled = true
+        }
+    }
+
+    private fun initDefaultSettings() {
+        val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+
+        // Check if the file exists by checking one key
+        if (!prefs.contains("enable_prescan")) {
+            prefs.edit().apply {
+                putBoolean("enable_prescan", true)
+                putString("proxy_type", "socks5h")
+                putBoolean("light_e2e", true)
+                putInt("workers", 20)
+                putInt("tunnel_wait", 3000)
+                putInt("probe_timeout", 15000)
+                putInt("udp_timeout", 1000)
+                putInt("retries", 0)
+                apply()
+            }
+            Log.i("VAY_DEBUG", "Default settings initialized on first launch.")
         }
     }
 
@@ -186,6 +252,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        initDefaultSettings()
+
         loadSelectedApps()
 
         mobile.Mobile.initVault(filesDir.absolutePath)
@@ -229,36 +298,58 @@ class MainActivity : AppCompatActivity() {
         //tvProxyAddress = findViewById(R.id.tv_proxy_address)
         etProxyPort = findViewById(R.id.et_proxy_port)
         tvProxyIpLabel = findViewById(R.id.tv_proxy_ip_label)
+        // WIRE BUTTON INTERACTION: Click listener to display custom override options tool windows
+        findViewById<LinearLayout>(R.id.btn_custom_override_ping).setOnClickListener {
+            showCustomPingOverrideDialog()
+        }
         val configCount = mobile.Mobile.getDefaultConfigCount()
         val buildStatus = mobile.Mobile.getBuildStatus()
-        //val isOfficialBuild = mobile.Mobile.getBuildStatus() == "Official Release"
+        //val isOfficialBuild = buildStatus == "Official Release" || configCount > 0
         val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
         val savedPort = sharedPref.getString("proxy_port", "1080")
         etProxyPort.setText(savedPort)
 
-        if (configCount > 0) {
-            // Injection worked!
-            switchDefault.visibility = android.view.View.VISIBLE
-            switchDefault.isEnabled = true
-            switchDefault.text = "Use default configs"
-        } else if (buildStatus == "Official Release") {
-            // The build is recognized as official, but data is empty
-            switchDefault.visibility = android.view.View.VISIBLE
-            switchDefault.isEnabled = false
-            switchDefault.text = "Use default configs (None found)"
-        } else {
-            // Fallback for community editions without cached files
-            val configFile = java.io.File(filesDir, "cached_default_configs.bin")
-            if (configFile.exists()) {
-                switchDefault.visibility = android.view.View.VISIBLE
+        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val startInVpnMode = appPrefs.getBoolean("default_to_vpn_mode", true)
+
+        isProxyMode = !startInVpnMode // If startInVpnMode is false, we are in Proxy Mode!
+
+        // BIND PING ALL HEADER CONTROL TO DISPATCHER LOOP
+        findViewById<LinearLayout>(R.id.btn_ping_all_header).setOnClickListener {
+            if (isPingRunning) {
+                Toast.makeText(this, "Ping sequence is currently running. Please wait...", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener // Abort the click
+            }
+
+            if (configList.isNotEmpty()) {
+                isPingRunning = true // Lock the UI
+                triggerStartupPings(configList)
             } else {
-                switchDefault.visibility = android.view.View.GONE
+                Toast.makeText(this, "No configurations available to ping.", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Load saved configs and selected ID
+        if (isProxyMode) {
+            layoutVpnControls.visibility = android.view.View.GONE
+            layoutProxyControls.visibility = android.view.View.VISIBLE
+            if (::etProxyPort.isInitialized) {
+                etProxyPort.isEnabled = true
+            }
+        } else {
+            layoutVpnControls.visibility = android.view.View.VISIBLE
+            layoutProxyControls.visibility = android.view.View.GONE
+        }
 
-//        Log.i("NativeConfigs", "Loaded $count default configs from JSON")
+        // ENFORCE COMMUNITY CLEANUP: Hide the switch entirely if there are no default configs
+        if (configCount > 0) {
+            switchDefault.visibility = android.view.View.VISIBLE
+            switchDefault.isEnabled = true
+            switchDefault.text = "Use default configs"
+        } else {
+            switchDefault.visibility = android.view.View.GONE
+        }
+
+        //  Log.i("NativeConfigs", "Loaded $count default configs from JSON")
         // Read the startup preference and apply it to the switch natively
         //val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
         //switchDefault.isChecked = appPrefs.getBoolean("default_configs_at_start", false)
@@ -308,13 +399,20 @@ class MainActivity : AppCompatActivity() {
             refreshConfigList()
         }
 
+        // BIND PING ALL HEADER CONTROL TO DISPATCHER LOOP
+        findViewById<LinearLayout>(R.id.btn_ping_all_header).setOnClickListener {
+            if (configList.isNotEmpty()) {
+                //Toast.makeText(this, "Pinging all configurations...", Toast.LENGTH_SHORT).show()
+                // Directly trigger your asynchronous multi-threaded test sequence
+                triggerStartupPings(configList)
+            } else {
+                Toast.makeText(this, "No configurations available to ping.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         // RecyclerView for configs
         recyclerConfigs.layoutManager = LinearLayoutManager(this)
         refreshConfigList()
-
-        //triggerStartupPings(configList)
-
-        //updateButtonStates(false)
 
         btnToggle.setOnClickListener {
             if (isVpnConnected) {
@@ -367,6 +465,17 @@ class MainActivity : AppCompatActivity() {
         } else {
             registerReceiver(vpnStateReceiver, filter)
         }
+
+        val pingFilter = IntentFilter().apply {
+            addAction("PING_ALL_FINISHED")
+            addAction("ROW_PING_FINISHED")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(pingReceiver, pingFilter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(pingReceiver, pingFilter)
+        }
+
     }
 
     private fun applyCurrentSort() {
@@ -391,6 +500,182 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // 🟢 Helper validation function matching your DNS Resolver Scanner Window logic
+    private fun isValidIpv4(ip: String): Boolean {
+        val parts = ip.split(".")
+        if (parts.size != 4) return false
+        return parts.all { part ->
+            val num = part.toIntOrNull()
+            num != null && num in 0..255 // Checks numeric bounds securely without regular expressions
+        }
+    }
+
+    // 🟢 Helper port parsing function matching your DNS Resolver Scanner Window logic
+    private fun isValidIpv4WithOptionalPort(input: String): Boolean {
+        if (input.contains(":")) {
+            val parts = input.split(":")
+            if (parts.size != 2) return false
+            val port = parts[1].toIntOrNull()
+            return isValidIpv4(parts[0]) && port != null && port in 1..65535
+        }
+        return isValidIpv4(input)
+    }
+
+    private fun showCustomPingOverrideDialog() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padVertical = (24 * resources.displayMetrics.density).toInt()
+            val padHorizontal = (16 * resources.displayMetrics.density).toInt()
+            setPadding(padHorizontal, padVertical, padHorizontal, padVertical)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val tvGuideLabel = TextView(this).apply {
+            text = "Use Tunnel Settings to set tunnel parameters"
+            textSize = 13f
+            setTextColor(Color.GRAY)
+            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).toInt())
+        }
+        container.addView(tvGuideLabel)
+        // --- ROW 1: IP Address Label & Entry Input ---
+        val tvIpLabel = TextView(this).apply {
+            text = "IP Address:"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, (6 * resources.displayMetrics.density).toInt())
+        }
+        val etIpInput = EditText(this).apply {
+            hint = "e.g., 8.8.8.8"
+            maxLines = 1
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        container.addView(tvIpLabel)
+        container.addView(etIpInput)
+
+        // Spacer Element
+        container.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(1, (16 * resources.displayMetrics.density).toInt())
+        })
+
+        // --- ROW 2: Tunnel Mode Selection Header & Options Grid ---
+        val tvModeLabel = TextView(this).apply {
+            text = "Tunnel Mode:"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, (6 * resources.displayMetrics.density).toInt())
+        }
+
+        val rgModeOptions = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            weightSum = 4f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val rbParams = RadioGroup.LayoutParams(0, RadioGroup.LayoutParams.WRAP_CONTENT, 1f)
+
+        val rbUdp = android.widget.RadioButton(this).apply {
+            id = android.view.View.generateViewId()
+            text = "UDP"
+            layoutParams = rbParams
+        }
+        val rbTcp = android.widget.RadioButton(this).apply {
+            id = android.view.View.generateViewId()
+            text = "TCP"
+            layoutParams = rbParams
+        }
+        val rbDot = android.widget.RadioButton(this).apply {
+            id = android.view.View.generateViewId()
+            text = "DoT"
+            layoutParams = rbParams
+        }
+        val rbDoh = android.widget.RadioButton(this).apply {
+            id = android.view.View.generateViewId()
+            text = "DoH"
+            layoutParams = rbParams
+        }
+
+        rgModeOptions.addView(rbUdp)
+        rgModeOptions.addView(rbTcp)
+        rgModeOptions.addView(rbDot)
+        rgModeOptions.addView(rbDoh)
+        rgModeOptions.check(rbUdp.id)
+
+        container.addView(tvModeLabel)
+        container.addView(rgModeOptions)
+
+        // Spacer Element
+        container.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(1, (20 * resources.displayMetrics.density).toInt())
+        })
+
+        // --- ROW 3: Scan Button Control ---
+        val btnScanAction = Button(this).apply {
+            text = "PING / شروع پینگ"
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        container.addView(btnScanAction)
+
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Single IP Ping to Servers")
+            .setView(container)
+            .create()
+
+        btnScanAction.setOnClickListener {
+
+            if (isPingRunning) {
+                Toast.makeText(this, "A ping sequence is already running. Please wait...", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener // Abort the click
+            }
+
+            val enteredTarget = etIpInput.text.toString().trim()
+
+            val selectedMode = when (rgModeOptions.checkedRadioButtonId) {
+                rbTcp.id -> "tcp"
+                rbDot.id -> "dot"
+                rbDoh.id -> "doh"
+                else -> "udp"
+            }
+
+            // 🟢 CONDITIONAL VALIDATION: Uses protocol parsing approach for UDP/TCP/DoT, regex for DoH
+            val isValid = if (selectedMode == "doh") {
+                enteredTarget.isNotEmpty() && enteredTarget.matches(Regex("^[a-zA-Z0-9.:_-]+$"))
+            } else {
+                // 🚀 Completely removed regex! Reusing your robust split-and-bound verification protocols
+                isValidIpv4WithOptionalPort(enteredTarget)
+            }
+
+            if (!isValid) {
+                Toast.makeText(this, "Notification: Entered IP is incorrect. / آی‌پی وارد شده اشتباه است", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+
+            dialog.dismiss()
+            isPingRunning = true
+            triggerCustomOverridePings(enteredTarget, selectedMode)
+        }
+
+        dialog.show()
+
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.94).toInt(),
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+    }
+
     private fun compareLatencies(lat1: Long, lat2: Long, asc: Boolean): Int {
         // Normalize unpinged and dead codes to heavy ceiling values
         // to cleanly cluster them at the bottom of standard ascending checks
@@ -399,58 +684,187 @@ class MainActivity : AppCompatActivity() {
 
         return if (asc) v1.compareTo(v2) else v2.compareTo(v1)
     }
-    private fun triggerStartupPings(configs: List<Config>) {
-        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
-        if (!appPrefs.getBoolean("ping_at_start", false)) {
-            return // Setting is OFF, do nothing
+
+    private fun triggerCustomOverridePings(targetIp: String, targetMode: String) {
+        Log.i("VAY_DEBUG", "Custom Override Bulk Ping Sequence Initiated against -> $targetIp [$targetMode]")
+
+        if (configList.isEmpty()) return
+
+        // 1. Force state updates instantly across layout row items on screen
+        for (index in configList.indices) {
+            val holder = recyclerConfigs.findViewHolderForAdapterPosition(index)
+            holder?.itemView?.findViewById<TextView>(R.id.tv_latency)?.text = "Ping..."
         }
 
-        Log.i("VAY_DEBUG", "Startup Ping sequence initiated...")
+        val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
+        val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
+        val workers = tunnelPrefs.getInt("workers", 20)
+        val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
+        val pTimeout = tunnelPrefs.getInt("probe_timeout", 15)
+        val uTimeout = tunnelPrefs.getInt("udp_timeout", 1000)
+        val retries = tunnelPrefs.getInt("retries", 0)
 
-        val safeConfigs = configs.toList()
+        val safeWorkers = if (targetMode.lowercase() == "udp" && workers > 20) {
+            20
+        } else {
+            workers
+        }
 
-        CoroutineScope(Dispatchers.IO).launch {
-
-            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-            val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
-            val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
-            val workers = tunnelPrefs.getInt("workers", 20).toLong()
-            val tWait = tunnelPrefs.getInt("tunnel_wait", 3000).toLong()
-            val pTimeout = tunnelPrefs.getInt("probe_timeout", 15000).toLong()
-            val uTimeout = tunnelPrefs.getInt("udp_timeout", 1000).toLong()
-            val retries = tunnelPrefs.getInt("retries", 0).toLong()
-
-            for ((index, config) in safeConfigs.withIndex()) {
-                val addressToPing = config.dnsAddress.split(",").firstOrNull()?.trim() ?: ""
-                if (addressToPing.isEmpty()) continue
-
-                val configIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else 0L
-
-                withContext(Dispatchers.Main) {
-                    val holder = recyclerConfigs.findViewHolderForAdapterPosition(index)
-                    if (holder != null) {
-                        val tvLatency = holder.itemView.findViewById<TextView>(R.id.tv_latency)
-                        tvLatency?.text = "Ping..."
-                    }
+        // AUTOMATED PORT & SCHEMA FORMATTER LAYER
+        val formattedResolver = when (targetMode.lowercase()) {
+            "udp", "tcp" -> if (targetIp.contains(":")) targetIp else "$targetIp:53"
+            "dot" -> if (targetIp.contains(":")) targetIp else "$targetIp:853"
+            "doh" -> {
+                var url = targetIp
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    url = "https://$url"
                 }
 
-                val latencyMs = mobile.Mobile.pingServer(
-                    config.isDefault, configIndex, addressToPing, config.mode,
-                    config.domain, config.pubkey, "https://cloudflare-dns.com/dns-query",
-                    proxyType, config.authProtocol, config.user, config.pass, config.ssMethod,
-                    config.recordType, config.idleTimeout, config.keepAlive, config.clientIdSize,
-                    lightE2E, workers, tWait, pTimeout, uTimeout, retries
-                )
+                // Calculate the scheme offset and check if a path slash exists using indexOf
+                val schemeIndex = url.indexOf("://")
+                val startIndex = if (schemeIndex != -1) schemeIndex + 3 else 0
 
-                withContext(Dispatchers.Main) {
-                    // 🟢 SAVE TO CENTRAL CACHE BY ID
-                    ConfigAdapter.pingCache[config.id] = if (latencyMs > 0 && latencyMs < 99999) latencyMs else -2L
+                if (url.indexOf("/", startIndex) == -1) {
+                    url = url.removeSuffix("/") + "/dns-query"
+                }
+                url
+            }
+            else -> targetIp
+        }
 
-                    // Force the row redraw natively
-                    configAdapter?.notifyItemChanged(index)
+        Log.i("VAY_DEBUG", "[Override Formatter] Remapped input '$targetIp' to safe endpoint target: '$formattedResolver'")
+
+        var configProbeTimeout = pTimeout.toLong()
+
+        val jsonArray = org.json.JSONArray()
+        for (config in configList) {
+            val finalConfig = if (config.isDefault) DefaultConfigProvider.getActualConfig(this@MainActivity, config) else config
+
+            val currentMode = finalConfig.mode.lowercase()
+
+            if (currentMode == "udp" || currentMode == "tcp") {
+                if (configProbeTimeout > 10000L) {
+                    configProbeTimeout = 10000L
                 }
             }
+
+            val jsonTaskObj = org.json.JSONObject().apply {
+                put("id", config.id)
+                put("is_default", config.isDefault)
+                put("config_index", if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L)
+
+                // Pass the safely formatted target straight to the Go workers
+                put("dns_mode", targetMode)
+                put("resolvers", formattedResolver)
+                put("base_doh_url", if (targetMode.lowercase() == "doh") formattedResolver else "")
+
+                put("custom_domain", finalConfig.domain)
+                put("custom_pubkey", finalConfig.pubkey)
+                put("proxy_type", proxyType)
+                put("protocol", finalConfig.protocol)
+                put("user", if (finalConfig.protocol == "shadowsocks") finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
+                put("pass", if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none")
+                put("ss_method", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
+                put("record_type", finalConfig.recordType)
+                put("idle_timeout", finalConfig.idleTimeout)
+                put("keep_alive", finalConfig.keepAlive)
+                put("client_id_size", finalConfig.clientIdSize)
+                put("mtu", finalConfig.mtu)
+            }
+            jsonArray.put(jsonTaskObj)
         }
+
+        val serviceIntent = Intent(this, VayPingService::class.java).apply {
+            putExtra("TASKS_JSON", jsonArray.toString())
+            putExtra("WORKERS", safeWorkers.toLong())
+            putExtra("TUNNEL_WAIT", tWait.toLong())
+            putExtra("UDP_TIMEOUT", uTimeout.toLong())
+            putExtra("PROBE_TIMEOUT", pTimeout.toLong())
+            putExtra("RETRIES", retries.toLong())
+            putExtra("LIGHT_E2E", lightE2E)
+            putExtra("QUICK_SCAN", false) // or engineQuickScan
+        }
+        startService(serviceIntent)
+    }
+
+    private fun triggerStartupPings(configs: List<Config>) {
+        Log.i("VAY_DEBUG", "Massive Multi-Config Parallel Engine Run Launched...")
+        val safeConfigs = configs.toList()
+
+        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+
+        for (index in safeConfigs.indices) {
+            val holder = recyclerConfigs.findViewHolderForAdapterPosition(index)
+            holder?.itemView?.findViewById<TextView>(R.id.tv_latency)?.text = "Ping..."
+        }
+
+        val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
+        val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
+        val workers = tunnelPrefs.getInt("workers", 20)
+        val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
+        val pTimeout = tunnelPrefs.getInt("probe_timeout", 15)
+        val uTimeout = tunnelPrefs.getInt("udp_timeout", 1000)
+        val retries = tunnelPrefs.getInt("retries", 0)
+
+        var hasUdp = false
+        for (config in safeConfigs) {
+            val finalConfig = if (config.isDefault) DefaultConfigProvider.getActualConfig(this@MainActivity, config) else config
+            if (finalConfig.mode.lowercase() == "udp") {
+                hasUdp = true
+                break
+            }
+        }
+
+        val safeWorkers = if (hasUdp && workers > 20) {
+            20
+        } else {
+            workers
+        }
+
+        // 1. Pack configuration models cleanly for normal/custom servers
+        val jsonArray = org.json.JSONArray()
+        for (config in safeConfigs) {
+            val finalConfig = if (config.isDefault) DefaultConfigProvider.getActualConfig(this@MainActivity, config) else config
+            val multipathDnsList = getMultipathResolvers(config.id, finalConfig.dnsAddress, finalConfig.mode)
+
+            val jsonTaskObj = org.json.JSONObject().apply {
+                put("id", config.id)
+                put("is_default", config.isDefault)
+                put("config_index", if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L)
+                put("dns_mode", finalConfig.mode)
+                put("custom_domain", finalConfig.domain)
+                put("custom_pubkey", finalConfig.pubkey)
+                put("resolvers", multipathDnsList)
+                put("base_doh_url", if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else "")
+                put("proxy_type", proxyType)
+                put("protocol", finalConfig.protocol)
+
+                // Mirror authentication parameter construction criteria explicitly
+                put("user", if (finalConfig.protocol == "shadowsocks") finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
+                put("pass", if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none")
+                put("ss_method", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
+                put("record_type", finalConfig.recordType)
+                put("idle_timeout", finalConfig.idleTimeout)
+                put("keep_alive", finalConfig.keepAlive)
+                put("client_id_size", finalConfig.clientIdSize)
+                put("mtu", finalConfig.mtu)
+            }
+            jsonArray.put(jsonTaskObj)
+        }
+
+        val serviceIntent = Intent(this, VayPingService::class.java).apply {
+            putExtra("TASKS_JSON", jsonArray.toString())
+            putExtra("WORKERS", safeWorkers.toLong())
+            putExtra("TUNNEL_WAIT", tWait.toLong())
+            putExtra("UDP_TIMEOUT", uTimeout.toLong())
+            putExtra("PROBE_TIMEOUT", pTimeout.toLong())
+            putExtra("RETRIES", retries.toLong())
+            putExtra("LIGHT_E2E", lightE2E)
+            putExtra("QUICK_SCAN", false) // or engineQuickScan
+        }
+        startService(serviceIntent)
     }
 
     private fun loadSelectedConfig() {
@@ -810,11 +1224,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        // We use GetDefaultConfigCount as a secondary check.
-        // If Go has configs in memory, it MUST be an official build.
         val buildStatus = mobile.Mobile.getBuildStatus()
         val configCount = mobile.Mobile.getDefaultConfigCount()
-
         val isOfficialBuild = buildStatus == "Official Release" || configCount > 0
 
         // Read user preferences (Default is false/invisible)
@@ -826,7 +1237,7 @@ class MainActivity : AppCompatActivity() {
         val showUploadResolvers = menuPrefs.getBoolean("show_upload_resolvers", false)
 
         if (!isOfficialBuild) {
-            // Hide all private infrastructure options for public builds
+            // Hide all private infrastructure options for completely public community builds
             menu.findItem(R.id.action_verify)?.isVisible = false
             menu.findItem(R.id.action_check_app_update)?.isVisible = false
             menu.findItem(R.id.action_update_configs)?.isVisible = false
@@ -835,14 +1246,24 @@ class MainActivity : AppCompatActivity() {
             menu.findItem(R.id.action_upload_configs)?.isVisible = false
             menu.findItem(R.id.action_quick_scanner)?.isVisible = false
         } else {
-            // Respect user preferences for visibility
+            // HYBRID VAULT MODE: Keep App Verification visible, but filter out sync tools if configs are omitted
             menu.findItem(R.id.action_verify)?.isVisible = true
-            menu.findItem(R.id.action_quick_scanner)?.isVisible = true
             menu.findItem(R.id.action_check_app_update)?.isVisible = showAppUpdate
-            menu.findItem(R.id.action_update_configs)?.isVisible = showUpdateConfigs
-            menu.findItem(R.id.action_update_resolvers)?.isVisible = showUpdateResolvers
-            menu.findItem(R.id.action_upload_configs)?.isVisible = showUploadConfigs
-            menu.findItem(R.id.action_upload_resolvers)?.isVisible = showUploadResolvers
+
+            if (configCount == 0L) {
+                // If official configs are entirely missing, hide all config/resolver sync & scanning mechanics
+                menu.findItem(R.id.action_update_configs)?.isVisible = false
+                menu.findItem(R.id.action_update_resolvers)?.isVisible = false
+                menu.findItem(R.id.action_upload_configs)?.isVisible = false
+                menu.findItem(R.id.action_upload_resolvers)?.isVisible = false
+                menu.findItem(R.id.action_quick_scanner)?.isVisible = false
+            } else {
+                menu.findItem(R.id.action_quick_scanner)?.isVisible = true
+                menu.findItem(R.id.action_update_configs)?.isVisible = showUpdateConfigs
+                menu.findItem(R.id.action_update_resolvers)?.isVisible = showUpdateResolvers
+                menu.findItem(R.id.action_upload_configs)?.isVisible = showUploadConfigs
+                menu.findItem(R.id.action_upload_resolvers)?.isVisible = showUploadResolvers
+            }
 
             // Verification Logic
             val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
@@ -859,6 +1280,18 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // Synchronize the Toggle Mode Menu Item Text on startup
+        val modeToggleItem = menu.findItem(R.id.action_toggle_mode)
+        if (modeToggleItem != null) {
+            if (isProxyMode) {
+                modeToggleItem.title = "Switch to VPN Mode"
+            } else {
+                modeToggleItem.title = "Switch to Proxy Mode"
+            }
+        }
+
+        return true // This should be the last line of your existing function
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -1590,7 +2023,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun getMultipathResolvers(configId: String, defaultAddr: String, mode: String): String {
+    fun getMultipathResolvers(configId: String, defaultAddr: String, mode: String): String {
 
         // THE RUTHLESS FORMATTER: Strips everything and forces the correct mode
         fun forceCorrectPort(res: String): String {
@@ -1840,28 +2273,81 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkForAppUpdate() {
         val currentVersion = try {
-            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
         } catch (e: Exception) {
-            "1.0"
+            "1.0.0"
         }
 
         runOnUiThread { Toast.makeText(this, "Checking for app updates...", Toast.LENGTH_SHORT).show() }
 
         Thread {
-            // NATIVE VAULT: Go handles the network request
-            val result = mobile.Mobile.checkForAppUpdate(currentVersion)
+            try {
+                // Connect directly to your public GitHub repository's latest release endpoint
+                val url = URL("https://api.github.com/repos/Starling226/vaydns-vpn/releases/latest")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("Accept", "application/vnd.github.v3+json")
+                    // GitHub API requires a User-Agent string to prevent automated request blocking
+                    setRequestProperty("User-Agent", "VayDNS-App-Updater")
+                }
 
-            runOnUiThread {
-                if (result.startsWith("UPDATE_AVAILABLE|")) {
-                    val newVersion = result.split("|")[1]
-                    showUpdateDialog(newVersion)
-                } else if (result == "NO_UPDATE") {
-                    Toast.makeText(this, "You are using the latest version ($currentVersion).", Toast.LENGTH_SHORT).show()
+                if (connection.responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                    val jsonResponse = connection.inputStream.bufferedReader().use { it.readText() }
+                    val jsonObject = org.json.JSONObject(jsonResponse)
+
+                    // Extract the release tag name (e.g., "v1.11.0" or "1.11.0")
+                    val fetchedVersionRaw = jsonObject.getString("tag_name").trim()
+
+                    // Strip the 'v' prefix if present for clean calculation comparison blocks
+                    val fetchedVersion = if (fetchedVersionRaw.startsWith("v", ignoreCase = true)) {
+                        fetchedVersionRaw.substring(1)
+                    } else {
+                        fetchedVersionRaw
+                    }
+
+                    // Normalize current version string to remove any unexpected character decorations
+                    val cleanCurrent = if (currentVersion.startsWith("v", ignoreCase = true)) currentVersion.substring(1) else currentVersion
+
+                    runOnUiThread {
+                        if (isNewerAppVersionLocal(cleanCurrent, fetchedVersion)) {
+                            showUpdateDialog(fetchedVersion)
+                        } else {
+                            Toast.makeText(this@MainActivity, "You are using the latest version ($currentVersion).", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 } else {
-                    Toast.makeText(this, result, Toast.LENGTH_SHORT).show()
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Update check failed: Server returned ${connection.responseCode}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Failed to connect to GitHub update server.", Toast.LENGTH_SHORT).show()
                 }
             }
         }.start()
+    }
+
+    // Native version comparison logic that mirrors your original Go parsing algorithm
+    private fun isNewerAppVersionLocal(current: String, fetched: String): Boolean {
+        val cleanCurrent = current.filter { it.isDigit() || it == '.' }.split(".")
+        val cleanFetched = fetched.filter { it.isDigit() || it == '.' }.split(".")
+
+        val maxLength = maxOf(cleanCurrent.size, cleanFetched.size)
+
+        for (i in 0 until maxLength) {
+            val c = cleanCurrent.getOrNull(i)?.toIntOrNull() ?: 0
+            val f = cleanFetched.getOrNull(i)?.toIntOrNull() ?: 0
+
+            if (f > c) return true
+            if (f < c) return false
+        }
+        return false
     }
 
     private fun showUpdateDialog(newVersion: String) {
@@ -2090,11 +2576,11 @@ class MainActivity : AppCompatActivity() {
         checkForPendingDnsUpdates()
         refreshConfigList()   // refresh after returning from editor
 
-        // 🟢 2. NOW we trigger the pings, ensuring it only happens once per app launch
-        if (!hasRunStartupPing) {
+        // 2. NOW we trigger the pings, ensuring it only happens once per app launch
+        /**if (!hasRunStartupPing) {
             hasRunStartupPing = true
             triggerStartupPings(configList)
-        }
+        }*/
     }
 
     override fun onDestroy() {

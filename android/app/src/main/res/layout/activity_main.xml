@@ -74,8 +74,8 @@
                 android:focusable="true"
                 android:padding="4dp"
                 android:background="?attr/selectableItemBackground"
-                android:layout_marginEnd="8dp"
-                app:layout_constraintEnd_toStartOf="@+id/view_header_actions_placeholder"
+                android:layout_marginEnd="16dp"
+                app:layout_constraintEnd_toStartOf="@+id/btn_custom_override_ping"
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintBottom_toBottomOf="parent">
 
@@ -89,13 +89,53 @@
                     android:textColor="?android:attr/textColorSecondary" />
             </LinearLayout>
 
-            <View
-                android:id="@+id/view_header_actions_placeholder"
-                android:layout_width="140dp"
-                android:layout_height="1dp"
+            <LinearLayout
+                android:id="@+id/btn_custom_override_ping"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp"
+                android:layout_marginEnd="16dp"
+                android:background="?attr/selectableItemBackground"
+                app:layout_constraintEnd_toStartOf="@+id/btn_ping_all_header"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_network_ping"
+                    app:tint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btn_ping_all_header"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp"
+                android:background="?attr/selectableItemBackground"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintBottom_toBottomOf="parent" />
+                app:layout_constraintBottom_toBottomOf="parent">
+
+                <TextView
+                    android:id="@+id/tv_header_ping_all"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Ping All"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="?android:attr/textColorSecondary" />
+            </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 

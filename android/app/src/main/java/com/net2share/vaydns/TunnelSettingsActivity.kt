@@ -42,8 +42,28 @@ class TunnelSettingsActivity : AppCompatActivity() {
         etProbeTimeout = findViewById(R.id.et_probe_timeout)
         etUdpTimeout = findViewById(R.id.et_udp_timeout)
         etRetries = findViewById(R.id.et_retries)
+        cbEnablePrescan = findViewById(R.id.cb_enable_prescan)
+        ensureDefaults()
 
         loadSettings()
+    }
+
+    private fun ensureDefaults() {
+        val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        // Only save if the keys don't exist yet
+        if (!prefs.contains("enable_prescan")) {
+            prefs.edit().apply {
+                putBoolean("enable_prescan", true)
+                putString("proxy_type", "socks5h")
+                putBoolean("light_e2e", true)
+                putInt("workers", 20)
+                putInt("tunnel_wait", 3000)
+                putInt("probe_timeout", 15000)
+                putInt("udp_timeout", 1000)
+                putInt("retries", 0)
+                apply()
+            }
+        }
     }
 
     private fun loadSettings() {
@@ -83,13 +103,33 @@ class TunnelSettingsActivity : AppCompatActivity() {
             else -> "socks5h"
         }
         prefs.putString("proxy_type", proxyType)
-
         prefs.putBoolean("light_e2e", rbLightE2e.isChecked)
-        prefs.putInt("workers", etWorkers.text.toString().toIntOrNull() ?: 20)
-        prefs.putInt("tunnel_wait", etTunnelWait.text.toString().toIntOrNull() ?: 3000)
-        prefs.putInt("probe_timeout", etProbeTimeout.text.toString().toIntOrNull() ?: 15000)
-        prefs.putInt("udp_timeout", etUdpTimeout.text.toString().toIntOrNull() ?: 1000)
-        prefs.putInt("retries", etRetries.text.toString().toIntOrNull() ?: 0)
+
+        // 1. Parse and validate Workers Count
+        val rawWorkers = etWorkers.text.toString().toIntOrNull() ?: 20
+        prefs.putInt("workers", if (rawWorkers <= 0) 20 else rawWorkers)
+
+        // 2. Parse and sanitize Tunnel Wait (Strictly ms, Floor >= 500 ms)
+        var inputTunnelWait = etTunnelWait.text.toString().toIntOrNull() ?: 3000
+        if (inputTunnelWait < 500) inputTunnelWait = 500
+        prefs.putInt("tunnel_wait", inputTunnelWait)
+        etTunnelWait.setText(inputTunnelWait.toString()) // Keep the UI input synchronized
+
+        // 3. Parse and sanitize UDP Timeout (Strictly ms, Floor >= 500 ms)
+        var inputUdpTimeout = etUdpTimeout.text.toString().toIntOrNull() ?: 1000
+        if (inputUdpTimeout < 500) inputUdpTimeout = 500
+        prefs.putInt("udp_timeout", inputUdpTimeout)
+        etUdpTimeout.setText(inputUdpTimeout.toString())
+
+        // 4. Parse and sanitize Probe Timeout (Strictly ms, Floor >= 5000 ms)
+        var inputProbeTimeout = etProbeTimeout.text.toString().toIntOrNull() ?: 15000
+        if (inputProbeTimeout < 5000) inputProbeTimeout = 5000
+        prefs.putInt("probe_timeout", inputProbeTimeout)
+        etProbeTimeout.setText(inputProbeTimeout.toString())
+
+        // 5. Parse and validate Retries
+        val inputRetries = etRetries.text.toString().toIntOrNull() ?: 0
+        prefs.putInt("retries", if (inputRetries < 0) 0 else inputRetries)
 
         prefs.apply()
     }

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
-	"sync/atomic"	
+//	"sync/atomic"	
 	"time"
 	"fmt"
 	"net/http"
@@ -27,6 +27,37 @@ var (
 	gcCounter int32
 	testCounter int32
 )
+
+var (	
+	pingCancel context.CancelFunc
+	pingMu     sync.Mutex
+)
+
+var (	
+	rowPingCancel context.CancelFunc
+	rowPingMu     sync.Mutex
+)
+
+type PingTask struct {
+	ID           string `json:"id"`
+	IsDefault    bool   `json:"is_default"`
+	ConfigIndex  int64  `json:"config_index"`
+	DnsMode      string `json:"dns_mode"`
+	CustomDomain string `json:"custom_domain"`
+	CustomPubkey string `json:"custom_pubkey"`
+	Resolvers    string `json:"resolvers"`
+	BaseDohUrl   string `json:"base_doh_url"`
+	ProxyType    string `json:"proxy_type"`
+	Protocol     string `json:"protocol"`
+	User         string `json:"user"`
+	Pass         string `json:"pass"`
+	SSMethod     string `json:"ss_method"`
+	RecordType   string `json:"record_type"`
+	IdleTimeout  string `json:"idle_timeout"`
+	KeepAlive    string `json:"keep_alive"`
+	ClientIDSize int64  `json:"client_id_size"`
+	MTU          int64  `json:"mtu"`
+}
 
 // StartF35Scan initiates a scan using the f35 engine logic.
 func StartF35Scan(
@@ -84,7 +115,7 @@ func StartF35Scan(
 	if tunnelProtocol == "ssh" && strings.Contains(proxyPass, "-----BEGIN") {
 		proxyPass = FormatSSHKey(proxyPass)
 	}
-	
+		
 //	engineQuickScan = false //we will enable this in future
 	cfg := f35.DefaultConfig()
 	cfg.Mode = strings.ToLower(dnsMode)
@@ -118,7 +149,7 @@ func StartF35Scan(
 	cfg.Domain = domainToUse
 	cfg.Probe = true
 	cfg.ProbeURL = "http://www.google.com/gen_204"
-	cfg.ProbeTimeout = time.Duration(probeTimeout) * time.Second
+	cfg.ProbeTimeout = time.Duration(probeTimeout) * time.Millisecond
 	cfg.Proxy = proxyType
 	cfg.Workers = workers
 	cfg.Retries = retries
@@ -167,6 +198,7 @@ func StartF35Scan(
 	if err := f35.ValidateConfig(cfg); err != nil {
 		return "error|" + err.Error()
 	}
+
 
 	hooks := f35.Hooks{
 		OnResult: func(res f35.Result) {
@@ -223,9 +255,354 @@ func StartF35Scan(
 	return "started"
 }
 
-func GetScanResults4() string {
-    //  Kotlin will call this and get nothing, keeping Java RAM empty
-    return ""
+// PingMultipleServers concurrently tests all backup resolvers using the advanced f35 worker engine
+// and prints detailed real-time benchmarks for each node directly to Logcat.
+func PingMultipleServers(
+	isDefault bool, configIndex int64, dnsMode string, customDomain string, customPublicKey string,
+	resolversList string, baseDohUrl string, proxyType string, tunnelProtocol string, proxyUser string,
+	proxyPass string, ssMethod string, recordType string, idleTimeout string, keepAlive string,
+	clientIdSize int64, mtu int64, workers int64, tunnelWait int64, udpTimeout int64, probeTimeout int64, 
+	retries int64, lightE2EEnabled bool, engineQuickScan bool,
+) int64 {
+
+	// fmt.Printf("VAY_DEBUG: [Multi-Ping Engine] Starting parallel batch check for resolvers group...\n")
+
+	rowPingMu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	rowPingCancel = cancel
+	rowPingMu.Unlock()
+	
+	domainToUse := customDomain
+	pubkeyToUse := customPublicKey
+
+	if isDefault {
+		domainToUse = getDefaultConfigDomain(configIndex)
+		pubkeyToUse = getDefaultConfigPubkey(configIndex)
+		recordType = GetDefaultConfigRecordType(configIndex)
+		idleTimeout = GetDefaultConfigIdleTimeout(configIndex)
+		keepAlive = GetDefaultConfigKeepAlive(configIndex)
+		clientIdSize = GetDefaultConfigClientIdSize(configIndex)
+		proxyUser = getDefaultConfigUser(configIndex)
+		proxyPass = getDefaultConfigPass(configIndex)
+	}
+
+	if proxyUser == "" || proxyUser == "none" {
+		if tunnelProtocol == "ssh" {
+			tunnelProtocol = "socks"
+		}
+	}
+	if proxyPass == "" || proxyPass == "none" {
+		if tunnelProtocol == "shadowsocks" || tunnelProtocol == "ss" {
+			tunnelProtocol = "socks"
+		}
+	}
+
+	if tunnelProtocol == "ssh" && strings.Contains(proxyPass, "-----BEGIN") {
+		proxyPass = FormatSSHKey(proxyPass)
+	}
+
+	cfg := f35.DefaultConfig()
+	cfg.Mode = strings.ToLower(dnsMode)
+
+	rawResolvers := strings.Split(resolversList, ",")
+	var cleaned []string
+	realToFake := make(map[string]string)
+
+	for _, r := range rawResolvers {
+		fakeFull := strings.TrimSpace(r)
+		if fakeFull != "" {
+			realFull := fakeFull
+			if !strings.HasPrefix(fakeFull, "http") {
+				translated := translateFakeToReal(fakeFull)
+				if translated != "" {
+					realFull = translated
+				}
+			}
+			realToFake[realFull] = fakeFull       
+			cleaned = append(cleaned, realFull) 
+		}
+	}
+
+	if len(cleaned) == 0 {
+		fmt.Printf("VAY_DEBUG: [Multi-Ping Engine] Aborted - No valid resolvers provided.\n")
+		return -2
+	}
+
+	cfg.Resolvers = cleaned
+	cfg.Domain = domainToUse
+	cfg.Probe = true
+	cfg.ProbeURL = "http://www.google.com/gen_204"
+	cfg.ProbeTimeout = time.Duration(probeTimeout) * time.Millisecond
+	cfg.Proxy = proxyType
+	cfg.Workers = int(workers)
+	cfg.Retries = int(retries)
+	cfg.TunnelWait = time.Duration(tunnelWait) * time.Millisecond
+	cfg.StartPort = 40000
+	cfg.Whois = false
+	cfg.Download = false
+	cfg.Upload = false
+	cfg.Engine = "vaydns"
+
+	if proxyUser != "" && proxyUser != "none" {
+		cfg.ProxyUser = proxyUser
+	}
+	if proxyPass != "" && proxyPass != "none" {
+		cfg.ProxyPass = proxyPass
+	}
+
+	effectiveUdpTimeout := udpTimeout
+	if strings.ToLower(dnsMode) == "doh" || strings.ToLower(dnsMode) == "dot" {
+		if effectiveUdpTimeout < 5000 {
+			effectiveUdpTimeout = 5000 
+		}
+	}
+
+	cfg.ExtraArgs = []string{
+		"-base-doh", baseDohUrl,
+		"-pubkey", pubkeyToUse,
+		"-record-type", strings.ToLower(recordType),
+		"-log-level", "error",
+		"-clientid-size", fmt.Sprintf("%d", clientIdSize),
+		"-utls", "chrome",
+		"-keepalive", keepAlive,
+		"-idle-timeout", idleTimeout,
+		"-mtu", fmt.Sprintf("%d", mtu),		
+		"-udp-timeout", fmt.Sprintf("%dms", effectiveUdpTimeout),
+		"-protocol", tunnelProtocol,
+		"-ss-method", ssMethod,
+		"-user", proxyUser,
+		"-pass", proxyPass,
+		"-fast-fail-enabled", fmt.Sprintf("%v", lightE2EEnabled),
+		"-quick-scan", fmt.Sprintf("%v", engineQuickScan),
+	}
+	cfg.Pubkey = pubkeyToUse
+
+	if err := f35.ValidateConfig(cfg); err != nil {
+		fmt.Printf("VAY_DEBUG: [Multi-Ping Engine] Config Validation Failed: %v\n", err)
+		return -2
+	}
+
+	var minLatency int64 = 99999
+	var mu sync.Mutex
+
+	// HOOKS ENGINE WITH REAL-TIME LOGCAT PRINT TRACES
+	hooks := f35.Hooks{
+		OnResult: func(res f35.Result) {
+			// Map real IP references back onto fake string formats if needed
+			displayIP := res.Resolver
+			if fakeIP, exists := realToFake[res.Resolver]; exists {
+				displayIP = fakeIP
+			}
+
+			if res.Probe == "ok" && res.LatencyMS > 0 && res.LatencyMS < 99999 {
+				// Success Log Print
+				fmt.Printf("VAY_DEBUG: [Multi-Ping Worker] -> %s responded SUCCESS in %dms\n", displayIP, res.LatencyMS)
+				
+				mu.Lock()
+				if res.LatencyMS < minLatency {
+					minLatency = res.LatencyMS
+				}
+				mu.Unlock()
+			} else {
+				// Failure/Timeout Log Print
+				fmt.Printf("VAY_DEBUG: [Multi-Ping Worker] -> %s FAILED/DEAD (Status: %s, Latency: %dms)\n", displayIP, res.Probe, res.LatencyMS)
+			}
+		},
+	}
+
+	// Execute synchronously using the job-channels engine embedded within scan.go
+	_ = f35.ScanWithContext(ctx, cfg, hooks)	
+
+	if minLatency == 99999 {
+		fmt.Printf("VAY_DEBUG: [Multi-Ping Engine] Finished - All resolvers are DEAD. Returning -2.\n")
+		return -2
+	}
+
+	fmt.Printf("VAY_DEBUG: [Multi-Ping Engine] Finished - Absolute fastest latency discovered: %dms\n", minLatency)
+	return minLatency
+}
+
+// PingAllConfigs concurrently runs the advanced f35 engine across ALL configs at once.
+func PingAllConfigs(
+	tasksJson string, workers int, tunnelWait int, udpTimeout int, 
+	probeTimeout int, retries int, lightE2EEnabled bool, engineQuickScan bool,
+) string {
+
+pingMu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	pingCancel = cancel
+	pingMu.Unlock()
+	
+	var tasks []PingTask
+	if err := json.Unmarshal([]byte(tasksJson), &tasks); err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+
+	var wg sync.WaitGroup
+	results := make(map[string]int64)
+	var mu sync.Mutex
+
+	// Parallel Task Dispatch: Spawns isolated execution environments for each config simultaneously
+	for _, task := range tasks {
+		wg.Add(1)
+		go func(t PingTask) {
+			defer wg.Done()
+			defer func() { recover() }() // Guard rail: Prevent a single configuration crash from killing the app
+
+			domainToUse := t.CustomDomain
+			pubkeyToUse := t.CustomPubkey
+			recordType := t.RecordType
+			idleTimeout := t.IdleTimeout
+			keepAlive := t.KeepAlive
+			clientIdSize := t.ClientIDSize
+			proxyUser := t.User
+			proxyPass := t.Pass
+			dnsMode := t.DnsMode
+			tunnelProtocol := t.Protocol
+			proxyType := t.ProxyType
+
+			// Official Config Parameter Recovery Layer
+			if t.IsDefault {
+				domainToUse = getDefaultConfigDomain(t.ConfigIndex)
+				pubkeyToUse = getDefaultConfigPubkey(t.ConfigIndex)
+				recordType = GetDefaultConfigRecordType(t.ConfigIndex)
+				idleTimeout = GetDefaultConfigIdleTimeout(t.ConfigIndex)
+				keepAlive = GetDefaultConfigKeepAlive(t.ConfigIndex)
+				clientIdSize = GetDefaultConfigClientIdSize(t.ConfigIndex)
+				proxyUser = getDefaultConfigUser(t.ConfigIndex)
+				proxyPass = getDefaultConfigPass(t.ConfigIndex)
+				dnsMode = t.DnsMode // Retain active mode set from main workspace rows
+			}
+
+			if proxyUser == "" || proxyUser == "none" {
+				if tunnelProtocol == "ssh" {
+					tunnelProtocol = "socks"
+				}
+			}
+			if proxyPass == "" || proxyPass == "none" {
+				if tunnelProtocol == "shadowsocks" || tunnelProtocol == "ss" {
+					tunnelProtocol = "socks"
+				}
+			}
+
+			if tunnelProtocol == "ssh" && strings.Contains(proxyPass, "-----BEGIN") {
+				proxyPass = FormatSSHKey(proxyPass)
+			}
+
+			cfg := f35.DefaultConfig()
+			cfg.Mode = strings.ToLower(dnsMode)
+
+			rawResolvers := strings.Split(t.Resolvers, ",")
+			var cleaned []string
+			for _, r := range rawResolvers {
+				trimmed := strings.TrimSpace(r)
+				if trimmed != "" {
+					if !strings.HasPrefix(trimmed, "http") {
+						translated := translateFakeToReal(trimmed)
+						if translated != "" {
+							trimmed = translated
+						}
+					}
+					cleaned = append(cleaned, trimmed)
+				}
+			}
+
+			if len(cleaned) == 0 {
+				mu.Lock()
+				results[t.ID] = -2
+				mu.Unlock()
+				return
+			}
+
+			cfg.Resolvers = cleaned
+			cfg.Domain = domainToUse
+			cfg.Probe = true
+			cfg.ProbeURL = "http://www.google.com/gen_204"
+			cfg.ProbeTimeout = time.Duration(probeTimeout) * time.Millisecond
+			cfg.Proxy = proxyType
+			cfg.Workers = workers
+			cfg.Retries = retries
+			cfg.TunnelWait = time.Duration(tunnelWait) * time.Millisecond
+			cfg.StartPort = 42000
+			cfg.Whois = false
+			cfg.Download = false
+			cfg.Upload = false
+			cfg.Engine = "vaydns"
+
+			if proxyUser != "" && proxyUser != "none" {
+				cfg.ProxyUser = proxyUser
+			}
+			if proxyPass != "" && proxyPass != "none" {
+				cfg.ProxyPass = proxyPass
+			}
+
+			effectiveUdpTimeout := udpTimeout
+			if strings.ToLower(dnsMode) == "doh" || strings.ToLower(dnsMode) == "dot" {
+				if effectiveUdpTimeout < 5000 {
+					effectiveUdpTimeout = 5000
+				}
+			}
+
+			cfg.ExtraArgs = []string{
+				"-base-doh", t.BaseDohUrl,
+				"-pubkey", pubkeyToUse,
+				"-record-type", strings.ToLower(recordType),
+				"-log-level", "error",
+				"-clientid-size", fmt.Sprintf("%d", clientIdSize),
+				"-utls", "chrome",
+				"-keepalive", keepAlive,
+				"-idle-timeout", idleTimeout,
+				"-mtu", fmt.Sprintf("%d", t.MTU),
+				"-udp-timeout", fmt.Sprintf("%dms", effectiveUdpTimeout),
+				"-protocol", tunnelProtocol,
+				"-ss-method", t.SSMethod,
+				"-user", proxyUser,
+				"-pass", proxyPass,
+				"-fast-fail-enabled", fmt.Sprintf("%v", lightE2EEnabled),
+				"-quick-scan", fmt.Sprintf("%v", engineQuickScan),
+			}
+			cfg.Pubkey = pubkeyToUse
+
+			if err := f35.ValidateConfig(cfg); err != nil {
+				mu.Lock()
+				results[t.ID] = -2
+				mu.Unlock()
+				return
+			}
+
+			var minLatency int64 = 99999
+			hooks := f35.Hooks{
+				OnResult: func(res f35.Result) {
+					if res.Probe == "ok" && res.LatencyMS > 0 && res.LatencyMS < 99999 {
+						if res.LatencyMS < minLatency {
+							minLatency = res.LatencyMS
+						}
+					}
+				},
+			}
+
+			// Native Multiplex Scope handling internally via jobs inside scan.go
+			_ = f35.ScanWithContext(ctx, cfg, hooks)
+
+			mu.Lock()
+			if minLatency == 99999 {
+				results[t.ID] = -2
+			} else {
+				results[t.ID] = minLatency
+			}
+			mu.Unlock()
+		}(task)
+		
+		// CRITICAL ROUTER GUARDRAIL: Stagger the kickoff of each config engine profile.
+		// Spreading out the launch sequence across 50ms slices breaks up the initial localized
+		// packet avalanche, allowing home router state tables to track the requests cleanly.
+		time.Sleep(50 * time.Millisecond)		
+	}
+
+	wg.Wait()
+
+	bytes, _ := json.Marshal(results)
+	return string(bytes)
 }
 
 func GetScanResults() string {
@@ -242,32 +619,7 @@ func GetScanResults() string {
 }
 
 
-//  KOTLIN FETCHES THE RESULTS ONCE A SECOND
-func GetScanResults3() string {
-	resultMu.Lock()
-	defer resultMu.Unlock()
-	
-	if len(resultQueue) == 0 {
-		return ""
-	}
-	
-	count := len(resultQueue)
-	res := strings.Join(resultQueue, "\n")
-	resultQueue = make([]string, 0) // Empty the queue instantly
-	
-	atomic.AddInt32(&gcCounter, int32(count))
-    if atomic.LoadInt32(&gcCounter) > 1000 {
-        atomic.StoreInt32(&gcCounter, 0)
-        go func() {
-            runtime.GC()
-            debug.FreeOSMemory()
-        }()
-    }
-    	    	
-	return res
-}
-
-//  KOTLIN FETCHES THE ENGINE STATUS ONCE A SECOND
+// KOTLIN FETCHES THE ENGINE STATUS ONCE A SECOND
 func GetScanStatus() string {
 	scanMu.Lock()
 	defer scanMu.Unlock()
@@ -286,7 +638,54 @@ func StopF35Scan() {
 	scanStatus = "stopped"
 	scanMu.Unlock()
 
+	// Explicitly close idle connections to notify the router.
+	// This forces a TCP FIN handshake, which immediately clears NAT entries.
 	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
 		transport.CloseIdleConnections()
 	}
+	time.Sleep(1000 * time.Millisecond)
 }
+
+// Inside f35_bridge.go
+func ManualCleanup() {
+    go func() {
+                
+        runtime.GC()
+        debug.FreeOSMemory()
+
+		fmt.Println("VAY_DEBUG: Manual GC and Memory Free executed")
+    }()
+}
+
+func StopPingAllConfigs() {
+	pingMu.Lock()
+	if pingCancel != nil {
+		pingCancel()
+		pingCancel = nil
+	}
+	pingMu.Unlock()
+
+	// Flush active connections to send FIN packets to the router
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
+	// Give the kernel 1000ms to physically send the TCP FIN packets
+	time.Sleep(1000 * time.Millisecond)
+}
+
+func StopRowPing() {
+	rowPingMu.Lock()
+	if rowPingCancel != nil {
+		rowPingCancel()
+		rowPingCancel = nil
+	}
+	rowPingMu.Unlock()
+
+	// Flush active connections to send FIN packets to the router
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
+	// Give the kernel 1000ms to physically send the TCP FIN packets
+	time.Sleep(1000 * time.Millisecond)
+}
+

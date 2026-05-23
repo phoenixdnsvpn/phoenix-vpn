@@ -199,7 +199,7 @@ func StartVpn(
 	realTcp := translateMultipathFakeToReal(tcp)
 	realDoh := translateMultipathFakeToReal(doh)
 	realDot := translateMultipathFakeToReal(dot)
-		
+			
 	tCfg := bridge.TunnelConfig{
 		BaseDohURL:       baseDohUrl,
 		UdpAddr:          realUdp,
@@ -397,21 +397,11 @@ func StartProxy(
 		time.Sleep(100 * time.Millisecond)
 	}
 
-/*	activeWg = &sync.WaitGroup{}
-	activeCtx, activeCancel = context.WithCancel(context.Background())
-	isRunning = true*/
-
 	// Set the port from the user
 	activeSocksPort = customPort
-//	internalSocks := fmt.Sprintf("127.0.0.1:%d", activeSocksPort)
 	proxyAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(customPort))
-//	proxyAddr := net.JoinHostPort("0.0.0.0", strconv.Itoa(customPort))
-	
-//	atomic.StoreUint64(&ProxyRxBytes, 0)
-//	atomic.StoreUint64(&ProxyTxBytes, 0)
 		
 // PRE-CHECK: Ensure the port is not already in use
-//	l, err := net.Listen("tcp", proxyAddr)
 	l, err := net.Listen("tcp", proxyAddr)
 	if err != nil {
 		mu.Unlock()
@@ -671,7 +661,6 @@ func SyncPreScanResolvers(
 	)
 
 	// 3. Wait for scan to finish (Timeout safety: 15s probe + 3s wait + 1s buffer)
-//	timeout := time.After(19 * time.Second)
 	maxWait := time.Duration(probeTimeout + tunnelWait + 1000) * time.Millisecond
 	timeout := time.After(maxWait)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -740,6 +729,7 @@ waitLoop:
 }
 
 // Returns latency in milliseconds, or -1 if the server is dead/timed out.
+// PingServer performs a synchronous latency test for a single server using StartF35Scan.
 // PingServer performs a synchronous latency test for a single server using StartF35Scan.
 func PingServer(
 	isDefault bool, configIndex int64,

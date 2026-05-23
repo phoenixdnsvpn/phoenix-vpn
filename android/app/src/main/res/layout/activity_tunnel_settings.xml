@@ -44,6 +44,7 @@
                 android:textSize="16sp"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
                 android:checked="true"
                 android:layout_marginBottom="24dp" />
 

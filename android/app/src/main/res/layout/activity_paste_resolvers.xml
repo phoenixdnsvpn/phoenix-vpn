@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/windowBackground"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        app:elevation="4dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar_paste_resolvers"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="Paste Resolvers"
+            app:titleTextColor="?attr/colorOnSurface"
+            app:navigationIcon="@drawable/ic_arrow_back_modern"
+            app:navigationIconTint="?attr/colorOnSurface" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <Button
+            android:id="@+id/btn_clean_paste"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="CLEAN LIST / پاک‌سازی لیست"
+            android:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
+
+        <EditText
+            android:id="@+id/et_raw_resolvers_input"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="top"
+            android:hint="Paste IPs or CIDRs here (separated by spaces, commas, semicolons, or lines)..."
+            android:textColorHint="?android:attr/textColorSecondary"
+            android:textColor="?attr/colorOnSurface"
+            android:background="@android:color/transparent"
+            android:inputType="textMultiLine"
+            android:scrollbars="vertical"
+            android:padding="4dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <Button
+                android:id="@+id/btn_save_paste"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="SAVE"
+                android:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
+                android:layout_marginEnd="6dp"
+                android:textStyle="bold"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btn_import_paste"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="IMPORT"
+                android:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
+                android:layout_marginStart="6dp"
+                android:textStyle="bold"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</LinearLayout>

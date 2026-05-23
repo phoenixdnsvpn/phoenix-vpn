@@ -21,10 +21,10 @@ android {
         versionName = "1.11.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        /**ndk {
+        ndk {
             abiFilters.clear()
             abiFilters.add("armeabi-v7a")
-        }*/
+        }
     }
 
     packaging {
@@ -78,7 +78,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     // Dynamic AAR selection based on the architecture being built
-    val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-arm64.aar"
-    //val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-armv7.aar"
+    //val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-arm64.aar"
+    val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-armv7.aar"
     implementation(files("libs/$targetAar"))
 }

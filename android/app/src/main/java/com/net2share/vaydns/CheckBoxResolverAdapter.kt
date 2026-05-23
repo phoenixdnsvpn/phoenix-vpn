@@ -3,6 +3,7 @@ package com.net2share.vaydns
 import android.graphics.Color
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -33,8 +34,8 @@ class CheckBoxResolverAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val entry = entries[position]
-
-        // 🟢 FIX: Unbind existing TextWatcher before text injection to prevent recycling overwrite bugs!
+        holder.editText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        // Unbind existing TextWatcher before text injection to prevent recycling overwrite bugs!
         holder.textWatcher?.let { holder.editText.removeTextChangedListener(it) }
 
         holder.editText.setText(entry.address)

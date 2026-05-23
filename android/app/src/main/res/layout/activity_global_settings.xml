@@ -55,14 +55,15 @@
                 android:layout_marginBottom="16dp" />
 
             <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_ping_at_start"
+                android:id="@+id/cb_default_vpn_mode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Ping Servers at Start"
-                android:textSize="16sp"
+                android:layout_marginBottom="24dp"
+                android:text="Start in VPN Mode by default"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
-                android:layout_marginBottom="32dp" />
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
             <View
                 android:layout_width="match_parent"

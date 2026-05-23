@@ -1,5 +1,6 @@
 package com.net2share.vaydns
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.*
@@ -73,6 +74,33 @@ class DnsScannerActivity : AppCompatActivity() {
     private lateinit var rbSourceEncrypted: RadioButton
     private lateinit var btnActionResolvers: Button
     private var hasEncryptedResolvers = false
+    // Keeps memory records for the Copy & Paste text strings
+    private var rawPastedResolversText: String = ""
+
+    // Launcher contract to handle processing the results returned from the new window
+    private val pasteResolversLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val data = result.data!!
+            rawPastedResolversText = data.getStringExtra("RESULT_RAW_TEXT") ?: ""
+            val returnedList = data.getStringArrayListExtra("RESULT_RESOLVERS_LIST") ?: arrayListOf()
+
+            if (switchCidrMode.isChecked) {
+                loadedCidrs = returnedList.filter { isValidCidr(it) }
+                tvResolversCount.text = "Loaded pasted CIDR blocks: ${loadedCidrs.size}"
+                selectedCidrs.clear()
+                tvSelectedCidr.text = "Tap right icon to select CIDR ->"
+            } else {
+                resolversList = returnedList
+                tvResolversCount.text = "Loaded pasted resolvers: ${resolversList.size}"
+                val currentThreshold = etNumResolvers.text.toString().toIntOrNull() ?: 5000
+                if (returnedList.size < currentThreshold) {
+                    etNumResolvers.setText(returnedList.size.toString())
+                }
+            }
+        }
+    }
     private val customResolverPickerLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -115,10 +143,20 @@ class DnsScannerActivity : AppCompatActivity() {
         rgTunnelMode = findViewById(R.id.rg_tunnel_mode)
         val tvTunnelModeLabel = findViewById<TextView>(R.id.tv_tunnel_mode_label)
 
+        rgTunnelMode.visibility = android.view.View.VISIBLE
+        tvTunnelModeLabel?.visibility = android.view.View.VISIBLE
+
+        // 2. Pre-select the tunnel mode based on the intent broadcast
+        when (selectedMode.lowercase()) {
+            "tcp" -> rgTunnelMode.check(R.id.rb_mode_tcp)
+            "dot" -> rgTunnelMode.check(R.id.rb_mode_dot)
+            "doh" -> rgTunnelMode.check(R.id.rb_mode_doh)
+            else -> rgTunnelMode.check(R.id.rb_mode_udp)
+        }
         // Toggle visibility based on Scanner Mode
         if (isQuickScanner) {
-            rgTunnelMode?.visibility = android.view.View.VISIBLE
-            tvTunnelModeLabel?.visibility = android.view.View.VISIBLE
+            //rgTunnelMode?.visibility = android.view.View.VISIBLE
+            //tvTunnelModeLabel?.visibility = android.view.View.VISIBLE
             etDomain?.isEnabled = false
 
             // HIDE Conservative Scan (Irrelevant for Light E2E / Quick Scan)
@@ -145,8 +183,8 @@ class DnsScannerActivity : AppCompatActivity() {
             etRetries.visibility = android.view.View.GONE
 
         } else {
-            rgTunnelMode?.visibility = android.view.View.GONE
-            tvTunnelModeLabel?.visibility = android.view.View.GONE
+            //rgTunnelMode?.visibility = android.view.View.GONE
+            //tvTunnelModeLabel?.visibility = android.view.View.GONE
 
             //  SHOW Conservative Scan for True E2E
             switchConservative.visibility = android.view.View.VISIBLE
@@ -181,13 +219,17 @@ class DnsScannerActivity : AppCompatActivity() {
         supportActionBar?.title = "DNS Resolver Scanner"
 //        supportActionBar?.subtitle = selectedDomain
 
+        etWorkers.setText(getWorkerCountForMode())
+
         setupListeners()
 
-        if (isQuickScanner) {
+        etWorkers.setText(getWorkerCountForMode())
+
+        /**if (isQuickScanner) {
             etWorkers.setText("40")
         } else if (!switchConservative.isChecked) {
             etWorkers.setText(if (rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e) "40" else "20")
-        }
+        }*/
 
         // Set initial view components state to match Custom Resolvers default
         btnActionResolvers.text = "IMPORT RESOLVERS"
@@ -255,6 +297,13 @@ class DnsScannerActivity : AppCompatActivity() {
             // Show real domain for custom user configs
             etDomain.setText(selectedDomain)
         }
+
+        // SCANNER SOURCES CLEANUP
+        val configCount = mobile.Mobile.getDefaultConfigCount()
+        if (configCount == 0L) {
+            rbSourceDefault.visibility = android.view.View.GONE
+            rbSourceEncrypted.visibility = android.view.View.GONE
+        }
     }
 
     private fun showBatteryPermissionDialogIfNecessary() {
@@ -297,6 +346,21 @@ class DnsScannerActivity : AppCompatActivity() {
         }
     }
 
+    private fun getWorkerCountForMode(): String {
+        // 2. Otherwise, determine based on protocol
+        val selectedModeLower = when (rgTunnelMode.checkedRadioButtonId) {
+            R.id.rb_mode_tcp -> "tcp"
+            R.id.rb_mode_dot -> "dot"
+            R.id.rb_mode_doh -> "doh"
+            else -> "udp"
+        }
+        if (switchConservative.isChecked) {
+            return if (selectedModeLower == "udp") "10" else "20"
+        }
+
+        return if (selectedModeLower == "udp") "20" else "40"
+    }
+
     private fun setupListeners() {
 
         btnStartScan.setOnClickListener {
@@ -315,7 +379,7 @@ class DnsScannerActivity : AppCompatActivity() {
             }
         }
 
-        // 🟢 DYNAMIC RESOLVER SOURCE LOGIC
+        //  DYNAMIC RESOLVER SOURCE LOGIC
         rgResolverSource.setOnCheckedChangeListener { _, checkedId ->
             // First, unlock UI in case it was locked by Encrypted mode
             switchPublicDns.isEnabled = true
@@ -345,11 +409,18 @@ class DnsScannerActivity : AppCompatActivity() {
             }
         }
 
-        // ACTION BUTTON LOGIC
         btnActionResolvers.setOnClickListener {
             when (rgResolverSource.checkedRadioButtonId) {
                 R.id.rb_source_custom -> chooseCustomResolvers()
-                R.id.rb_source_paste -> showPasteResolversDialog()
+                R.id.rb_source_paste -> {
+                    //  Redirect straight to our high-performance full window Activity
+                    val intent = Intent(this, PasteResolversActivity::class.java).apply {
+                        putExtra("TUNNEL_MODE", selectedMode)
+                        putExtra("IS_CIDR_MODE", switchCidrMode.isChecked)
+                        putExtra("CURRENT_TEXT", rawPastedResolversText)
+                    }
+                    pasteResolversLauncher.launch(intent)
+                }
             }
         }
 
@@ -375,7 +446,11 @@ class DnsScannerActivity : AppCompatActivity() {
             }
         }
 
-        rgE2eMode.setOnCheckedChangeListener { _, checkedId ->
+        rgE2eMode.setOnCheckedChangeListener { _, _ ->
+            etWorkers.setText(getWorkerCountForMode())
+        }
+
+        /**rgE2eMode.setOnCheckedChangeListener { _, checkedId ->
             if (!switchConservative.isChecked) { // Don't override if they are in conservative mode
                 if (checkedId == R.id.rb_light_e2e) {
                     etWorkers.setText("40")
@@ -383,12 +458,29 @@ class DnsScannerActivity : AppCompatActivity() {
                     etWorkers.setText("20")
                 }
             }
-        }
+        }*/
 
         btnSelectCidr.setOnClickListener { showCidrSelectionDialog() }
 
         // Update workers and wait when conservative mode changes
-        switchConservative.setOnCheckedChangeListener { _, isChecked ->
+        switchConservative.setOnCheckedChangeListener { _, _ ->
+            etWorkers.setText(getWorkerCountForMode())
+
+            // Update other static fields if needed
+            if (switchConservative.isChecked) {
+                etTunnelWait.setText("5000")
+                etUdpTimeout.setText("2000")
+                etProbeTimeout.setText("8")
+                etRetries.setText("2")
+            } else {
+                etTunnelWait.setText("3000")
+                etUdpTimeout.setText("1000")
+                etProbeTimeout.setText("15")
+                etRetries.setText("1")
+            }
+        }
+
+        /**switchConservative.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 // Safer, slower settings for restrictive firewalls
                 etWorkers.setText("10")
@@ -401,7 +493,7 @@ class DnsScannerActivity : AppCompatActivity() {
                 if (isQuickScanner) {
                     etWorkers.setText("40")
                 } else if (rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e) {
-                    etWorkers.setText("40")
+                    etWorkers.setText("20")
                 } else {
                     etWorkers.setText("20")
                 }
@@ -410,7 +502,24 @@ class DnsScannerActivity : AppCompatActivity() {
                 etProbeTimeout.setText("15")
                 etRetries.setText("1")
             }
+        }*/
+
+        rgTunnelMode.setOnCheckedChangeListener { _, _ ->
+            etWorkers.setText(getWorkerCountForMode())
         }
+
+        /**rgTunnelMode.setOnCheckedChangeListener { _, checkedId ->
+            // Only update if not in Conservative mode (which should keep its own strict values)
+            if (!switchConservative.isChecked) {
+                if (checkedId == R.id.rb_mode_udp) {
+                    // UDP Mode: Limit to 20 to protect router NAT
+                    etWorkers.setText("20")
+                } else {
+                    // TCP/DoT/DoH: Allow up to 40 (TCP handles resets gracefully)
+                    etWorkers.setText("40")
+                }
+            }
+        }*/
     }
 
     private fun loadEncryptedResolvers() {
@@ -1069,13 +1178,11 @@ class DnsScannerActivity : AppCompatActivity() {
             return
         }
 
-        if (isQuickScanner) {
-            selectedMode = when (rgTunnelMode?.checkedRadioButtonId) {
-                R.id.rb_mode_tcp -> "tcp"
-                R.id.rb_mode_dot -> "dot"
-                R.id.rb_mode_doh -> "doh"
-                else -> "udp" // Default to UDP if nothing is selected
-            }
+        selectedMode = when (rgTunnelMode?.checkedRadioButtonId) {
+            R.id.rb_mode_tcp -> "tcp"
+            R.id.rb_mode_dot -> "dot"
+            R.id.rb_mode_doh -> "doh"
+            else -> "udp" // Default to UDP if nothing is selected
         }
 
         //var publicDnsList = emptyList<String>()
@@ -1193,9 +1300,12 @@ class DnsScannerActivity : AppCompatActivity() {
     // Helper to launch the result activity
     private fun launchResultActivity(finalResolvers: List<String>) {
         val workers = etWorkers.text.toString().toLongOrNull() ?: 10L
-        val tunnelWait = etTunnelWait.text.toString().toLongOrNull() ?: 2000L
-        val udpTimeout = etUdpTimeout.text.toString().toLongOrNull() ?: 1000L
-        val probeTimeout = etProbeTimeout.text.toString().toLongOrNull() ?: 15L
+        var tunnelWait = etTunnelWait.text.toString().toLongOrNull() ?: 3000L
+        if (tunnelWait < 500L) tunnelWait = 500L
+        var udpTimeout = etUdpTimeout.text.toString().toLongOrNull() ?: 1000L
+        if (udpTimeout < 500L) udpTimeout = 500L
+        var probeTimeout = etProbeTimeout.text.toString().toLongOrNull() ?: 15000L
+        if (probeTimeout < 5000L) probeTimeout = 5000L
         val retries = etRetries.text.toString().toLongOrNull() ?: 0L
         val proxyType = when (rgProxy.checkedRadioButtonId) {
             R.id.rb_socks5 -> "socks5"
@@ -1213,6 +1323,13 @@ class DnsScannerActivity : AppCompatActivity() {
             rgQuickScanMode.checkedRadioButtonId == R.id.rb_quick_dns_check
         } else {
             false // DNS Scanner never uses Quick DNS Check ping
+        }
+
+        val currentMode = selectedMode.lowercase()
+        if (!lightE2EEnabled && (currentMode == "udp" || currentMode == "tcp")) {
+            if (probeTimeout > 10000L) {
+                probeTimeout = 10000L
+            }
         }
 
         //val fastFailEnabled = rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e
