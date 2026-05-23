@@ -21,35 +21,28 @@ android {
         versionName = "1.11.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk {
-            abiFilters.clear()
-            abiFilters.add("armeabi-v7a")
-        }
+
     }
-
     packaging {
-        val targetAbi = project.findProperty("android.injected.abi") as String?
-
-        if (targetAbi != null) {
-            jniLibs {
-                if (targetAbi == "arm64-v8a") {
-                    // If building for 64-bit, remove 32-bit and emulator junk
-                    excludes.add("lib/armeabi-v7a/**")
-                    excludes.add("lib/x86/**")
-                    excludes.add("lib/x86_64/**")
-                } else if (targetAbi == "armeabi-v7a") {
-                    // If building for 32-bit, remove 64-bit and emulator junk
-                    excludes.add("lib/arm64-v8a/**")
-                    excludes.add("lib/x86/**")
-                    excludes.add("lib/x86_64/**")
-                }
-            }
+        // 1. Keep 'resources' for non-native files only (like META-INF)
+        resources {
+            excludes.add("META-INF/*")
         }
 
         jniLibs {
-            // This forces the APK to compress the Go library.
-            // It makes the APK file smaller, but slightly slower to 'install'.
             useLegacyPackaging = true
+
+            val targetAbi = project.findProperty("abi") as String? ?: "armeabi-v7a"
+
+            if (targetAbi == "arm64-v8a") {
+                excludes.add("lib/armeabi-v7a/*")
+                excludes.add("lib/x86/*")
+                excludes.add("lib/x86_64/*")
+            } else {
+                excludes.add("lib/arm64-v8a/*")
+                excludes.add("lib/x86/*")
+                excludes.add("lib/x86_64/*")
+            }
         }
     }
 
@@ -78,7 +71,6 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     // Dynamic AAR selection based on the architecture being built
-    //val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-arm64.aar"
-    val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-armv7.aar"
+    val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-arm64.aar"
     implementation(files("libs/$targetAar"))
 }
