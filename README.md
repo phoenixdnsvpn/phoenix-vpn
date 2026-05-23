@@ -16,27 +16,31 @@ VayDNS VPN is a transparent, source-available project dedicated to promoting dig
 ## Key Features
 - **Dedicated Proxy Mode:** Features a built-in local SOCKS5 proxy, allowing users to tunnel specific applications (like Telegram) without routing their entire device through the Android VpnService. Includes accurate, application-isolated traffic monitoring.
 
-- **Encrypted Configuration:** Supports pre-configured 'Default Servers' integrated via a compiled Go native layer. This architecture secures private infrastructure details by ensuring they are not stored in plain-text configuration files.
+- **Standardized DNST URL Support:**  Now fully compliant with the DNST URL Scheme, enabling seamless configuration sharing across compatible applications.
+
+- **Multi-Domain Server Core:** The `vaydns-server` can now natively listen and route traffic for multiple domains simultaneously on a single instance (Port 53), allowing for seamless domain migrations without dropping existing users.
+
+- **TCP Protocol Support:** Introduced full end-to-end support for plain TCP tunneling and resolving, expanding your options for bypassing restrictive DPI firewalls.
+
+- **Concurrent Multi-Resolver Engine:** The app now intelligently utilizes up to 3 selected resolvers concurrently, improving connection reliability and speed.
+
+- **Light E2E Scanner:** Added a highly optimized "fast-fail" handshake scanner. This bypasses heavy payload checks to rapidly verify raw connectivity, delivering instant Alive/Dead results.
+
+- **Quick DNS Scanning:** Built-in DNS scanner to scan thousands of IP addresses to identify local DNS resolvers as a pre selection IP's to scan with E2E scanner.
+
+- **Multi-Worker Ping:** Implemented parallel worker processing for ping tests. This significantly increases scanning speed when testing multiple resolvers across various configurations.
 
 - **CI/CD Ready:** Automated build pipeline via GitHub Actions that injects server configurations through encrypted secrets.
 
-- **Real-time Latency Scanning:** Built-in scanner to identify the fastest local DNS resolvers for optimal tunnel performance.
-
 - **Multi-Architecture Support:** Native binaries optimized for both arm64-v8a and armeabi-v7a devices.
 
-- **Standardized DNST URL Support:**  Now fully compliant with the DNST URL Scheme, enabling seamless configuration sharing across compatible applications.
-
+- **Encrypted Configuration:** Supports pre-configured 'Default Servers' integrated via a compiled Go native layer. This architecture secures private infrastructure details by ensuring they are not stored in plain-text configuration files.
 - **Remote Update Configs:**  Users can seamlessly update default configurations over-the-air whenever new servers or optimizations become available, ensuring the app stays ahead of network restrictions.
 
 - **Remote Update Resolvers:**  Users can seamlessly update default resolvers over-the-air whenever new updtates for resolvers become available, ensuring the app stays ahead of network restrictions.
 
-* **Multi-Domain Server Core:** The `vaydns-server` can now natively listen and route traffic for multiple domains simultaneously on a single instance (Port 53), allowing for seamless domain migrations without dropping existing users.
 
-* **TCP Protocol Support:** Introduced full end-to-end support for plain TCP tunneling and resolving, expanding your options for bypassing restrictive DPI firewalls.
 
-* **Concurrent Multi-Resolver Engine:** The app now intelligently utilizes up to 3 selected resolvers concurrently, improving connection reliability and speed.
-
-* **Light E2E Scanner:** Added a highly optimized "fast-fail" handshake scanner. This bypasses heavy payload checks to rapidly verify raw connectivity, delivering instant Alive/Dead results.
 
 ## 🔒 App Verification
 Official builds of VayDNS VPN can be verified using the in-app verification tool. 
