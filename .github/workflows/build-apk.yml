@@ -36,8 +36,7 @@ jobs:
           echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > release.jks
 
       - name: Build ARM64 Version
-        run: |
-          rm -rf android/app/libs/*.aar
+        run: |          
           cd mobile
           go mod tidy
           # Generate hash from the raw private key secret
@@ -70,7 +69,6 @@ jobs:
 
       - name: Build ARMv7 Version
         run: |
-          rm -rf android/app/libs/*.aar
           cd mobile
           go mod tidy
           HEX_HASH=$(echo -n "${{ secrets.APP_PRIVATE_KEY }}" | sha256sum | awk '{print $1}')
