@@ -86,6 +86,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
             cbUpdateResolvers.visibility = View.GONE
             cbUploadConfigs.visibility = View.GONE
             cbUploadResolvers.visibility = View.GONE
+            cbImportResolvers.visibility = View.GONE
+            cbExportResolvers.visibility = View.GONE
         }
 
         // If it's not even an official build status, hide app updates toggle as well
