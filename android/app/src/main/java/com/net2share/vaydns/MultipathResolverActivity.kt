@@ -24,6 +24,9 @@ class MultipathResolverActivity : AppCompatActivity() {
     private var isCheckAllActive = true
     private var initialSnapshot: String = "" // Freezes original map array configuration
 
+    //private lateinit var cbImportResolvers: SwitchCompat
+    //private lateinit var cbExportResolvers: SwitchCompat
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -188,8 +191,32 @@ class MultipathResolverActivity : AppCompatActivity() {
 
         // 3. Sync checklist state maps
         val selectedFile = File(filesDir, "selected_multipath_$configId.txt")
-        val selections = if (selectedFile.exists()) selectedFile.readLines().toSet() else emptySet()
-        resolverEntries.forEach { if (selections.contains(it.address)) it.isChecked = true }
+        if (!selectedFile.exists()) {
+            Toast.makeText(this, "File does not exist", Toast.LENGTH_SHORT).show()
+        }
+
+        val selections = if (selectedFile.exists()) {
+            val lines = selectedFile.readLines().map { it.trim() }
+            // Notification logic for empty file
+            if (lines.isEmpty()) {
+                Toast.makeText(this, "Zero resolvers read", Toast.LENGTH_SHORT).show()
+            }
+            lines.toSet()
+        } else emptySet()
+
+        resolverEntries.forEach { entry ->
+            // Normalize both for comparison (removing ports if necessary)
+            val entryAddr = entry.address.trim().lowercase()
+
+            // Check if the saved list contains this address
+            // We check exact match AND we verify the base IP matches (ignores port differences)
+            val isMatch = selections.any { saved ->
+                saved.trim().lowercase() == entryAddr ||
+                        saved.trim().lowercase().split(":").first() == entryAddr.split(":").first()
+            }
+
+            if (isMatch) entry.isChecked = true
+        }
     }
 
     private fun showImportDialog() {
@@ -249,9 +276,20 @@ class MultipathResolverActivity : AppCompatActivity() {
             }
         }
 
+        val manualPayload = resolverEntries.filter { it.isManual }.map { it.address }
+        safeWriteToFile(File(filesDir, "manual_resolvers_$configId.txt"), manualPayload.joinToString("\n"))
+
+        // 2. Persist updated scanned lines (Commits any scanned deletions cleanly!)
+        val scannedPayload = resolverEntries.filter { !it.isManual }.map { "${it.address},${it.latency}" }
+        safeWriteToFile(File(filesDir, "resolvers_$configId.txt"), scannedPayload.joinToString("\n"))
+
+        // 3. Persist check state map configurations
+        val selectedPayload = resolverEntries.filter { it.isChecked && it.address.isNotEmpty() }.map { it.address }
+        safeWriteToFile(File(filesDir, "selected_multipath_$configId.txt"), selectedPayload.joinToString("\n"))
+
         // ONE-SHOT DISK COMMITS FOR MANUAL, SCANNED, AND SELECTIONS
         // 1. Persist manual text lines
-        val manualPayload = resolverEntries.filter { it.isManual }.map { it.address }
+        /**val manualPayload = resolverEntries.filter { it.isManual }.map { it.address }
         File(filesDir, "manual_resolvers_$configId.txt").writeText(manualPayload.joinToString("\n"))
 
         // 2. Persist updated scanned lines (Commits any scanned deletions cleanly!)
@@ -260,7 +298,7 @@ class MultipathResolverActivity : AppCompatActivity() {
 
         // 3. Persist check state map configurations
         val selectedPayload = resolverEntries.filter { it.isChecked && it.address.isNotEmpty() }.map { it.address }
-        File(filesDir, "selected_multipath_$configId.txt").writeText(selectedPayload.joinToString("\n"))
+        File(filesDir, "selected_multipath_$configId.txt").writeText(selectedPayload.joinToString("\n"))*/
 
         if (formattingErrorsEncountered) {
             MaterialAlertDialogBuilder(this)
@@ -271,6 +309,19 @@ class MultipathResolverActivity : AppCompatActivity() {
         } else {
             Toast.makeText(this, "All changes saved successfully! / تمام تغییرات ذخیره شدند", Toast.LENGTH_SHORT).show()
             finish()
+        }
+    }
+
+    private fun safeWriteToFile(file: File, content: String) {
+        try {
+            java.io.FileOutputStream(file).use { fos ->
+                fos.write(content.toByteArray())
+                fos.flush()
+                // Force physical write to storage to prevent data loss
+                fos.fd.sync()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("VAY_ERROR", "Failed to force write to file: ${file.name}", e)
         }
     }
 

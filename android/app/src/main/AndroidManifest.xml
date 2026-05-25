@@ -76,6 +76,10 @@
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <activity
+            android:name=".ResolverTransferActivity"
+            android:exported="false" />
+
         <service
             android:name=".VayVpnService"
             android:exported="false"

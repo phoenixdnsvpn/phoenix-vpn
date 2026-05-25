@@ -129,6 +129,26 @@
                 app:thumbTint="?attr/colorPrimary"
                 android:layout_marginBottom="24dp" />
 
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_show_import_resolvers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Show 'Import Resolvers'"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="16dp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_show_export_resolvers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Show 'Export Resolvers'"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="24dp" />
+
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

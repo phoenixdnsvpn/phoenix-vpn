@@ -45,7 +45,7 @@
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
-                android:checked="true"
+                android:checked="false"
                 android:layout_marginBottom="24dp" />
 
             <TextView
@@ -110,7 +110,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Light E2E"
-                    android:checked="true"
+                    android:checked="false"
                     android:layout_weight="1"
                     android:buttonTint="?attr/colorPrimary"
                     android:textColor="?attr/colorOnSurface" />

@@ -207,7 +207,7 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().apply {
                 putBoolean("enable_prescan", true)
                 putString("proxy_type", "socks5h")
-                putBoolean("light_e2e", true)
+                putBoolean("light_e2e", false)
                 putInt("workers", 20)
                 putInt("tunnel_wait", 3000)
                 putInt("probe_timeout", 15000)
@@ -1235,6 +1235,18 @@ class MainActivity : AppCompatActivity() {
         val showUpdateResolvers = menuPrefs.getBoolean("show_update_resolvers", false)
         val showUploadConfigs = menuPrefs.getBoolean("show_upload_configs", false)
         val showUploadResolvers = menuPrefs.getBoolean("show_upload_resolvers", false)
+        //val menuPrefs = getSharedPreferences("VayDNS_MenuPrefs", Context.MODE_PRIVATE)
+        val showImport = menuPrefs.getBoolean("show_import_resolvers", false)
+        val showExport = menuPrefs.getBoolean("show_export_resolvers", false)
+
+        //menu.findItem(R.id.action_import_resolvers)?.isVisible = showImport
+        //menu.findItem(R.id.action_export_resolvers)?.isVisible = showExport
+
+        val itemImport = menu.findItem(R.id.action_import_resolvers)
+        val itemExport = menu.findItem(R.id.action_export_resolvers)
+
+        if (itemImport != null) itemImport.isVisible = showImport
+        if (itemExport != null) itemExport.isVisible = showExport
 
         if (!isOfficialBuild) {
             // Hide all private infrastructure options for completely public community builds
@@ -1291,7 +1303,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        return true // This should be the last line of your existing function
+//        return true
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -1604,6 +1616,15 @@ class MainActivity : AppCompatActivity() {
 
             R.id.action_how_to_use -> {
                 showHowToUseDialog()
+                true
+            }
+
+            R.id.action_import_resolvers -> {
+                startActivity(Intent(this, ResolverTransferActivity::class.java).putExtra("MODE", "IMPORT"))
+                true
+            }
+            R.id.action_export_resolvers -> {
+                startActivity(Intent(this, ResolverTransferActivity::class.java).putExtra("MODE", "EXPORT"))
                 true
             }
 

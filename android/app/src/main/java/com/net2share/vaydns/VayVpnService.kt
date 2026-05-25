@@ -376,17 +376,28 @@ class VayVpnService : VpnService() {
                     if (enableScan) {
                         Log.i("VAY_DEBUG", "Running Custom Pre-Tunnel Scan...")
                         val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
-                        val lightE2E = prefs.getBoolean("light_e2e", false)
-                        val workers = prefs.getInt("workers", 20).toLong()
                         val tWait = prefs.getInt("tunnel_wait", 3000).toLong()
                         val pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
                         val uTimeout = prefs.getInt("udp_timeout", 1000).toLong()
-                        val retries = prefs.getInt("retries", 0).toLong()
+                        //val retries = prefs.getInt("retries", 0).toLong()
+                        //val lightE2E = prefs.getBoolean("light_e2e", false)
+                        //val workers = prefs.getInt("workers", 20).toLong()
 
-                        finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
-                        finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
-                        finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
-                        finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                        // --- BACKGROUND OVERRIDES FOR PRE-TUNNEL SCAN ---
+                        val preScanLightE2E = false // Force True E2E
+                        val preScanWorkers = 10L    // Force 10 workers for all modes
+                        val originalRetries = prefs.getInt("retries", 0).toLong()
+                        val preScanRetries = if (originalRetries < 1L) 1L else originalRetries // max(1, currently set)
+
+                        finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                        finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                        finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                        finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+
+                        //finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                        //finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                        //finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
+                        //finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
                     }
 
                     Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")

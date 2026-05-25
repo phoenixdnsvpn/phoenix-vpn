@@ -18,6 +18,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var cbUploadConfigs: SwitchCompat
     private lateinit var cbUploadResolvers: SwitchCompat
     private lateinit var cbDefaultVpnMode: SwitchCompat
+    private lateinit var cbImportResolvers: SwitchCompat
+    private lateinit var cbExportResolvers: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +50,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbUpdateResolvers = findViewById(R.id.cb_show_update_resolvers)
         cbUploadConfigs = findViewById(R.id.cb_show_upload_configs)
         cbUploadResolvers = findViewById(R.id.cb_show_upload_resolvers)
+        cbImportResolvers = findViewById(R.id.cb_show_import_resolvers)
+        cbExportResolvers = findViewById(R.id.cb_show_export_resolvers)
 
         loadSettings()
         applyCommunityBuildFilters()
@@ -66,6 +70,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbUpdateResolvers.isChecked = menuPrefs.getBoolean("show_update_resolvers", false)
         cbUploadConfigs.isChecked = menuPrefs.getBoolean("show_upload_configs", false)
         cbUploadResolvers.isChecked = menuPrefs.getBoolean("show_upload_resolvers", false)
+        cbImportResolvers.isChecked = menuPrefs.getBoolean("show_import_resolvers", false)
+        cbExportResolvers.isChecked = menuPrefs.getBoolean("show_export_resolvers", false)
     }
 
     private fun applyCommunityBuildFilters() {
@@ -106,6 +112,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
             menuPrefs.putBoolean("show_update_resolvers", cbUpdateResolvers.isChecked)
             menuPrefs.putBoolean("show_upload_configs", cbUploadConfigs.isChecked)
             menuPrefs.putBoolean("show_upload_resolvers", cbUploadResolvers.isChecked)
+            menuPrefs.putBoolean("show_import_resolvers", cbImportResolvers.isChecked)
+            menuPrefs.putBoolean("show_export_resolvers", cbExportResolvers.isChecked)
         }
 
         if (isOfficialBuild) {

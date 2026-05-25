@@ -48,6 +48,16 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_import_resolvers"
+        android:title="Import Resolvers"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_export_resolvers"
+        android:title="Export Resolvers"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_dns_scanner"
         android:title="DNS Scanner"
         app:showAsAction="never" />

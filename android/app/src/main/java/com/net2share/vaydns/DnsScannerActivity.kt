@@ -298,11 +298,17 @@ class DnsScannerActivity : AppCompatActivity() {
             etDomain.setText(selectedDomain)
         }
 
+        rbSourceDefault.visibility = android.view.View.VISIBLE
         // SCANNER SOURCES CLEANUP
         val configCount = mobile.Mobile.getDefaultConfigCount()
         if (configCount == 0L) {
-            rbSourceDefault.visibility = android.view.View.GONE
             rbSourceEncrypted.visibility = android.view.View.GONE
+            // Optional: If the user was previously on Encrypted, revert to Default
+            if (rgResolverSource.checkedRadioButtonId == R.id.rb_source_encrypted) {
+                rgResolverSource.check(R.id.rb_source_default)
+            }
+        } else {
+            rbSourceEncrypted.visibility = android.view.View.VISIBLE
         }
     }
 
