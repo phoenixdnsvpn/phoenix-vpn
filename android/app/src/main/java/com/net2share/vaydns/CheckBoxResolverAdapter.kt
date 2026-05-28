@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
@@ -17,10 +18,12 @@ class CheckBoxResolverAdapter(
     private val entries: List<ConfigEditorActivity.ResolverEntry>,
     private val tunnelMode: String,
     private val onStatusChanged: () -> Unit,
-    private val sanitizePointer: (String, String) -> String?
+    private val sanitizePointer: (String, String) -> String?,
+    private val onStartDrag: (RecyclerView.ViewHolder) -> Unit
 ) : RecyclerView.Adapter<CheckBoxResolverAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val dragHandle: ImageView = view.findViewById(R.id.iv_drag_handle)
         val checkBox: CheckBox = view.findViewById(R.id.cb_resolver)
         val editText: EditText = view.findViewById(R.id.et_resolver_address)
         val tvLatency: TextView = view.findViewById(R.id.tv_resolver_latency)
@@ -105,6 +108,13 @@ class CheckBoxResolverAdapter(
                 entry.isChecked = false
             }
             onStatusChanged()
+        }
+
+        holder.dragHandle.setOnTouchListener { v, event ->
+            if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                onStartDrag(holder)
+            }
+            false
         }
     }
 

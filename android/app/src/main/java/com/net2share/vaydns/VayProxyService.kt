@@ -27,12 +27,19 @@ class VayProxyService : Service() {
     private var absoluteDailyRx = 0L
     private var absoluteDailyTx = 0L
     private var currentTrackingDate = ""
+    private var previousOsRxBytes = 0L
+    private var previousOsTxBytes = 0L
+    private var pendingOsRxSave = 0L
+    private var pendingOsTxSave = 0L
+    private var absoluteDailyOsRx = 0L
+    private var absoluteDailyOsTx = 0L
+
     private val statsRunnable = object : Runnable {
         override fun run() {
             if (isStopping) return
 
             try {
-                // 1. Ask Go for the exact byte count (Format: "RX|TX")
+                // 1. Fetch exact bytes from the Go Engine
                 val stats = mobile.Mobile.getProxyStats()
                 val parts = stats.split("|")
 
@@ -45,56 +52,93 @@ class VayProxyService : Service() {
                         val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
                         absoluteDailyRx = prefs.getLong("rx_$dateStr", 0L)
                         absoluteDailyTx = prefs.getLong("tx_$dateStr", 0L)
+                        absoluteDailyOsRx = prefs.getLong("os_rx_$dateStr", 0L)
+                        absoluteDailyOsTx = prefs.getLong("os_tx_$dateStr", 0L)
                         currentTrackingDate = dateStr
                     }
 
-                    // --- SAFE MATH (No Math.max casting issues) ---
+                    // --- GO ENGINE STATS MATH ---
                     val diffRx = currentRx - previousRxBytes
                     val diffTx = currentTx - previousTxBytes
-
                     val rxSpeed = if (diffRx < 0) 0L else diffRx
                     val txSpeed = if (diffTx < 0) 0L else diffTx
-
                     previousRxBytes = currentRx
                     previousTxBytes = currentTx
-
-                    // Accumulate in RAM, flush to disk every 10 seconds
+                    absoluteDailyRx += rxSpeed
+                    absoluteDailyTx += txSpeed
                     pendingRxSave += rxSpeed
                     pendingTxSave += txSpeed
+
+                    // --- NATIVE ANDROID OS STATS MATH ---
+                    val osRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
+                    val osTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
+                    val currentOsRx = if (osRx < 0) 0L else osRx
+                    val currentOsTx = if (osTx < 0) 0L else osTx
+
+                    // Init on first tick to prevent spiking from old app usage before connection
+                    if (previousOsRxBytes == 0L && previousOsTxBytes == 0L) {
+                        previousOsRxBytes = currentOsRx
+                        previousOsTxBytes = currentOsTx
+                    }
+
+                    val diffOsRx = currentOsRx - previousOsRxBytes
+                    val diffOsTx = currentOsTx - previousOsTxBytes
+
+                    // Subtract the internal Go payload from the total Android OS traffic
+                    val rawOsRxSpeed = diffOsRx - rxSpeed
+                    val rawOsTxSpeed = diffOsTx - txSpeed
+
+                    // Clamp to 0 to prevent negative values
+                    val osRxSpeed = if (rawOsRxSpeed < 0) 0L else rawOsRxSpeed
+                    val osTxSpeed = if (rawOsTxSpeed < 0) 0L else rawOsTxSpeed
+
+                    previousOsRxBytes = currentOsRx
+                    previousOsTxBytes = currentOsTx
+
+                    absoluteDailyOsRx += osRxSpeed
+                    absoluteDailyOsTx += osTxSpeed
+                    pendingOsRxSave += osRxSpeed
+                    pendingOsTxSave += osTxSpeed
+
                     statsTickCount++
 
                     if (statsTickCount >= 10) {
-                        if (pendingRxSave > 0 || pendingTxSave > 0) {
-                            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                        if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
                             val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
                             val dailyRx = prefs.getLong("rx_$dateStr", 0L) + pendingRxSave
                             val dailyTx = prefs.getLong("tx_$dateStr", 0L) + pendingTxSave
+                            val dailyOsRx = prefs.getLong("os_rx_$dateStr", 0L) + pendingOsRxSave
+                            val dailyOsTx = prefs.getLong("os_tx_$dateStr", 0L) + pendingOsTxSave
 
                             prefs.edit()
                                 .putLong("rx_$dateStr", dailyRx)
                                 .putLong("tx_$dateStr", dailyTx)
+                                .putLong("os_rx_$dateStr", dailyOsRx)
+                                .putLong("os_tx_$dateStr", dailyOsTx)
                                 .apply()
 
                             pendingRxSave = 0L
                             pendingTxSave = 0L
+                            pendingOsRxSave = 0L
+                            pendingOsTxSave = 0L
                         }
                         statsTickCount = 0
                     }
 
                     val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
-                    // currentRx IS the total since the session started, so we use it directly!
                     val totalStr = "Total: ${formatBytes(currentRx)} ↓   ${formatBytes(currentTx)} ↑"
 
-                    // --- BROADCAST ---
                     sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
                         putExtra("speed", speedStr)
                         putExtra("total", totalStr)
                         putExtra("liveDailyRx", absoluteDailyRx)
                         putExtra("liveDailyTx", absoluteDailyTx)
+                        putExtra("liveDailyOsRx", absoluteDailyOsRx)
+                        putExtra("liveDailyOsTx", absoluteDailyOsTx)
                         setPackage(packageName)
                     })
 
-                    // UPDATE LOCK SCREEN NOTIFICATION
+                    // UPDATE THE LOCK SCREEN NOTIFICATION
                     try {
                         val intent = Intent(this@VayProxyService, MainActivity::class.java)
                         val pendingIntent = PendingIntent.getActivity(this@VayProxyService, 0, intent, PendingIntent.FLAG_IMMUTABLE)
@@ -113,17 +157,18 @@ class VayProxyService : Service() {
                         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                         nm.notify(2, updateNotification)
                     } catch (e: Exception) {
-                        android.util.Log.e("VayProxy", "Failed to update notification: ${e.message}")
+                        android.util.Log.e("VAY_PROXY", "Failed to update notification: ${e.message}")
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("VayProxy", "Failed to parse Go stats: ${e.message}")
+                android.util.Log.e("VAY_PROXY", "Error parsing stats: ${e.message}")
             }
 
-            // 4. Schedule next tick
+            // Always schedule the next tick
             statsHandler.postDelayed(this, 1000)
         }
     }
+
     private fun formatBytes(bytes: Long): String {
         if (bytes < 1024) return "$bytes B"
         val kb = bytes / 1024.0
@@ -183,6 +228,7 @@ class VayProxyService : Service() {
                 val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
                 val mtu = intent.getLongExtra("MTU", 0L)
                 val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
+                val useMultiDomains = intent.getBooleanExtra("USE_MULTI_DOMAINS", false)
                 val useAuth = intent.getBooleanExtra("USE_AUTH", false)
                 val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
                 val authProtocol = intent?.getStringExtra("AUTH_PROTOCOL") ?: "socks"
@@ -242,7 +288,7 @@ class VayProxyService : Service() {
 
                 // Call the new Proxy function!
                 val result = Mobile.startProxy(
-                    isDefaultConfig, configIndex, finalUdp, finalTcp,finalDoh, finalDot, baseDohUrl, domain, pubkey,
+                    isDefaultConfig, configIndex, useMultiDomains, finalUdp, finalTcp,finalDoh, finalDot, baseDohUrl, domain, pubkey,
                     recordType, idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible,
                     useAuth, protocol, ssMethod, user, pass, proxyPort
                 )
@@ -286,15 +332,19 @@ class VayProxyService : Service() {
     }
 
     private fun flushPendingTraffic() {
-        if (pendingRxSave > 0 || pendingTxSave > 0) {
+        if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
             val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
             val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
             prefs.edit()
-                .putLong("rx_$dateStr", absoluteDailyRx) // 🟢 Write the absolute total!
+                .putLong("rx_$dateStr", absoluteDailyRx)
                 .putLong("tx_$dateStr", absoluteDailyTx)
+                .putLong("os_rx_$dateStr", absoluteDailyOsRx)
+                .putLong("os_tx_$dateStr", absoluteDailyOsTx)
                 .apply()
             pendingRxSave = 0L
             pendingTxSave = 0L
+            pendingOsRxSave = 0L
+            pendingOsTxSave = 0L
         }
     }
 

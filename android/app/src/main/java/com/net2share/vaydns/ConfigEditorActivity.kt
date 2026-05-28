@@ -32,6 +32,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
     private var editingConfigId: String? = null
     private var multipathDialog: androidx.appcompat.app.AlertDialog? = null
+    private lateinit var switchMultiDomain: SwitchCompat
 
     data class ResolverEntry(
         var address: String,
@@ -67,6 +68,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         val etName = findViewById<EditText>(R.id.et_config_name)
         val etDomain = findViewById<EditText>(R.id.et_domain)
+        switchMultiDomain = findViewById(R.id.switch_multi_domain)
         val etPubkey = findViewById<EditText>(R.id.et_pubkey)
         val etDns = findViewById<EditText>(R.id.et_dns)
         //val btnLoadSavedResolvers = findViewById<ImageButton>(R.id.btn_load_saved_resolvers)
@@ -154,9 +156,11 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val savedDns = prefs.getString("${editingConfigId}_dns", "8.8.8.8:53")
                 val savedMode = prefs.getString("${editingConfigId}_mode", "udp")
                 val savedMtu = prefs.getLong("${editingConfigId}_mtu", 0L)
+                val savedUseMulti = prefs.getBoolean("${editingConfigId}_useMultiDomains", false)
 
                 etName.setText(savedName)
                 etName.isEnabled = true
+                switchMultiDomain.isChecked = savedUseMulti
 
                 etName.addTextChangedListener(object : android.text.TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -360,7 +364,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                         spSsMethod, config.ssMethod,
                         etUser, config.user,
                         etPass, config.pass,
-                        tvUserLabel, tvPassLabel
+                        tvUserLabel, tvPassLabel,
+                        config.useMultiDomains
                     )
                 }
                 toolbar.title = "Edit Config"
@@ -523,6 +528,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             val dnstt = swDnstt.isChecked
             val useAuth = swAuth.isChecked
             val useSshKey = swSshKey.isChecked
+            val useMultiDomains = switchMultiDomain.isChecked
             val proxyProtocol = if (rgProxyProtocol.checkedRadioButtonId == R.id.rb_proxy_http) "http" else "socks5"
             val authProtocol = when (rgAuthProtocol.checkedRadioButtonId) {
                 R.id.rb_auth_ssh -> "ssh"
@@ -589,7 +595,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             saveOrUpdateConfig(
                 configId,
                 name, domain, pubkey, dns, mode, rt, idle, keep,
-                clientIdSize, mtu,dnstt, useAuth, useSshKey, proxyProtocol, authProtocol, ssMethod, user, pass
+                clientIdSize, mtu,dnstt, useAuth, useSshKey, proxyProtocol, authProtocol, ssMethod, user, pass, useMultiDomains
             )
             finish()
 
@@ -602,6 +608,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             swAuth.isChecked = false
         }
 
+        updateDnsFieldState()
     }
 
     private fun isValidIpv4(ip: String): Boolean {
@@ -643,6 +650,27 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
         return null
+    }
+
+    private fun updateDnsFieldState() {
+        val selectedFile = java.io.File(filesDir, "selected_multipath_${editingConfigId ?: "new_temp_config"}.txt")
+
+        // Check if the file exists and contains at least one non-empty line
+        val hasSelections = selectedFile.exists() && selectedFile.readLines().any { it.trim().isNotEmpty() }
+
+        val etDns = findViewById<EditText>(R.id.et_dns)
+
+        // Disable if resolvers are selected, Enable if none selected
+        etDns.isEnabled = !hasSelections
+
+        // Visual cue: Lower alpha when disabled
+        etDns.alpha = if (hasSelections) 0.5f else 1.0f
+
+        if (hasSelections) {
+            etDns.hint = "Disabled (Multipath active)"
+        } else {
+            etDns.hint = "8.8.8.8:53"
+        }
     }
 
     private fun setupMultipathData(configId: String) {
@@ -708,11 +736,13 @@ class ConfigEditorActivity : AppCompatActivity() {
         spSsMethod: Spinner, ssMethodValue: String,
         etUser: EditText, userValue: String,
         etPass: EditText, passValue: String,
-        tvUserLabel: TextView, tvPassLabel: TextView
+        tvUserLabel: TextView, tvPassLabel: TextView,
+        useMultiDomains: Boolean
     ) {
         // 1. Basic Text Fields
         etName.setText(nameValue)
         etDomain.setText(domainValue)
+        switchMultiDomain.isChecked = useMultiDomains
         etPubkey.setText(pubkeyValue)
         etDns.setText(dnsValue)
         etIdleTimeout.setText(idleValue)
@@ -835,7 +865,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         mode: String, recordType: String, idleTimeout: String, keepAlive: String,
         clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean,
         useSshKey: Boolean, proxyProtocolValue: String, authProtocolValue: String,
-        ssMethod: String, user: String, pass: String
+        ssMethod: String, user: String, pass: String, useMultiDomains: Boolean
     ) {
         obj.put("name", name)
         obj.put("domain", domain)
@@ -855,6 +885,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("ssMethod", ssMethod)
         obj.put("user", user)
         obj.put("pass", pass)
+        obj.put("useMultiDomains", useMultiDomains)
     }
 
     private fun saveOrUpdateConfig(
@@ -876,7 +907,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         authProtocolValue: String,
         ssMethod: String,
         user: String,
-        pass: String
+        pass: String,
+        useMultiDomains: Boolean
     ) {
         if (editingConfigId?.startsWith("default_") == true) {
             val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -885,6 +917,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putString("${editingConfigId}_dns", dns)
                 putString("${editingConfigId}_mode", mode)
                 putLong("${editingConfigId}_mtu", mtu)
+                putBoolean("${editingConfigId}_useMultiDomains", useMultiDomains)
             }.apply()
             finish()
             return
@@ -904,7 +937,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 if (obj.getString("id") == editingConfigId) {
                     populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
                         idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
-                        useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass)
+                        useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass, useMultiDomains)
                     break
                 }
             }
@@ -915,7 +948,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             newObj.put("id", finalAssignedId)
             populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
                 idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
-                useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass)
+                useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass, useMultiDomains)
             jsonArray.put(newObj)
 
             // File remapping targets now point to finalAssignedId, not temp placeholders!
@@ -942,12 +975,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         super.onResume()
         // Refresh the subtitle summary values immediately upon returning to window
         val currentId = editingConfigId ?: "new_temp_config"
-        val selectedFile = java.io.File(filesDir, "selected_multipath_$currentId.txt")
-        val currentSelectionsCount = if (selectedFile.exists()) selectedFile.readLines().filter { it.isNotEmpty() }.size else 0
-
-        if (::tvMultipathStatus.isInitialized) {
-            tvMultipathStatus.text = "$currentSelectionsCount IPs selected"
-        }
+        setupMultipathData(currentId)
+        updateDnsFieldState()
     }
 
     companion object {
@@ -983,6 +1012,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         ssMethod = obj.optString("ssMethod", "chacha20-ietf-poly1305"),
                         user = obj.optString("user", ""),
                         pass = obj.optString("pass", ""),
+                        useMultiDomains = obj.optBoolean("useMultiDomains", false),
                         isDefault = false // User configs are never default
                     )
                 )
@@ -1020,6 +1050,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("ssMethod", config.ssMethod)
                         put("user", config.user)
                         put("pass", config.pass)
+                        put("useMultiDomains", config.useMultiDomains)
                     }
                     array.put(obj)
                 }

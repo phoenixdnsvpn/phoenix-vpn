@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"runtime"
 	"runtime/debug"
+	"log"
 	
 	"github.com/Starling226/vaydns-vpn/f35"
 )
@@ -36,6 +37,11 @@ var (
 var (	
 	rowPingCancel context.CancelFunc
 	rowPingMu     sync.Mutex
+)
+
+var (
+	domainScanCancel context.CancelFunc
+	domainScanMu     sync.Mutex
 )
 
 type PingTask struct {
@@ -198,7 +204,6 @@ func StartF35Scan(
 	if err := f35.ValidateConfig(cfg); err != nil {
 		return "error|" + err.Error()
 	}
-
 
 	hooks := f35.Hooks{
 		OnResult: func(res f35.Result) {
@@ -411,6 +416,7 @@ func PingMultipleServers(
 	}
 
 	// Execute synchronously using the job-channels engine embedded within scan.go
+
 	_ = f35.ScanWithContext(ctx, cfg, hooks)	
 
 	if minLatency == 99999 {
@@ -582,6 +588,7 @@ pingMu.Lock()
 			}
 
 			// Native Multiplex Scope handling internally via jobs inside scan.go
+
 			_ = f35.ScanWithContext(ctx, cfg, hooks)
 
 			mu.Lock()
@@ -618,6 +625,173 @@ func GetScanResults() string {
 	return res
 }
 
+// CheckHealthyDomains tests a list of domains against a resolver using the f35 E2E scanner engine.
+func CheckHealthyDomains(
+	useMultiDomains bool, isDefault bool, configIndex int64,
+	domains string, resolverIP string,
+	dnsMode string, pubkey string, baseDohUrl string, proxyType string,
+	tunnelProtocol string, proxyUser string, proxyPass string, ssMethod string,
+	recordType string, idleTimeout string, keepAlive string,
+	clientIdSize int64, mtu int64, workers int64, tunnelWait int64,
+	udpTimeout int64, probeTimeout int64, retries int64, lightE2EEnabled bool, engineQuickScan bool,
+) string {
+
+	domainToUse := domains
+	pubkeyToUse := pubkey
+
+	if isDefault {
+		domainToUse = getDefaultConfigDomain(configIndex)
+		pubkeyToUse = getDefaultConfigPubkey(configIndex)
+		recordType = GetDefaultConfigRecordType(configIndex)
+		idleTimeout = GetDefaultConfigIdleTimeout(configIndex)
+		keepAlive = GetDefaultConfigKeepAlive(configIndex)
+		clientIdSize = GetDefaultConfigClientIdSize(configIndex)
+		proxyUser = getDefaultConfigUser(configIndex)
+		proxyPass = getDefaultConfigPass(configIndex)
+	}
+
+	if proxyUser == "" || proxyUser == "none" {
+		if tunnelProtocol == "ssh" {
+			tunnelProtocol = "socks"
+		}
+	}
+	if proxyPass == "" || proxyPass == "none" {
+		if tunnelProtocol == "shadowsocks" || tunnelProtocol == "ss" {
+			tunnelProtocol = "socks"
+		}
+	}
+
+	if tunnelProtocol == "ssh" && strings.Contains(proxyPass, "-----BEGIN") {
+		proxyPass = FormatSSHKey(proxyPass)
+	}
+
+    // not used for now since we always send mutiple domains
+	if !useMultiDomains {
+		parts := strings.Split(domainToUse, ",")
+		if len(parts) > 0 {
+			domainToUse = strings.TrimSpace(parts[0])
+		}
+	}
+
+	fmt.Printf("VAY_DEBUG: [Domain Scanner E2E] Target: '%s', MultiDomains: %v\n", domainToUse, useMultiDomains)
+
+	rawDomains := strings.Split(domainToUse, ",")
+	var healthy []string
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Prepare base config
+	cfgBase := f35.DefaultConfig()
+	cfgBase.Mode = strings.ToLower(dnsMode)
+
+	fakeFull := strings.TrimSpace(resolverIP)
+	realFull := fakeFull
+	if fakeFull != "" && !strings.HasPrefix(fakeFull, "http") {
+		translated := translateFakeToReal(fakeFull)
+		if translated != "" {
+			realFull = translated
+		}
+	}
+	cfgBase.Resolvers = []string{realFull}
+
+	cfgBase.Probe = true
+	cfgBase.ProbeURL = "http://www.google.com/gen_204"
+	cfgBase.ProbeTimeout = time.Duration(probeTimeout) * time.Millisecond
+	cfgBase.Proxy = proxyType
+	cfgBase.Workers = int(workers)
+	cfgBase.Retries = int(retries)
+	cfgBase.TunnelWait = time.Duration(tunnelWait) * time.Millisecond
+	cfgBase.StartPort = 44000
+	cfgBase.Whois = false
+	cfgBase.Download = false
+	cfgBase.Upload = false
+	cfgBase.Engine = "vaydns"
+
+	if proxyUser != "" && proxyUser != "none" {
+		cfgBase.ProxyUser = proxyUser
+	}
+	if proxyPass != "" && proxyPass != "none" {
+		cfgBase.ProxyPass = proxyPass
+	}
+
+	effectiveUdpTimeout := udpTimeout
+	if strings.ToLower(dnsMode) == "doh" || strings.ToLower(dnsMode) == "dot" {
+		if effectiveUdpTimeout < 5000 {
+			effectiveUdpTimeout = 5000
+		}
+	}
+
+	for i, d := range rawDomains {
+		cleanDomain := strings.TrimSpace(d)
+		if cleanDomain == "" {
+			continue
+		}
+
+		wg.Add(1)
+		go func(domainToTest string, index int) {
+			defer wg.Done()
+			defer func() { recover() }()
+
+			cfg := cfgBase
+			// Isolate local proxy ports across concurrent checks
+			cfg.StartPort = 44000 + (index * 100)
+			cfg.Domain = domainToTest
+			cfg.ExtraArgs = []string{
+				"-base-doh", baseDohUrl,
+				"-pubkey", pubkeyToUse,
+				"-record-type", strings.ToLower(recordType),
+				"-log-level", "error",
+				"-clientid-size", fmt.Sprintf("%d", clientIdSize),
+				"-utls", "chrome",
+				"-keepalive", keepAlive,
+				"-idle-timeout", idleTimeout,
+				"-mtu", fmt.Sprintf("%d", mtu),
+				"-udp-timeout", fmt.Sprintf("%dms", effectiveUdpTimeout),
+				"-protocol", tunnelProtocol,
+				"-ss-method", ssMethod,
+				"-user", proxyUser,
+				"-pass", proxyPass,
+				"-fast-fail-enabled", fmt.Sprintf("%v", lightE2EEnabled),
+				"-quick-scan", fmt.Sprintf("%v", engineQuickScan),
+			}
+			cfg.Pubkey = pubkeyToUse
+
+			if err := f35.ValidateConfig(cfg); err != nil {
+				return
+			}
+
+			var isHealthy bool
+			hooks := f35.Hooks{
+				OnResult: func(res f35.Result) {
+					if res.Probe == "ok" && res.LatencyMS > 0 && res.LatencyMS < 99999 {
+						isHealthy = true
+					}
+				},
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			_ = f35.ScanWithContext(ctx, cfg, hooks)
+
+			if isHealthy {
+				mu.Lock()
+				healthy = append(healthy, domainToTest)
+				mu.Unlock()
+				log.Printf("VAY_DEBUG: [Domain Scanner E2E] Domain %s PASSED", domainToTest)
+			} else {
+				log.Printf("VAY_DEBUG: [Domain Scanner E2E] Domain %s FAILED", domainToTest)
+			}
+		}(cleanDomain, i)
+
+		// Stagger the launch sequence by 50ms so routers don't panic on sudden parallel traffic
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	wg.Wait()
+
+	return strings.Join(healthy, ",")
+}
 
 // KOTLIN FETCHES THE ENGINE STATUS ONCE A SECOND
 func GetScanStatus() string {
@@ -689,3 +863,17 @@ func StopRowPing() {
 	time.Sleep(1000 * time.Millisecond)
 }
 
+// StopDomainScanner cancels the E2E domain check and frees network sockets.
+func StopDomainScanner() {
+	domainScanMu.Lock()
+	if domainScanCancel != nil {
+		domainScanCancel()
+		domainScanCancel = nil
+	}
+	domainScanMu.Unlock()
+
+	// Flush active connections to send FIN packets to the router
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
+}

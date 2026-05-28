@@ -620,6 +620,7 @@ func (c *DNSPacketConn) sendLoop(transport net.PacketConn, addr net.Addr) error 
 			return nil
 		default:
 		}
+	
 		err := c.send(transport, p, addr)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {

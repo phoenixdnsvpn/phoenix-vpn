@@ -156,6 +156,7 @@ func NewResolver(resolverType ResolverType, resolverAddrs string) (Resolver, err
 
 // TunnelServer holds tunnel server configuration (domain + public key).
 type TunnelServer struct {
+	RawDomains   	   string
 	Addr               dns.Name
 	PubKey             string
 	MTU                int // auto-computed if 0 when InitiateKCPConn is called
@@ -185,10 +186,15 @@ type TunnelServer struct {
 
 // NewTunnelServer creates a TunnelServer from a domain string and hex-encoded
 // public key.
+
 func NewTunnelServer(addr string, pubKeyString string) (TunnelServer, error) {
-	domain, err := dns.ParseName(addr)
+	// Parse only the FIRST domain to establish the initial Addr
+	parts := strings.Split(addr, ",")
+	firstDomain := strings.TrimSpace(parts[0])
+	
+	domain, err := dns.ParseName(firstDomain)
 	if err != nil {
-		return TunnelServer{}, fmt.Errorf("invalid domain %+q: %w", addr, err)
+		return TunnelServer{}, fmt.Errorf("invalid domain name: %w", err)
 	}
 
 	pubkey, err := noise.DecodeKey(pubKeyString)
@@ -197,6 +203,7 @@ func NewTunnelServer(addr string, pubKeyString string) (TunnelServer, error) {
 	}
 
 	return TunnelServer{
+		RawDomains:         addr,   // SAVE THE RAW COMMA-SEPARATED STRING HERE
 		Addr:               domain,
 		PubKey:             pubKeyString,
 		decodedNoisePubKey: pubkey,
@@ -548,12 +555,13 @@ func (t *Tunnel) InitiateKCPConn(mtu int) error {
 	conn.SetStreamMode(true)
 
 	if t.Resolver.ResolverType == ResolverTypeDOT || t.Resolver.ResolverType == ResolverTypeTCP {
+		// Tell KCP to wait a massive 200ms before panicking, 
 		// giving the single TCP stream time to recover from firewall packet loss.
-		// nodelay=1, interval=50ms
+		// nodelay=1, interval=10ms
 		// resend=3 (Aggressive retransmit to overcome high latency/loss)
 		// nc=1 (Disable congestion window so speed doesn't drop on lag)
 		// nc=0 (0 means Congestion Control is ON)		
-		conn.SetNoDelay(1, 50, 2, 1)
+		conn.SetNoDelay(1, 200, 2, 1)
 	} else{
 		conn.SetNoDelay(0, 0, 0, 1)
 	}
@@ -766,8 +774,7 @@ func (t *Tunnel) resetTransportLayers() error {
 }
 
 // ListenAndServe starts a TCP listener and forwards connections through the
-// tunnel with automatic session reconnection. This is the main entry point
-// for the CLI.
+// tunnel with automatic session reconnection, rotating through all domains.
 func (t *Tunnel) ListenAndServe(listenAddr string) error {
 	t.applyDefaults()
 
@@ -776,14 +783,6 @@ func (t *Tunnel) ListenAndServe(listenAddr string) error {
 		return fmt.Errorf("invalid listen address: %v", err)
 	}
 
-	maxQnameLen := t.TunnelServer.effectiveMaxQnameLen()
-	mtu := DNSNameCapacity(t.TunnelServer.Addr, maxQnameLen, t.TunnelServer.MaxNumLabels) - t.wireConfig.DataOverhead()
-	if mtu < 25 {
-		return fmt.Errorf("MTU %d is too small (minimum 25); try increasing -max-qname-len (currently %d), increasing -max-num-labels (currently %d), using a shorter domain, or decreasing -clientid-size (currently %d)",
-			mtu, maxQnameLen, t.TunnelServer.MaxNumLabels, t.wireConfig.ClientIDSize)
-	}
-	log.Infof("VAY_DEBUG effective MTU %d", mtu)
-    
 	ln, err := net.ListenTCP("tcp", localAddr)
 	if err != nil {
 		return fmt.Errorf("opening local listener: %v", err)
@@ -796,13 +795,46 @@ func (t *Tunnel) ListenAndServe(listenAddr string) error {
 		sem = make(chan struct{}, t.MaxStreams)
 	}
 
+	// [Session Manager] Initialize rotation using the RawDomains string
+	domainStrings := strings.Split(t.TunnelServer.RawDomains, ",")
+	domainIndex := 0
+	consecutiveFailures := 0
+	const maxFailuresBeforeRotate = 3 
+
 	for {
-		// Rebuild the transport stack from the resolver upward.
+		// [Session Manager] Set current domain from the split slice
+		currentDomainStr := strings.TrimSpace(domainStrings[domainIndex])
+		parsedDomain, err := dns.ParseName(currentDomainStr)
+		if err == nil {
+			t.TunnelServer.Addr = parsedDomain
+		}
+		
+		// [Session Manager] Recalculate MTU for this specific domain
+		maxQnameLen := t.TunnelServer.effectiveMaxQnameLen()
+		mtu := DNSNameCapacity(t.TunnelServer.Addr, maxQnameLen, t.TunnelServer.MaxNumLabels) - t.wireConfig.DataOverhead()
+		
+		if mtu < 25 {
+			log.Warnf("VAY_DEBUG: Domain %s results in MTU %d (too small). Skipping.", currentDomainStr, mtu)
+			domainIndex = (domainIndex + 1) % len(domainStrings)
+			continue 
+		}
+
+		log.Infof("VAY_DEBUG: [Session Manager] Initiating session via: %s (MTU: %d)", currentDomainStr, mtu)
+
+		// 1. Rebuild Transport Layers
 		var transportErrCh <-chan error
 		delay := t.ReconnectMinDelay
 		for {
 			if err := t.resetTransportLayers(); err != nil {
-				log.Warnf("transport rebuild failed: %v; retrying in %v", err, delay)
+				log.Warnf("transport rebuild failed: %v", err)
+				
+				consecutiveFailures++
+				if consecutiveFailures >= maxFailuresBeforeRotate {
+					domainIndex = (domainIndex + 1) % len(domainStrings)
+					consecutiveFailures = 0
+					log.Infof("VAY_DEBUG: [Session Manager] Domain exhausted. Rotating to: %s", strings.TrimSpace(domainStrings[domainIndex]))
+				}
+
 				time.Sleep(delay)
 				delay *= 2
 				if delay > t.ReconnectMaxDelay {
@@ -814,16 +846,25 @@ func (t *Tunnel) ListenAndServe(listenAddr string) error {
 			break
 		}
 
-		// Create a new tunnel session with exponential backoff.
+		// 2. Create Session (Handshake)
 		var conn *kcp.UDPSession
 		var sess *smux.Session
 		delay = t.ReconnectMinDelay
 		for {
 			conn, sess, err = t.createSession(mtu)
 			if err == nil {
+				consecutiveFailures = 0
 				break
 			}
-			log.Warnf("session creation failed: %v; retrying in %v", err, delay)
+			
+			log.Warnf("session creation failed: %v", err)
+			consecutiveFailures++
+			if consecutiveFailures >= maxFailuresBeforeRotate {
+				domainIndex = (domainIndex + 1) % len(domainStrings)
+				consecutiveFailures = 0
+				log.Infof("VAY_DEBUG: [Session Manager] Domain exhausted. Rotating to: %s", strings.TrimSpace(domainStrings[domainIndex]))
+			}
+
 			time.Sleep(delay)
 			delay *= 2
 			if delay > t.ReconnectMaxDelay {
@@ -831,6 +872,7 @@ func (t *Tunnel) ListenAndServe(listenAddr string) error {
 			}
 		}
 
+		// 3. Main Session Loop
 		sessDone := sess.CloseChan()
 		conv := conn.GetConv()
 
@@ -902,13 +944,13 @@ func (t *Tunnel) createSession(mtu int) (*kcp.UDPSession, *smux.Session, error) 
 	conn.SetStreamMode(true)
 
 	if t.Resolver.ResolverType == ResolverTypeDOT || t.Resolver.ResolverType == ResolverTypeTCP {
-
+		// Tell KCP to wait a massive 200ms before panicking, 
 		// giving the single TCP stream time to recover from firewall packet loss.
-		// nodelay=1, interval=50ms
+		// nodelay=1, interval=10ms
 		// resend=3 (Aggressive retransmit to overcome high latency/loss)
 		// nc=1 (Disable congestion window so speed doesn't drop on lag)
 		// nc=0 (0 means Congestion Control is ON)
-		conn.SetNoDelay(1, 50, 2, 1)
+		conn.SetNoDelay(1, 200, 2, 1)
 	} else{
 		conn.SetNoDelay(0, 0, 0, 1)
 	}

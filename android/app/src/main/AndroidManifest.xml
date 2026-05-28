@@ -111,6 +111,12 @@
             android:process=":rowping" />
 
         <service
+            android:name=".VayDomainService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:process=":domain_scanner" />
+
+        <service
             android:name=".VayScannerService"
             android:process=":scanner"
             android:exported="false"

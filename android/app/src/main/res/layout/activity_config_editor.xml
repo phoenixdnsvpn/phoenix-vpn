@@ -62,7 +62,18 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="?attr/colorOnSurface"
-                android:hint="t.example.com" />
+                android:textColorHint="?android:attr/textColorSecondary"
+                android:hint="t.example.com,t.domain.com" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_multi_domain"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Use Multi Domains"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:checked="false" />
 
             <TextView
                 android:layout_width="wrap_content"

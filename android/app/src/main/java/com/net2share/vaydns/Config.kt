@@ -25,5 +25,6 @@ data class Config(
     val ssMethod: String = "chacha20-ietf-poly1305",
     val isDefault: Boolean = false,
     val freeScanner: Boolean = false,
+    val useMultiDomains: Boolean = false,
     var lastLatency: Long = -1L
 )

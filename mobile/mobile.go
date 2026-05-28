@@ -3,6 +3,7 @@ package mobile
 import (
 	"context"
 	"encoding/json"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"math/rand"
@@ -106,7 +107,8 @@ func translateFakeToReal(input string) string {
 func StartVpn(
 	fd int, 
 	isDefault bool, 
-	configIndex int64, 
+	configIndex int64,
+	useMultiDomains bool,
 	udp string,
 	tcp string,
 	doh string, 
@@ -195,6 +197,13 @@ func StartVpn(
 		useAuth = (user != "" || pass != "")
 	}
 
+    if !useMultiDomains {
+		parts := strings.Split(domainToUse, ",")
+		if len(parts) > 0 {
+			domainToUse = strings.TrimSpace(parts[0])
+		}
+	}
+	
 	realUdp := translateMultipathFakeToReal(udp)
 	realTcp := translateMultipathFakeToReal(tcp)
 	realDoh := translateMultipathFakeToReal(doh)
@@ -384,7 +393,7 @@ func StartVpn(
 
 // StartProxy: Starts the DNS tunnel and local SOCKS5 proxy WITHOUT Android VPN routing.
 func StartProxy(
-	isDefault bool, configIndex int64, udp string, tcp string, doh string, dot string, baseDohUrl string,
+	isDefault bool, configIndex int64, useMultiDomains bool, udp string, tcp string, doh string, dot string, baseDohUrl string,
 	customDomain string, customPubkey string, recordType string, idleTimeout string,
 	KeepAlive string, clientIDSize int, mtu int, compatDnstt bool, useAuth bool,
 	protocol string, ssMethod string, user string, pass string, customPort int,
@@ -399,9 +408,11 @@ func StartProxy(
 
 	// Set the port from the user
 	activeSocksPort = customPort
+
 	proxyAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(customPort))
-		
+			
 // PRE-CHECK: Ensure the port is not already in use
+//	l, err := net.Listen("tcp", proxyAddr)
 	l, err := net.Listen("tcp", proxyAddr)
 	if err != nil {
 		mu.Unlock()
@@ -437,11 +448,18 @@ func StartProxy(
 		compatDnstt = GetDefaultConfigDnsttCompatible(configIndex)
 	}
 
+    if !useMultiDomains {
+		parts := strings.Split(domainToUse, ",")
+		if len(parts) > 0 {
+			domainToUse = strings.TrimSpace(parts[0])
+		}
+	}
+	
 	realUdp := translateMultipathFakeToReal(udp)
     realTcp := translateMultipathFakeToReal(tcp)
     realDoh := translateMultipathFakeToReal(doh)
     realDot := translateMultipathFakeToReal(dot)
-    	    
+    	    	
 	// Note: Protector is nil because Proxy Mode doesn't need to bypass Android's VpnService
 	tCfg := bridge.TunnelConfig{
 		BaseDohURL:       baseDohUrl,
@@ -661,6 +679,7 @@ func SyncPreScanResolvers(
 	)
 
 	// 3. Wait for scan to finish (Timeout safety: 15s probe + 3s wait + 1s buffer)
+//	timeout := time.After(19 * time.Second)
 	maxWait := time.Duration(probeTimeout + tunnelWait + 1000) * time.Millisecond
 	timeout := time.After(maxWait)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -754,7 +773,6 @@ func PingServer(
 
 	log.Printf("VAY_DEBUG: [Ping] Triggering f35 scan for %s...", address)
 
-
 	// 2. StartF35Scan handles the Native Vault and SSH formatting internally!
 	StartF35Scan(
 		isDefault, configIndex, dnsMode, domain, pubkey, address,
@@ -813,3 +831,151 @@ waitLoop:
 	log.Printf("VAY_DEBUG: [Ping] Result for %s -> %vms", address, finalLatency)
 	return finalLatency
 }
+
+// CheckHealthyDomains tests a comma-separated list of domains against a specific resolver.
+// It automatically attempts a fast UDP ping first. If the DPI firewall drops all UDP traffic,
+// it autonomously falls back to a TCP ping before returning the results to Android.
+// getQType converts a string record type to its official DNS integer value
+func getQType(recordType string) uint16 {
+	switch strings.ToLower(strings.TrimSpace(recordType)) {
+	case "a": return 1
+	case "ns": return 2
+	case "cname": return 5
+	case "null": return 10
+	case "mx": return 15
+	case "txt": return 16
+	case "aaaa": return 28
+	case "srv": return 33
+	case "caa": return 257
+	default: return 16 // Fallback to TXT
+	}
+}
+
+// CheckHealthyDomains tests a list of domains against a resolver using the specific record type.
+//Altough is quick, but quickly dropped by DPI, so not used anymore
+func CheckHealthyDomainsQuick(useMultiDomains bool, isDefault bool, configIndex int64, domains string, resolverIP string, recordType string) string {
+	domainToUse := domains
+
+	if isDefault {
+		domainToUse = getDefaultConfigDomain(configIndex)
+	}
+
+   fmt.Printf("VAY_DEBUG: [Domain Scanner] Entering CheckHealthyDomains with domainToUse: '%s', resolver: '%s', type: '%s'\n", domainToUse, resolverIP, recordType)	
+
+	if !useMultiDomains {
+		parts := strings.Split(domainToUse, ",")
+		if len(parts) > 0 {
+			domainToUse = strings.TrimSpace(parts[0])
+		}
+	}
+	 fmt.Printf("VAY_DEBUG: [Domain Scanner] Final target: '%s', MultiDomains: %v, isDefault: %v\n", domainToUse, useMultiDomains, isDefault)
+//	fmt.Printf("VAY_DEBUG: [Domain Scanner] Entering CheckHealthyDomains with domainToUse: '%s', resolver: '%s', type: '%s'\n", domainToUse, resolverIP, recordType)
+
+	rawDomains := strings.Split(domainToUse, ",")
+	
+	if !strings.Contains(resolverIP, ":") {
+		resolverIP = resolverIP + ":53"
+	}
+
+	qtype := getQType(recordType)
+
+	// Build the raw DNS query bytes manually
+	buildQuery := func(domain string) []byte {
+		id := uint16(rand.Intn(65535))
+		buf := make([]byte, 12)
+		binary.BigEndian.PutUint16(buf[0:2], id)
+		binary.BigEndian.PutUint16(buf[2:4], 0x0100) // Flags: Standard Query, Recursion Desired
+		binary.BigEndian.PutUint16(buf[4:6], 1)      // QDCOUNT = 1
+		
+		// Encode the QNAME
+		for _, part := range strings.Split(domain, ".") {
+			buf = append(buf, byte(len(part)))
+			buf = append(buf, []byte(part)...)
+		}
+		buf = append(buf, 0) // Root label
+		
+		// Encode QTYPE and QCLASS (IN)
+		qtypeBytes := make([]byte, 2)
+		binary.BigEndian.PutUint16(qtypeBytes, qtype)
+		buf = append(buf, qtypeBytes...)
+		buf = append(buf, 0x00, 0x01) 
+		
+		return buf
+	}
+
+	runScan := func(protocol string) []string {
+		var healthy []string
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+
+		for _, d := range rawDomains {
+			cleanDomain := strings.TrimSpace(d)
+			if cleanDomain == "" {
+				continue
+			}
+
+			wg.Add(1)
+			go func(domain string) {
+				defer wg.Done()
+				query := buildQuery(domain)
+				
+				d := net.Dialer{Timeout: 2000 * time.Millisecond}
+				conn, err := d.Dial(protocol, resolverIP)
+				if err != nil {
+					log.Printf("VAY_DEBUG: [Domain Scanner] %s failed to connect via %s: %v", domain, protocol, err)
+					return
+				}
+				defer conn.Close()
+				conn.SetDeadline(time.Now().Add(2000 * time.Millisecond))
+
+				// Send the query
+				if protocol == "tcp" {
+					// TCP requires a 2-byte length prefix
+					tcpQuery := make([]byte, 2+len(query))
+					binary.BigEndian.PutUint16(tcpQuery[0:2], uint16(len(query)))
+					copy(tcpQuery[2:], query)
+					_, err = conn.Write(tcpQuery)
+				} else {
+					_, err = conn.Write(query)
+				}
+
+				if err != nil {
+					return
+				}
+
+				// Read the response
+				respBuf := make([]byte, 512)
+				_, err = conn.Read(respBuf)
+
+				// If we get ANY read response (even an NXDOMAIN or 0 answers), the packet survived the DPI!
+				if err == nil {
+					mu.Lock()
+					healthy = append(healthy, domain)
+					mu.Unlock()
+					log.Printf("VAY_DEBUG: [Domain Scanner] %s passed via %s", domain, protocol)
+				} else {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Printf("VAY_DEBUG: [Domain Scanner] %s TIMED OUT via %s", domain, protocol)
+					} else {
+						log.Printf("VAY_DEBUG: [Domain Scanner] %s read error via %s: %v", domain, protocol, err)
+					}
+				}
+			}(cleanDomain)
+		}
+		wg.Wait()
+		return healthy
+	}
+
+	log.Printf("VAY_DEBUG: [Domain Scanner] Testing domains via UDP...")
+	results := runScan("udp")
+
+	if len(results) == 0 {
+		log.Printf("VAY_DEBUG: [Domain Scanner] UDP blocked or timed out. Falling back to TCP...")
+		results = runScan("tcp")
+	} else {
+		log.Printf("VAY_DEBUG: [Domain Scanner] UDP scan successful.")
+	}
+
+	return strings.Join(results, ",")
+}
+

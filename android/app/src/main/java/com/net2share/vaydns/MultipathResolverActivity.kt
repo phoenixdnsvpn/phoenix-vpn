@@ -1,6 +1,7 @@
 package com.net2share.vaydns
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -9,11 +10,13 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
+import java.util.Collections
 
 class MultipathResolverActivity : AppCompatActivity() {
 
@@ -49,17 +52,62 @@ class MultipathResolverActivity : AppCompatActivity() {
             }
         })
 
+        val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0 // Drag direction
+        ) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                val fromPosition = viewHolder.adapterPosition
+                val toPosition = target.adapterPosition
+
+                // Swap items in your source list
+                Collections.swap(resolverEntries, fromPosition, toPosition)
+
+                // Tell the adapter to update the UI
+                adapter.notifyItemMoved(fromPosition, toPosition)
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                // We aren't implementing swipe, so leave empty
+            }
+
+            // Optional: Make the item look "lifted" when being dragged
+            override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(viewHolder, actionState)
+                if (actionState != ItemTouchHelper.ACTION_STATE_IDLE) {
+                    viewHolder?.itemView?.alpha = 0.5f
+                }
+            }
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                viewHolder.itemView.alpha = 1.0f
+            }
+        })
+
         setupDataPipeline()
         initialSnapshot = captureCurrentSnapshot() // Freeze snapshot configuration state immediately
 
         val recyclerView = findViewById<RecyclerView>(R.id.rv_resolvers)
         recyclerView.layoutManager = LinearLayoutManager(this)
-        adapter = CheckBoxResolverAdapter(resolverEntries, tunnelMode, { updateSubtitleCount(); updateToggleAllButtonState() }, { ip, mode -> sanitizeInput(ip, mode) })
+        adapter = CheckBoxResolverAdapter(
+            entries = resolverEntries,
+            tunnelMode = tunnelMode,
+            onStatusChanged = { updateSubtitleCount(); updateToggleAllButtonState() },
+            sanitizePointer = { ip, mode -> sanitizeInput(ip, mode) },
+            onStartDrag = { holder -> itemTouchHelper.startDrag(holder) }
+        )
+        //adapter = CheckBoxResolverAdapter(resolverEntries, tunnelMode, { updateSubtitleCount(); updateToggleAllButtonState() }, { ip, mode -> sanitizeInput(ip, mode) })
         recyclerView.adapter = adapter
+        itemTouchHelper.attachToRecyclerView(recyclerView)
 
         findViewById<Button>(R.id.btn_import_resolvers).setOnClickListener { showImportDialog() }
 
-        // 🟢 Toggle All Button Actions Bar Core Engine
+        // Toggle All Button Actions Bar Core Engine
         val btnToggleAll = findViewById<Button>(R.id.btn_toggle_all_resolvers)
         btnToggleAll.setOnClickListener {
             resolverEntries.forEach { entry ->
@@ -76,6 +124,8 @@ class MultipathResolverActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btn_save_resolvers).setOnClickListener { executeSaveSequence() }
+
+        findViewById<Button>(R.id.btn_export_resolvers).setOnClickListener { exportResolvers() }
 
         // DELETIONS ARE STAGED IN RAM ONLY (Allows Undo via Discard)
         findViewById<Button>(R.id.btn_delete_resolvers).setOnClickListener {
@@ -219,6 +269,29 @@ class MultipathResolverActivity : AppCompatActivity() {
         }
     }
 
+    private fun exportResolvers() {
+        // This gathers ALL checked IPs from the full list (scanned + manual)
+        val selectedAddrs = resolverEntries
+            .filter { it.isChecked && it.address.isNotEmpty() }
+            .map { it.address }
+
+        if (selectedAddrs.isEmpty()) {
+            Toast.makeText(this, "No resolvers selected to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val exportText = selectedAddrs.joinToString("\n")
+
+        // Create the Share Intent
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "VayDNS Resolvers")
+            putExtra(Intent.EXTRA_TEXT, exportText)
+        }
+
+        // Trigger the system share sheet
+        startActivity(Intent.createChooser(intent, "Export Resolvers via"))
+    }
     private fun showImportDialog() {
         val input = EditText(this).apply {
             hint = "Paste IPs (comma, space, or newline separated)..."

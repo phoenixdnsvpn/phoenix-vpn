@@ -50,7 +50,8 @@ object DefaultConfigProvider {
 
                 useAuth = hasAuth,
                 user = if (hasAuth) "********" else "",
-                pass = if (hasAuth) "********" else ""
+                pass = if (hasAuth) "********" else "",
+                useMultiDomains = overrides.getBoolean("${id}_useMultiDomains", false)
             )
             defaultList.add(config)
         }
@@ -72,7 +73,8 @@ object DefaultConfigProvider {
             keepAlive = mobile.Mobile.getDefaultConfigKeepAlive(index),
             clientIdSize = mobile.Mobile.getDefaultConfigClientIdSize(index),
             dnsttCompatible = mobile.Mobile.getDefaultConfigDnsttCompatible(index),
-            ssMethod = mobile.Mobile.getDefaultConfigMethod(index)
+            ssMethod = mobile.Mobile.getDefaultConfigMethod(index),
+            useMultiDomains = maskedConfig.useMultiDomains
         )
     }
 }
