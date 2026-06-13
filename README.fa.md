@@ -257,7 +257,7 @@ cd android
 
 <div dir="rtl">
 
--   **[Hysteria2](https://github.com/apernet/hysteria Hysteria)**:
+-   **[Hysteria2](https://github.com/apernet/hysteria)**:
 
 پروتکل حمل‌ونقل قدرتمند و بهینه‌شده برای UDP که سرعت بسیار بالایی در شبکه‌های ناپایدار و تحت سانسور شدید ارائه می‌دهد.
 

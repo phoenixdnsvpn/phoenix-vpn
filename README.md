@@ -215,7 +215,7 @@ This project would not be possible without the incredible work of the following 
 
 -   **[dnst-url-spec](https://github.com/net2share/dnst-url-spec)**: A standard URL format for sharing DNS-tunneled proxy configurations across clients and apps.
 
--   **[Hysteria2](https://github.com/apernet/hysteria Hysteria)**: For the powerful, UDP-optimized transport protocol that delivers incredible speeds over unreliable and heavily censored networks.
+-   **[Hysteria2](https://github.com/apernet/hysteria)**: For the powerful, UDP-optimized transport protocol that delivers incredible speeds over unreliable and heavily censored networks.
 
 -   **[REALITY](https://github.com/XTLS/REALITY)**: For the innovative stealth protocol that flawlessly masks proxy traffic without requiring a dedicated domain or standard TLS certificate.
 
