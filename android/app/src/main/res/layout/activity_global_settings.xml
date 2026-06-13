@@ -39,6 +39,142 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:text="Engine Mode"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <RadioGroup
+                android:id="@+id/rg_engine_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="24dp">
+
+                <RadioButton
+                    android:id="@+id/rb_engine_singbox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Sing-Box"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_engine_tun2socks"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Tun2Socks"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+            </RadioGroup>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="VPN Mode"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <RadioGroup
+                android:id="@+id/rg_tunnel_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="24dp">
+
+                <RadioButton
+                    android:id="@+id/rb_mode_vpn"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="VPN"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_mode_proxy"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Proxy"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+            </RadioGroup>
+
+            <View
+                android:id="@+id/div_protocol_mode_divider"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:id="@+id/tv_global_protocol_header"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Global Protocol Override"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_global_protocol_override"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Override Per-Config Protocol"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="16dp" />
+
+            <Spinner
+                android:id="@+id/spinner_global_protocol"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:backgroundTint="?attr/colorOnSurface"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_protocol_mode_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cloudflare IP Address"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <EditText
+                android:id="@+id/et_vless_ws_ip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Cloudflare Front-End IP (Leave it blank to use default)"
+                android:textColor="?attr/colorOnSurface"
+                android:textColorHint="?android:attr/textColorSecondary" android:inputType="text"
+                android:maxLines="1"
+                android:layout_marginBottom="24dp"
+                android:textSize="15sp"/>
+
+            <View
+                android:id="@+id/div_startup_mode_divider"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:id="@+id/tv_startup_behavior_header"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:text="Startup Behavior"
                 android:textColor="?attr/colorPrimary"
                 android:textStyle="bold"
@@ -55,15 +191,97 @@
                 android:layout_marginBottom="16dp" />
 
             <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_default_vpn_mode"
+                android:id="@+id/cb_display_vaydns_configs"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:text="Start in VPN Mode by default"
+                android:text="Display VayDNS Configs"
+                android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
-                android:textSize="15sp"
-                android:textStyle="bold" />
+                android:layout_marginBottom="16dp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Notification Management"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Unlocked State Delay (ms)"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp"/>
+                <EditText
+                    android:id="@+id/et_unlocked_delay"
+                    android:layout_width="80dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:maxLength="5"
+                    android:gravity="center"
+                    android:textColor="?attr/colorOnSurface"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Locked State Delay (ms)"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp"/>
+                <EditText
+                    android:id="@+id/et_locked_delay"
+                    android:layout_width="80dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:maxLength="5"
+                    android:gravity="center"
+                    android:textColor="?attr/colorOnSurface"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Notification Update (ms)"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp"/>
+                <EditText
+                    android:id="@+id/et_notif_update"
+                    android:layout_width="80dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:maxLength="5"
+                    android:gravity="center"
+                    android:textColor="?attr/colorOnSurface"/>
+            </LinearLayout>
 
             <View
                 android:layout_width="match_parent"
@@ -80,20 +298,10 @@
                 android:layout_marginBottom="24dp"/>
 
             <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_show_check_app_update"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Show 'Check for Update'"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface"
-                app:thumbTint="?attr/colorPrimary"
-                android:layout_marginBottom="16dp" />
-
-            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/cb_show_update_configs"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Show 'Update Configs'"
+                android:text="Update Configs"
                 android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
@@ -103,7 +311,7 @@
                 android:id="@+id/cb_show_update_resolvers"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Show 'Update Resolvers'"
+                android:text="Update Resolvers"
                 android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
@@ -113,7 +321,7 @@
                 android:id="@+id/cb_show_upload_configs"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Show 'Upload Configs'"
+                android:text="Upload Configs"
                 android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
@@ -123,7 +331,7 @@
                 android:id="@+id/cb_show_upload_resolvers"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Show 'Upload Resolvers'"
+                android:text="Upload Resolvers"
                 android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
@@ -133,7 +341,7 @@
                 android:id="@+id/cb_show_import_resolvers"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Show 'Import Resolvers'"
+                android:text="Import Resolvers"
                 android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
@@ -143,7 +351,7 @@
                 android:id="@+id/cb_show_export_resolvers"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Show 'Export Resolvers'"
+                android:text="Export Resolvers"
                 android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"

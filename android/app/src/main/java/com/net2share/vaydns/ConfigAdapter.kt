@@ -58,12 +58,50 @@ class ConfigAdapter(
 
         holder.name.text = config.name
         val isSelected = config.id == selectedId
-        /*holder.domain.text = config.domain
-        if (config.isDefault) {
-            holder.domain.text = "----------"
+
+        // Extract Active Protocol and Colorize Config Name
+        val context = holder.itemView.context
+        val isDefault = config.isDefault
+        val configIndex = if (isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+        val rawConfigType = if (isDefault) mobile.Mobile.getDefaultConfigType(configIndex) else "vaydns"
+
+        val tunnelPrefs = context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+        val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
+
+        var activeProtocol = if (globalOverride) {
+            globalProtocol
+        } else if (isDefault) {
+            context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${config.id}_tunnelProtocol", null)
+                ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
         } else {
-            holder.domain.text = config.domain
-        }*/
+            config.tunnelProtocol
+        }
+
+        if (isDefault) {
+            val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
+            if (!supportedProtocols.contains(activeProtocol.lowercase())) {
+                activeProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
+            }
+        }
+
+        // Fetch the native default text color (Supports Light & Dark themes automatically)
+        val defaultTextColor = com.google.android.material.color.MaterialColors.getColor(
+            holder.itemView,
+            com.google.android.material.R.attr.colorOnSurface,
+            android.graphics.Color.BLACK
+        )
+
+        // Assign striking Material colors based on the protocol
+        val protocolColor = when (activeProtocol.lowercase().trim()) {
+            "hysteria", "hysteria2" -> android.graphics.Color.parseColor("#00897B") // Teal
+            "reality"               -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
+            "vless-ws", "vless"     -> android.graphics.Color.parseColor("#3949AB") // Indigo
+            else                    -> defaultTextColor // VayDNS (Native Black/White)
+        }
+
+        holder.name.setTextColor(protocolColor)
 
         holder.itemView.isSelected = isSelected
 
@@ -71,24 +109,41 @@ class ConfigAdapter(
             onConfigSelected(config)
         }
 
-        val iconAlpha = if (isSelected) 0.5f else 1.0f
-        holder.export.alpha = iconAlpha
-        holder.delete.alpha = iconAlpha
+        // =========================================================
+        // VISIBILITY AND CLICK LOGIC
+        // =========================================================
+        val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+        val configType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
+        val canEdit = configType.lowercase().contains("vaydns") || configType.trim().isEmpty()
+
+        if (config.isDefault) {
+            // Hide the icons completely for official configs
+            holder.export.visibility = View.GONE
+            holder.delete.visibility = View.GONE
+        } else {
+            // Show them for custom configs and apply the selection alpha
+            holder.export.visibility = View.VISIBLE
+            holder.delete.visibility = View.VISIBLE
+
+            val iconAlpha = if (isSelected) 0.5f else 1.0f
+            holder.export.alpha = iconAlpha
+            holder.delete.alpha = iconAlpha
+        }
+
+        holder.edit.alpha = 1.0f
 
         holder.export.setOnClickListener {
-            if (config.isDefault) {
-                Toast.makeText(holder.itemView.context, "Built-in configs cannot be exported.", Toast.LENGTH_SHORT).show()
-            } else {
+            if (!config.isDefault) {
                 onExportClicked(config)
             }
         }
 
-        holder.edit.setOnClickListener { onEditClicked(config) }
+        holder.edit.setOnClickListener {
+            onEditClicked(config)
+        }
 
         holder.delete.setOnClickListener {
-            if (config.isDefault) {
-                Toast.makeText(holder.itemView.context, "Built-in configs cannot be deleted.", Toast.LENGTH_SHORT).show()
-            } else {
+            if (!config.isDefault) {
                 this.onDeleteClicked(config)
             }
         }
@@ -143,12 +198,23 @@ class ConfigAdapter(
 
             val prefs = context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
             val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
+            val activeProtocol = prefs.getString("active_protocol", "vaydns") ?: "vaydns"
             val lightE2E = prefs.getBoolean("light_e2e", false)
             val workers = prefs.getInt("workers", 20)
             val tWait = prefs.getInt("tunnel_wait", 3000)
             val uTimeout = prefs.getInt("udp_timeout", 1000)
             val retries = prefs.getInt("retries", 0)
             var pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
+
+            val configVlessIp = if (finalConfig.isDefault) {
+                prefs.getString("${finalConfig.id}_vlessIp", "") ?: ""
+            } else {
+                finalConfig.vlessIp
+            }
+            val globalVlessIp = context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                .getString("vless_ws_ip", "") ?: ""
+
+            val finalVlessIp = if (configVlessIp.isNotEmpty()) configVlessIp else globalVlessIp
 
             val currentMode = config.mode.lowercase()
             if (!lightE2E && (currentMode == "udp" || currentMode == "tcp")) {
@@ -164,19 +230,61 @@ class ConfigAdapter(
             }
 
             val serviceIntent = Intent(context, VayRowPingService::class.java).apply {
-                putExtra("CONFIG_ID", config.id)
-                putExtra("IS_DEFAULT", config.isDefault)
+
+                val rawConfigType = if (finalConfig.isDefault) mobile.Mobile.getDefaultConfigType(configIndex) else "vaydns"
+
+                val tunnelPrefs = context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+                val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
+
+                var activeProtocol = if (globalOverride) {
+                    globalProtocol
+                } else if (finalConfig.isDefault) {
+                    context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                        .getString("${finalConfig.id}_tunnelProtocol", null)
+                        ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
+                } else {
+                    finalConfig.tunnelProtocol
+                }
+
+                if (finalConfig.isDefault) {
+                    val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
+                    if (!supportedProtocols.contains(activeProtocol.lowercase())) {
+                        activeProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
+                    }
+                }
+
+                // 2. SANITIZE ROUTING FOR BACKEND
+                val isDirectMode = activeProtocol.lowercase() != "vaydns"
+                val cleanConfigType = if (isDirectMode) "direct" else "vaydns"
+                val cleanProtocol = if (isDirectMode) activeProtocol else finalConfig.protocol
+
+                // ONLY pass the IP if it's a custom config (which is already public to the user)
+                val serverIp = if (isDirectMode && !finalConfig.isDefault) {
+                    finalConfig.dnsAddress
+                } else {
+                    "" // Send nothing for official configs to protect OPSEC!
+                }
+
+                putExtra("CONFIG_TYPE", cleanConfigType)
+                putExtra("SERVER_IP", serverIp)
+
+                putExtra("CONFIG_ID", finalConfig.id)
+                putExtra("IS_DEFAULT", finalConfig.isDefault)
                 putExtra("CONFIG_INDEX", configIndex)
                 putExtra("MODE", finalConfig.mode)
-                //putExtra("DOMAIN", finalConfig.domain)
+
                 putExtra("DOMAIN", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
                 putExtra("PUBKEY", finalConfig.pubkey)
                 putExtra("MULTIPATH_DNS", multipathDnsList)
                 putExtra("BASE_DOH_URL", if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else "")
                 putExtra("PROXY_TYPE", proxyType)
-                putExtra("PROTOCOL", finalConfig.protocol)
-                putExtra("USER", finalConfig.user)
-                putExtra("PASS", finalConfig.pass)
+                putExtra("PROTOCOL", cleanProtocol)
+                putExtra("VLESS_WS_IP", finalVlessIp)
+                val finalUser = if (finalConfig.isDefault) "" else finalConfig.user
+                val finalPass = if (finalConfig.isDefault) "" else finalConfig.pass
+                putExtra("USER", finalUser)
+                putExtra("PASS", finalPass)
                 putExtra("SS_METHOD", finalConfig.ssMethod)
                 putExtra("RECORD_TYPE", finalConfig.recordType)
                 putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)

@@ -51,6 +51,43 @@
                 android:textColor="?attr/colorOnSurface" />
 
             <TextView
+                android:id="@+id/tv_tunnel_protocol_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tunnel Protocol Mode:"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="16dp"
+                android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/spinner_tunnel_protocol"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="?attr/colorOnSurface" />
+
+            <TextView
+                android:id="@+id/tv_vless_ip_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cloudflare IP (VLESS-WS):"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <EditText
+                android:id="@+id/et_vless_ip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Leave empty to use Global Setting"
+                android:textColorHint="?android:attr/textColorSecondary"
+                android:textColor="?attr/colorOnSurface"
+                android:inputType="text"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_domain_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Tunnel Domain:"
@@ -76,6 +113,7 @@
                 android:checked="false" />
 
             <TextView
+                android:id="@+id/tv_pubkey_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Server Public Key:"
@@ -90,6 +128,7 @@
                 android:hint="Your Server Key" />
 
             <TextView
+                android:id="@+id/tv_dns_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="DNS Server:"
@@ -171,6 +210,7 @@
             </LinearLayout>
 
             <TextView
+                android:id="@+id/tv_mode_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Tunnel Mode:"
@@ -223,6 +263,7 @@
             </RadioGroup>
 
             <TextView
+                android:id="@+id/tv_record_type_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Record Type:"
@@ -239,6 +280,7 @@
                 android:backgroundTint="?attr/colorOnSurface" />
 
             <TextView
+                android:id="@+id/tv_idle_timeout_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Idle Timeout:"
@@ -255,6 +297,7 @@
                 android:inputType="text" />
 
             <TextView
+                android:id="@+id/tv_keep_alive_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Keep Alive:"
@@ -271,6 +314,7 @@
                 android:inputType="text" />
 
             <TextView
+                android:id="@+id/tv_client_id_size_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Client ID Size:"

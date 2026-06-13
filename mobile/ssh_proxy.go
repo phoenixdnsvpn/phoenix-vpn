@@ -119,7 +119,7 @@ func (m *SSHProxyManager) handleSocksClient(conn net.Conn) {
 
 	cmd := buf[1]
 
-	// THE MAGIC TRICK: Handle UDP ASSOCIATE for DNS Interception
+	// 🟢 THE MAGIC TRICK: Handle UDP ASSOCIATE for DNS Interception
 	if cmd == 0x03 {
 		m.handleUDPAssociate(conn)
 		return
@@ -176,7 +176,7 @@ func (m *SSHProxyManager) handleSocksClient(conn net.Conn) {
 	io.Copy(conn, sshConn)
 }
 
-//  handleUDPAssociate intercepts tun2socks's attempt to open a UDP socket
+// 🟢 NEW: handleUDPAssociate intercepts tun2socks's attempt to open a UDP socket
 func (m *SSHProxyManager) handleUDPAssociate(tcpConn net.Conn) {
 	// 1. Open a local UDP listener just for this tun2socks session
 	udpAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
@@ -201,7 +201,7 @@ func (m *SSHProxyManager) handleUDPAssociate(tcpConn net.Conn) {
 	io.Copy(io.Discard, tcpConn)
 }
 
-//  processUDPPackets dissects the SOCKS5 UDP header and filters for DNS
+// 🟢 NEW: processUDPPackets dissects the SOCKS5 UDP header and filters for DNS
 func (m *SSHProxyManager) processUDPPackets(udpConn *net.UDPConn) {
 	buf := make([]byte, 4096)
 	for {
@@ -238,7 +238,7 @@ func (m *SSHProxyManager) processUDPPackets(udpConn *net.UDPConn) {
 		payload := buf[headerLen:n]
 		socksHeader := buf[:headerLen]
 
-		// THE INTERCEPT: If it's a DNS request (Port 53), convert it to TCP
+		// 🟢 THE INTERCEPT: If it's a DNS request (Port 53), convert it to TCP
 		if destPort == 53 {
 			go m.resolveDNSoverTCP(udpConn, clientAddr, socksHeader, destIP, payload)
 		}
@@ -247,7 +247,7 @@ func (m *SSHProxyManager) processUDPPackets(udpConn *net.UDPConn) {
 	}
 }
 
-//  resolveDNSoverTCP wraps the raw DNS UDP packet in a TCP envelope
+// 🟢 NEW: resolveDNSoverTCP wraps the raw DNS UDP packet in a TCP envelope
 func (m *SSHProxyManager) resolveDNSoverTCP(udpConn *net.UDPConn, clientAddr *net.UDPAddr, socksHeader []byte, destIP string, dnsPayload []byte) {
 	// 1. Dial the target DNS server (e.g., 8.8.8.8:53) through the SSH Tunnel using TCP
 	sshConn, err := m.sshClient.Dial("tcp", fmt.Sprintf("%s:53", destIP))

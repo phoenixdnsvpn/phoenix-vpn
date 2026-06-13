@@ -49,8 +49,10 @@ object DefaultConfigProvider {
                 useSshKey = mobile.Mobile.getDefaultConfigUseSshKey(i),
 
                 useAuth = hasAuth,
-                user = if (hasAuth) "********" else "",
-                pass = if (hasAuth) "********" else "",
+                user = "",
+                pass = "",
+                // user = if (hasAuth) "********" else "",
+                // pass = if (hasAuth) "********" else "",
                 useMultiDomains = overrides.getBoolean("${id}_useMultiDomains", false)
             )
             defaultList.add(config)

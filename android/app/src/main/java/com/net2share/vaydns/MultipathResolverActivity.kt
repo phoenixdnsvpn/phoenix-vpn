@@ -13,6 +13,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import java.io.OutputStream
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
@@ -27,6 +30,16 @@ class MultipathResolverActivity : AppCompatActivity() {
     private var isCheckAllActive = true
     private var initialSnapshot: String = "" // Freezes original map array configuration
 
+    private var pendingExportText: String = ""
+
+    // Launcher for the "Save to File" document creator
+    private val createFileLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                writeExportToFile(uri)
+            }
+        }
+    }
     //private lateinit var cbImportResolvers: SwitchCompat
     //private lateinit var cbExportResolvers: SwitchCompat
 
@@ -280,18 +293,55 @@ class MultipathResolverActivity : AppCompatActivity() {
             return
         }
 
-        val exportText = selectedAddrs.joinToString("\n")
+        // Store the text temporarily so the file writer can access it after the user picks a location
+        pendingExportText = selectedAddrs.joinToString("\n")
 
-        // Create the Share Intent
+        // Ask the user how they want to export
+        val options = arrayOf("Share via... / اشتراک‌گذاری", "Save to File / ذخیره در فایل")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Export Options")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> shareExportText(pendingExportText)
+                    1 -> saveExportToFile()
+                }
+            }
+            .show()
+    }
+
+    private fun shareExportText(text: String) {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, "VayDNS Resolvers")
-            putExtra(Intent.EXTRA_TEXT, exportText)
+            putExtra(Intent.EXTRA_TEXT, text)
         }
-
-        // Trigger the system share sheet
         startActivity(Intent.createChooser(intent, "Export Resolvers via"))
     }
+
+    private fun saveExportToFile() {
+        // Trigger Android's native file saver dialog
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/plain"
+            // Suggest a default file name based on the current config
+            putExtra(Intent.EXTRA_TITLE, "vaydns_resolvers_${configId}.txt")
+        }
+        createFileLauncher.launch(intent)
+    }
+
+    private fun writeExportToFile(uri: Uri) {
+        try {
+            contentResolver.openOutputStream(uri)?.use { outputStream: OutputStream ->
+                outputStream.write(pendingExportText.toByteArray())
+                outputStream.flush()
+                Toast.makeText(this, "File saved successfully!", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("VAY_ERROR", "Failed to save file", e)
+            Toast.makeText(this, "Failed to save file", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun showImportDialog() {
         val input = EditText(this).apply {
             hint = "Paste IPs (comma, space, or newline separated)..."

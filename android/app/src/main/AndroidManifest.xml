@@ -19,11 +19,12 @@
     </queries>
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="false"
+        android:fullBackupContent="false"
         android:theme="@style/Theme.Vaydns">
 
         <activity
@@ -74,7 +75,7 @@
         <activity
             android:name=".DnsScannerResultActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
         <activity
             android:name=".ResolverTransferActivity"
@@ -125,6 +126,19 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Continuous DNS Scanning" />
         </service>
+
+        <service
+            android:name=".CFScannerService"
+            android:exported="false" />
+
+        <service
+            android:name=".CFScannerService"
+            android:exported="false" />
+
+        <activity
+            android:name=".CloudflareScannerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:exported="false" />
 
     </application>
 

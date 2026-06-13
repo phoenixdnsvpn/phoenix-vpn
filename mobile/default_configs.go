@@ -34,6 +34,7 @@ var RuntimeConfigs []byte
 var RuntimeResolvers []byte
 
 type DefaultConfig struct {
+	ConfigType      string `json:"config_type"`
 	Name            string `json:"name"`
 	Domain          string `json:"domain"`
 	Pubkey          string `json:"pubkey"`
@@ -49,12 +50,14 @@ type DefaultConfig struct {
 	User            string `json:"user"`
 	Pass            string `json:"pass"`
 	FreeScanner     bool   `json:"freeScanner"`
+
 }
 
 type ConfigWrapper struct {
 	Version      int             `json:"version"`
 	ServerURLs   []string        `json:"serverURLs"`
 	AppSecretKey string          `json:"appSecretKey"`
+	VlessWsIP    string          `json:"vless_ws_ip"`
 	Configs      []DefaultConfig `json:"configs"`
 }
 
@@ -164,7 +167,8 @@ func parseConfigData(data []byte) {
 		defaultConfigs = wrapper.Configs
 		currentVersion = wrapper.Version
 		currentServerURLs = wrapper.ServerURLs
-		currentSecretKey = wrapper.AppSecretKey
+		currentSecretKey = wrapper.AppSecretKey		
+		SetRootVlessWsIP(wrapper.VlessWsIP)
 
 	} else {
 		// Fallback for older JSON formats
@@ -555,7 +559,22 @@ func GetDefaultConfigIsFreeScanner(index int64) bool {
 	ensureParsed()
 	configMu.Lock()
 	defer configMu.Unlock()
-			
+	
+/*	
+	if int(index) >= 0 && int(index) < len(defaultConfigs) {
+		cfg := defaultConfigs[index]
+		
+		// LOGGING FOR DEBUGGING
+		// This will show up in logcat under the "GoLog" or "Go" tag
+		fmt.Printf("VAY_DEBUG_GO: Checking Index %d | Name: %s | isFreeScanner: %v\n", 
+			index, cfg.Name, cfg.FreeScanner)
+
+		return cfg.FreeScanner
+	}
+		
+	fmt.Printf("VAY_DEBUG_GO: Index %d is OUT OF BOUNDS (Size: %d)\n", index, len(defaultConfigs))
+*/	
+		
 	// Ensure we are checking the defaultConfigs slice, not the display map
 	if int(index) >= 0 && int(index) < len(defaultConfigs) {
 		return defaultConfigs[index].FreeScanner
@@ -572,4 +591,22 @@ func GetDefaultConfigProxy(index int64) string {
 		return "socks" // Default internally
 	}
 	return strings.ToLower(defaultConfigs[index].Proxy)
+}
+
+// GetDefaultConfigType returns "vaydns" or "direct" so the UI knows how to route.
+func GetDefaultConfigType(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return "vaydns" // Safe fallback
+	}
+	if defaultConfigs[index].ConfigType == "" {
+		return "vaydns" // Backward compatibility for old JSONs
+	}
+	return defaultConfigs[index].ConfigType
+}
+
+// IsOfficialBuild returns true if the app was compiled with CI/CD injected keys.
+// It returns false for community builds.
+func IsOfficialBuild() bool {
+	return InjectedConfigs != "" && InjectedPrivateKey != ""
 }

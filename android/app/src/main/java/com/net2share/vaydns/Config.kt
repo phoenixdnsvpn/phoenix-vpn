@@ -26,5 +26,7 @@ data class Config(
     val isDefault: Boolean = false,
     val freeScanner: Boolean = false,
     val useMultiDomains: Boolean = false,
+    val tunnelProtocol: String = "vaydns",
+    val vlessIp: String = "",
     var lastLatency: Long = -1L
 )

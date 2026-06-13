@@ -4,18 +4,18 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginHorizontal="8dp"
-    android:layout_marginVertical="2dp"
-    app:cardCornerRadius="8dp"
-    app:cardElevation="0dp"
-    app:cardMaxElevation="0dp"
-    app:cardBackgroundColor="@android:color/transparent">
+    android:layout_marginHorizontal="12dp"
+    android:layout_marginVertical="4dp"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="1dp"
+    app:cardMaxElevation="1dp"
+    app:cardBackgroundColor="?attr/colorSurface">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/config_card_layout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingVertical="6dp"
+        android:paddingVertical="8dp"
         android:paddingStart="14dp"
         android:paddingEnd="6dp"
         android:duplicateParentState="true"

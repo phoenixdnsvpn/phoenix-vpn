@@ -15,6 +15,9 @@ import mobile.Mobile
 
 class VayProxyService : Service() {
 
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var isStopping = false
+
     // --- STATS TRACKING VARIABLES ---
     private val statsHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var initialRxBytes = 0L
@@ -23,7 +26,6 @@ class VayProxyService : Service() {
     private var previousTxBytes = 0L
     private var pendingRxSave = 0L
     private var pendingTxSave = 0L
-    private var statsTickCount = 0
     private var absoluteDailyRx = 0L
     private var absoluteDailyTx = 0L
     private var currentTrackingDate = ""
@@ -34,9 +36,29 @@ class VayProxyService : Service() {
     private var absoluteDailyOsRx = 0L
     private var absoluteDailyOsTx = 0L
 
+    // Session-specific tracking
+    private var activeConfigType = "vaydns"
+    private var sessionOsRx = 0L
+    private var sessionOsTx = 0L
+
+    // Time-based loop tracking (Battery Optimization)
+    private var lastStatsRunTime = 0L
+    private var lastDbSaveTime = 0L
+    private var lastUiUpdateTime = 0L
+
     private val statsRunnable = object : Runnable {
         override fun run() {
             if (isStopping) return
+
+            val currentTime = System.currentTimeMillis()
+            if (lastStatsRunTime == 0L) lastStatsRunTime = currentTime
+
+            // Calculate exactly how much time passed since the last loop
+            val elapsedMs = currentTime - lastStatsRunTime
+            lastStatsRunTime = currentTime
+
+            // Prevent division by zero; default to 1 sec if called too fast
+            val elapsedSec = if (elapsedMs >= 1000) elapsedMs / 1000.0 else 1.0
 
             try {
                 // 1. Fetch exact bytes from the Go Engine
@@ -58,16 +80,20 @@ class VayProxyService : Service() {
                     }
 
                     // --- GO ENGINE STATS MATH ---
-                    val diffRx = currentRx - previousRxBytes
-                    val diffTx = currentTx - previousTxBytes
-                    val rxSpeed = if (diffRx < 0) 0L else diffRx
-                    val txSpeed = if (diffTx < 0) 0L else diffTx
+                    val diffRx = if (currentRx > previousRxBytes) currentRx - previousRxBytes else 0L
+                    val diffTx = if (currentTx > previousTxBytes) currentTx - previousTxBytes else 0L
+
+                    // Calculate TRUE speed
+                    val rxSpeed = (diffRx / elapsedSec).toLong()
+                    val txSpeed = (diffTx / elapsedSec).toLong()
+
                     previousRxBytes = currentRx
                     previousTxBytes = currentTx
-                    absoluteDailyRx += rxSpeed
-                    absoluteDailyTx += txSpeed
-                    pendingRxSave += rxSpeed
-                    pendingTxSave += txSpeed
+
+                    absoluteDailyRx += diffRx
+                    absoluteDailyTx += diffTx
+                    pendingRxSave += diffRx
+                    pendingTxSave += diffTx
 
                     // --- NATIVE ANDROID OS STATS MATH ---
                     val osRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
@@ -75,34 +101,36 @@ class VayProxyService : Service() {
                     val currentOsRx = if (osRx < 0) 0L else osRx
                     val currentOsTx = if (osTx < 0) 0L else osTx
 
-                    // Init on first tick to prevent spiking from old app usage before connection
                     if (previousOsRxBytes == 0L && previousOsTxBytes == 0L) {
                         previousOsRxBytes = currentOsRx
                         previousOsTxBytes = currentOsTx
                     }
 
-                    val diffOsRx = currentOsRx - previousOsRxBytes
-                    val diffOsTx = currentOsTx - previousOsTxBytes
+                    val diffOsRx = if (currentOsRx > previousOsRxBytes) currentOsRx - previousOsRxBytes else 0L
+                    val diffOsTx = if (currentOsTx > previousOsTxBytes) currentOsTx - previousOsTxBytes else 0L
 
-                    // Subtract the internal Go payload from the total Android OS traffic
-                    val rawOsRxSpeed = diffOsRx - rxSpeed
-                    val rawOsTxSpeed = diffOsTx - txSpeed
+                    sessionOsRx += diffOsRx
+                    sessionOsTx += diffOsTx
 
-                    // Clamp to 0 to prevent negative values
-                    val osRxSpeed = if (rawOsRxSpeed < 0) 0L else rawOsRxSpeed
-                    val osTxSpeed = if (rawOsTxSpeed < 0) 0L else rawOsTxSpeed
+                    // Subtract the internal Go payload from total Android traffic
+                    val pureOsDiffRx = if (diffOsRx > diffRx) diffOsRx - diffRx else 0L
+                    val pureOsDiffTx = if (diffOsTx > diffTx) diffOsTx - diffTx else 0L
+
+                    val osRxSpeed = (pureOsDiffRx / elapsedSec).toLong()
+                    val osTxSpeed = (pureOsDiffTx / elapsedSec).toLong()
 
                     previousOsRxBytes = currentOsRx
                     previousOsTxBytes = currentOsTx
 
-                    absoluteDailyOsRx += osRxSpeed
-                    absoluteDailyOsTx += osTxSpeed
-                    pendingOsRxSave += osRxSpeed
-                    pendingOsTxSave += osTxSpeed
+                    absoluteDailyOsRx += pureOsDiffRx
+                    absoluteDailyOsTx += pureOsDiffTx
+                    pendingOsRxSave += pureOsDiffRx
+                    pendingOsTxSave += pureOsDiffTx
 
-                    statsTickCount++
-
-                    if (statsTickCount >= 10) {
+                    // ==========================================
+                    // 1. DATABASE FLUSH LOGIC (Every ~10 seconds)
+                    // ==========================================
+                    if (currentTime - lastDbSaveTime >= 10000L) {
                         if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
                             val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
                             val dailyRx = prefs.getLong("rx_$dateStr", 0L) + pendingRxSave
@@ -122,50 +150,80 @@ class VayProxyService : Service() {
                             pendingOsRxSave = 0L
                             pendingOsTxSave = 0L
                         }
-                        statsTickCount = 0
+                        lastDbSaveTime = currentTime
                     }
 
-                    val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
-                    val totalStr = "Total: ${formatBytes(currentRx)} ↓   ${formatBytes(currentTx)} ↑"
+                    // ==========================================
+                    // 2. UI NOTIFICATION LOGIC (Every ~4 seconds)
+                    // ==========================================
+                    val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+                    val notifUpdateMs = appPrefs.getLong("notif_update_ms", 4000L)
 
-                    sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
-                        putExtra("speed", speedStr)
-                        putExtra("total", totalStr)
-                        putExtra("liveDailyRx", absoluteDailyRx)
-                        putExtra("liveDailyTx", absoluteDailyTx)
-                        putExtra("liveDailyOsRx", absoluteDailyOsRx)
-                        putExtra("liveDailyOsTx", absoluteDailyOsTx)
-                        setPackage(packageName)
-                    })
+                    if (currentTime - lastUiUpdateTime >= notifUpdateMs) {
+                        val isDirectMode = activeConfigType.lowercase() == "direct"
 
-                    // UPDATE THE LOCK SCREEN NOTIFICATION
-                    try {
-                        val intent = Intent(this@VayProxyService, MainActivity::class.java)
-                        val pendingIntent = PendingIntent.getActivity(this@VayProxyService, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+                        val displayRxSpeed = if (isDirectMode) osRxSpeed else rxSpeed
+                        val displayTxSpeed = if (isDirectMode) osTxSpeed else txSpeed
+                        val displayTotalRx = if (isDirectMode) sessionOsRx else currentRx
+                        val displayTotalTx = if (isDirectMode) sessionOsTx else currentTx
 
-                        val updateNotification = androidx.core.app.NotificationCompat.Builder(this@VayProxyService, "VAY_PROXY_ACTIVE")
-                            .setContentTitle("VayDNS Proxy Active")
-                            .setContentText(speedStr)
-                            .setSmallIcon(R.drawable.ic_vpn_key)
-                            .setOngoing(true)
-                            .setContentIntent(pendingIntent)
-                            .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
-                            .setOnlyAlertOnce(true)
-                            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
-                            .build()
+                        val speedStr = "▼ ${formatBytes(displayRxSpeed)}/s   ▲ ${formatBytes(displayTxSpeed)}/s"
+                        val totalStr = "Total: ${formatBytes(displayTotalRx)} ↓   ${formatBytes(displayTotalTx)} ↑"
 
-                        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                        nm.notify(2, updateNotification)
-                    } catch (e: Exception) {
-                        android.util.Log.e("VAY_PROXY", "Failed to update notification: ${e.message}")
+                        sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
+                            putExtra("speed", speedStr)
+                            putExtra("total", totalStr)
+                            putExtra("liveDailyRx", absoluteDailyRx)
+                            putExtra("liveDailyTx", absoluteDailyTx)
+                            putExtra("liveDailyOsRx", absoluteDailyOsRx)
+                            putExtra("liveDailyOsTx", absoluteDailyOsTx)
+                            setPackage(packageName)
+                        })
+
+                        // UPDATE THE LOCK SCREEN NOTIFICATION
+                        try {
+                            val intent = Intent(this@VayProxyService, MainActivity::class.java)
+                            val pendingIntent = PendingIntent.getActivity(this@VayProxyService, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+
+                            val updateNotification = androidx.core.app.NotificationCompat.Builder(this@VayProxyService, "VAY_PROXY_ACTIVE")
+                                .setContentTitle("VayDNS Proxy Active")
+                                .setContentText(speedStr)
+                                .setSmallIcon(R.drawable.ic_vpn_key)
+                                .setOngoing(true)
+                                .setContentIntent(pendingIntent)
+                                .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
+                                .setOnlyAlertOnce(true)
+                                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                                .build()
+
+                            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                            nm.notify(2, updateNotification)
+                        } catch (e: Exception) {
+                            android.util.Log.e("VAY_PROXY", "Failed to update notification: ${e.message}")
+                        }
+
+                        lastUiUpdateTime = currentTime
                     }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("VAY_PROXY", "Error parsing stats: ${e.message}")
             }
 
-            // Always schedule the next tick
-            statsHandler.postDelayed(this, 1000)
+            // ==========================================
+            // 3. DYNAMIC DELAY (SCREEN ON vs SCREEN OFF)
+            // ==========================================
+            val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val isScreenOn = powerManager.isInteractive
+
+            // 2 seconds if unlocked, 5 seconds if locked/asleep
+            // val nextDelay = if (isScreenOn) 2000L else 5000L
+            val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+            val unlockedDelayMs = appPrefs.getLong("unlocked_delay_ms", 2000L)
+            val lockedDelayMs = appPrefs.getLong("locked_delay_ms", 5000L)
+
+            val nextDelay = if (isScreenOn) unlockedDelayMs else lockedDelayMs
+
+            statsHandler.postDelayed(this, nextDelay)
         }
     }
 
@@ -178,7 +236,6 @@ class VayProxyService : Service() {
         val gb = mb / 1024.0
         return String.format(java.util.Locale.US, "%.2f GB", gb)
     }
-    private var isStopping = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -186,17 +243,14 @@ class VayProxyService : Service() {
         createNotificationChannel()
 
         if (intent == null || intent.action == "ACTION_STOP_VPN") {
-            isStopping = true
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            statsHandler.removeCallbacks(statsRunnable)
-            flushPendingTraffic()
-
-            Thread {
-                Mobile.stopVpn()
-                stopSelf()
-            }.start()
+            cleanupAndStop()
             return START_NOT_STICKY
         }
+
+        // 1. ACQUIRE WAKELOCK TO SURVIVE SAMSUNG SCREEN LOCK
+        val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "VayDNS::ProxyKeepAlive")
+        wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12 hours max
 
         val notification = NotificationCompat.Builder(this, "VAY_PROXY_ACTIVE")
             .setContentTitle("VayDNS Proxy Active")
@@ -207,8 +261,7 @@ class VayProxyService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOnlyAlertOnce(true)
             .build()
-        startForeground(2, notification) // Use ID 2 to separate from VPN
-        startForeground(2, notification) // Use ID 2 to separate from VPN
+        startForeground(2, notification)
 
         Thread {
             try {
@@ -217,7 +270,7 @@ class VayProxyService : Service() {
 
                 val isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT_CONFIG", false)
                 val configIndex = intent.getLongExtra("CONFIG_INDEX", 0L)
-                val baseDohUrl = intent?.getStringExtra("BASE_DOH_URL") ?: ""
+                val baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
                 val domain = intent.getStringExtra("DOMAIN") ?: ""
                 val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
                 val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
@@ -231,11 +284,16 @@ class VayProxyService : Service() {
                 val useMultiDomains = intent.getBooleanExtra("USE_MULTI_DOMAINS", false)
                 val useAuth = intent.getBooleanExtra("USE_AUTH", false)
                 val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
-                val authProtocol = intent?.getStringExtra("AUTH_PROTOCOL") ?: "socks"
+                val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                 val ssMethod = intent.getStringExtra("SS_METHOD") ?: ""
                 val user = intent.getStringExtra("USER") ?: ""
                 val pass = intent.getStringExtra("PASS") ?: ""
                 val proxyPort = intent.getLongExtra("PROXY_PORT", 1080L)
+
+                // Initialize Session Variables
+                activeConfigType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
+                sessionOsRx = 0L
+                sessionOsTx = 0L
 
                 var udp = ""; var tcp = ""; var doh = ""; var dot = ""
                 when (mode.lowercase()) {
@@ -247,8 +305,6 @@ class VayProxyService : Service() {
 
                 Log.i("VAY_DEBUG", "Starting Pre-Scan from Kotlin...")
 
-                // Note: Go's 'int' for clientIdSize is converted to 'Long' in Kotlin by Gomobile
-                // --- LOAD PRE-SCANNER SETTINGS ---
                 val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
                 val enableScan = prefs.getBoolean("enable_prescan", false)
 
@@ -264,31 +320,21 @@ class VayProxyService : Service() {
                     val pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
                     val uTimeout = prefs.getInt("udp_timeout", 1000).toLong()
 
-                    // --- BACKGROUND OVERRIDES FOR PRE-TUNNEL SCAN ---
-                    val preScanLightE2E = false // Force True E2E
-                    val preScanWorkers = 10L    // Force 10 workers for all modes
+                    val preScanLightE2E = false
+                    val preScanWorkers = 10L
                     val originalRetries = prefs.getInt("retries", 0).toLong()
-                    val preScanRetries = if (originalRetries < 1L) 1L else originalRetries // max(1, currently set)
-                    //val lightE2E = prefs.getBoolean("light_e2e", false)
-                    //val workers = prefs.getInt("workers", 20).toLong()
-                    //val retries = prefs.getInt("retries", 0).toLong()
+                    val preScanRetries = if (originalRetries < 1L) 1L else originalRetries
 
                     finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
                     finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
                     finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
                     finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-
-                    //finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
-                    //finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
-                    //finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
-                    //finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, lightE2E, workers, tWait, pTimeout, uTimeout, retries) else ""
                 }
 
                 Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
 
-                // Call the new Proxy function!
                 val result = Mobile.startProxy(
-                    isDefaultConfig, configIndex, useMultiDomains, finalUdp, finalTcp,finalDoh, finalDot, baseDohUrl, domain, pubkey,
+                    isDefaultConfig, configIndex, useMultiDomains, finalUdp, finalTcp, finalDoh, finalDot, baseDohUrl, domain, pubkey,
                     recordType, idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible,
                     useAuth, protocol, ssMethod, user, pass, proxyPort
                 )
@@ -301,13 +347,16 @@ class VayProxyService : Service() {
                         putExtra("proxy_address", proxyAddress)
                         setPackage(packageName)
                     })
-                    //updateNotification("Proxy running on 127.0.0.1:$proxyPort")
                     updateNotification("Proxy running on $proxyAddress")
                     initialRxBytes = 0L
                     initialTxBytes = 0L
+
+                    // Reset the loop timers when connection is successful
+                    lastStatsRunTime = 0L
+                    lastDbSaveTime = 0L
+                    lastUiUpdateTime = 0L
                     statsHandler.post(statsRunnable)
                 } else if (result.startsWith("Error")) {
-                    // Tell the UI that the port was in use
                     val errorMsg = result.substringAfter("|")
                     sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
                         putExtra("status", "ERROR")
@@ -376,21 +425,45 @@ class VayProxyService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         android.util.Log.i("VayProxy", "App swiped away. Shutting down proxy...")
-        Thread {
-            mobile.Mobile.stopVpn()
-            stopSelf()
-        }.start()
+        cleanupAndStop()
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
         android.util.Log.i("VayProxy", "Destroying Proxy Service and freeing ports...")
-        statsHandler.removeCallbacks(statsRunnable)
-        flushPendingTraffic()
+        cleanupAndStop()
         super.onDestroy()
 
         // Kill this isolated process to guarantee the SOCKS listener is destroyed
         // This instantly frees Port 1080 for the next connection.
         System.exit(0)
+    }
+
+    private fun cleanupAndStop() {
+        if (isStopping) return
+        isStopping = true
+
+        Log.i("VAY_PROXY", "PURGE: Killing proxy resources...")
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        statsHandler.removeCallbacks(statsRunnable)
+        flushPendingTraffic()
+
+        Thread {
+            try {
+                Mobile.stopVpn()
+            } catch (e: Exception) {
+                Log.e("VAY_PROXY", "Stop error: ${e.message}")
+            } finally {
+                // GUARANTEED WAKELOCK RELEASE
+                try {
+                    wakeLock?.let {
+                        if (it.isHeld) it.release()
+                    }
+                } catch (e: Exception) {
+                    Log.e("VAY_PROXY", "WakeLock release error: ${e.message}")
+                }
+                stopSelf()
+            }
+        }.start()
     }
 }

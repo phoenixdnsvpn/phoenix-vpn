@@ -27,13 +27,42 @@ class VayPingService : Service() {
         val engineQuickScan = intent.getBooleanExtra("QUICK_SCAN", false)
 
         Thread {
-            // Run the heavy Go process
-            val resultsJson = Mobile.pingAllConfigs(
+            // 1. Run the heavy Go process for VayDNS tunnels (it now internally skips direct configs)
+            val vaydnsResultsStr = Mobile.pingAllConfigs(
                 tasksJson, workers, tunnelWait, udpTimeout,
                 probeTimeout, retries, lightE2EEnabled, engineQuickScan
             )
 
-            // Broadcast the payload back to the MainActivity UI
+            // 2. Run the lightning-fast native process for Direct Configs (it skips VayDNS configs)
+            val directResultsStr = Mobile.pingAllDirectConfigs(tasksJson)
+
+            // 3. Merge the JSON results cleanly
+            val finalJson = org.json.JSONObject()
+            try {
+                if (vaydnsResultsStr.isNotEmpty() && vaydnsResultsStr != "{}") {
+                    val vObj = org.json.JSONObject(vaydnsResultsStr)
+                    val keys = vObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        finalJson.put(key, vObj.get(key))
+                    }
+                }
+
+                if (directResultsStr.isNotEmpty() && directResultsStr != "{}") {
+                    val dObj = org.json.JSONObject(directResultsStr)
+                    val keys = dObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        finalJson.put(key, dObj.get(key))
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VAY_DEBUG", "Error merging ping results: ${e.message}")
+            }
+
+            val resultsJson = finalJson.toString()
+
+            // 4. Broadcast the unified payload back to the MainActivity UI
             val broadcastIntent = Intent("PING_ALL_FINISHED").setPackage(packageName)
             broadcastIntent.putExtra("RESULTS_JSON", resultsJson)
             sendBroadcast(broadcastIntent)

@@ -12,4 +12,6 @@
     <string name="error_invalid_config">Invalid configuration. Please select another.</string>
     <string name="vpn_permission_denied">VPN permission denied</string>
     <string name="stop_vpn_before_scan">Please stop the VPN before running a scan.</string>
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
 </resources>

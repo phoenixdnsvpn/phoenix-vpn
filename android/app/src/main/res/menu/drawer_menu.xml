@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <group android:checkableBehavior="none">
+        <item
+            android:id="@+id/action_select_apps"
+            android:icon="@android:drawable/ic_menu_sort_by_size"
+            android:title="Select Apps to Tunnel" />
+
+        <item
+            android:id="@+id/action_daily_traffic"
+            android:icon="@android:drawable/ic_menu_recent_history"
+            android:title="Display Daily Traffic" />
+    </group>
+
+    <item android:title="Settings">
+        <menu>
+            <item
+                android:id="@+id/action_tunnel_settings"
+                android:icon="@android:drawable/ic_menu_preferences"
+                android:title="Tunnel Settings" />
+
+            <item
+                android:id="@+id/action_settings"
+                android:icon="@android:drawable/ic_menu_manage"
+                android:title="Global Settings" />
+        </menu>
+    </item>
+
+    <item android:title="Help &amp; Info">
+        <menu>
+            <item
+                android:id="@+id/action_verify"
+                android:icon="@drawable/ic_check_modern"
+                android:title="Verify App" />
+
+            <item
+                android:id="@+id/action_check_app_update"
+                android:icon="@android:drawable/ic_popup_sync"
+                android:title="Check for Update" />
+
+            <item
+                android:id="@+id/action_how_to_use"
+                android:icon="@android:drawable/ic_menu_help"
+                android:title="How to Use / راهنمای استفاده" />
+
+            <item
+                android:id="@+id/action_about"
+                android:icon="@android:drawable/ic_menu_info_details"
+                android:title="About" />
+        </menu>
+    </item>
+</menu>

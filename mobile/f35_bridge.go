@@ -48,6 +48,8 @@ type PingTask struct {
 	ID           string `json:"id"`
 	IsDefault    bool   `json:"is_default"`
 	ConfigIndex  int64  `json:"config_index"`
+	ConfigType   string `json:"config_type"` 
+	ServerIP     string `json:"server_ip"`   
 	DnsMode      string `json:"dns_mode"`
 	CustomDomain string `json:"custom_domain"`
 	CustomPubkey string `json:"custom_pubkey"`
@@ -121,7 +123,7 @@ func StartF35Scan(
 	if tunnelProtocol == "ssh" && strings.Contains(proxyPass, "-----BEGIN") {
 		proxyPass = FormatSSHKey(proxyPass)
 	}
-		
+	
 //	engineQuickScan = false //we will enable this in future
 	cfg := f35.DefaultConfig()
 	cfg.Mode = strings.ToLower(dnsMode)
@@ -270,17 +272,16 @@ func PingMultipleServers(
 	retries int64, lightE2EEnabled bool, engineQuickScan bool,
 ) int64 {
 
-	// fmt.Printf("VAY_DEBUG: [Multi-Ping Engine] Starting parallel batch check for resolvers group...\n")
-
 	rowPingMu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
 	rowPingCancel = cancel
 	rowPingMu.Unlock()
-	
+		
 	domainToUse := customDomain
 	pubkeyToUse := customPublicKey
 
 	if isDefault {
+
 		domainToUse = getDefaultConfigDomain(configIndex)
 		pubkeyToUse = getDefaultConfigPubkey(configIndex)
 		recordType = GetDefaultConfigRecordType(configIndex)
@@ -289,6 +290,7 @@ func PingMultipleServers(
 		clientIdSize = GetDefaultConfigClientIdSize(configIndex)
 		proxyUser = getDefaultConfigUser(configIndex)
 		proxyPass = getDefaultConfigPass(configIndex)
+
 	}
 
 	if proxyUser == "" || proxyUser == "none" {
@@ -455,6 +457,21 @@ pingMu.Lock()
 			defer wg.Done()
 			defer func() { recover() }() // Guard rail: Prevent a single configuration crash from killing the app
 
+			// =========================================================
+			// SKIP DIRECT CONFIGS IN THE VAYDNS SCANNER
+			// =========================================================
+			configType := t.ConfigType
+			if configType == "" {
+				configType = "vaydns"
+			}
+			//if t.IsDefault {
+			//	configType = GetDefaultConfigType(t.ConfigIndex)
+			//}
+
+			if configType != "vaydns" {
+				return // Immediately exit the goroutine. The Direct Scanner handles this.
+			}
+			
 			domainToUse := t.CustomDomain
 			pubkeyToUse := t.CustomPubkey
 			recordType := t.RecordType
@@ -588,7 +605,7 @@ pingMu.Lock()
 			}
 
 			// Native Multiplex Scope handling internally via jobs inside scan.go
-
+//			_ = f35.ScanWithContext(context.Background(), cfg, hooks)
 			_ = f35.ScanWithContext(ctx, cfg, hooks)
 
 			mu.Lock()

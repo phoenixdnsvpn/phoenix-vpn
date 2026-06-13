@@ -67,9 +67,12 @@ private lateinit var tvProxyIpLabel: TextView
 
 private var liveDailyOsRx = -1L
 private var liveDailyOsTx = -1L
+private var activeLocalProxyPort: Int = 1080
 
 class MainActivity : AppCompatActivity() {
-
+    private lateinit var drawerLayout: androidx.drawerlayout.widget.DrawerLayout
+    private lateinit var navView: com.google.android.material.navigation.NavigationView
+    private lateinit var toggle: androidx.appcompat.app.ActionBarDrawerToggle
     private var configAdapter: ConfigAdapter? = null
     private var hasRunStartupPing = false
     private var currentSortMode = SortMode.NONE
@@ -101,6 +104,7 @@ class MainActivity : AppCompatActivity() {
                     isVpnConnected = true
                     val realAddr = intent.getStringExtra("proxy_address") ?: "127.0.0.1"
                     tvProxyIpLabel.text = "IP: ${realAddr.substringBefore(":")}"
+                    activeLocalProxyPort = realAddr.substringAfter(":", "1080").toIntOrNull() ?: 1080
                     updateUIState(true)
 
                     // Lock the port field while running
@@ -182,6 +186,14 @@ class MainActivity : AppCompatActivity() {
     private fun updateUIState(connected: Boolean) {
         runOnUiThread {
             if (connected) {
+                // FIND THE ACTIVE CONFIGURATION NAME FROM THE CACHED LIST
+                val activeConfig = configList.find { it.id == selectedConfigId }
+                if (activeConfig != null) {
+                    supportActionBar?.title = "VayDNS - ${activeConfig.name}"
+                } else {
+                    supportActionBar?.title = "VayDNS"
+                }
+
                 tvStatus.text = "Status: Connected"
                 tvStatus.setTextColor(Color.parseColor("#006400")) // Green text for status
 
@@ -190,6 +202,9 @@ class MainActivity : AppCompatActivity() {
                 btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#4F7F84"))
                 layoutNetworkStats.visibility = android.view.View.VISIBLE
             } else {
+                // RESTORE DEFAULT APP HEADER WHEN DISCONNECTED
+                supportActionBar?.title = "VayDNS"
+
                 tvStatus.text = "Status: Disconnected"
                 tvStatus.setTextColor(Color.parseColor("#2F4A6F")) // Original theme color
 
@@ -207,7 +222,7 @@ class MainActivity : AppCompatActivity() {
     private fun initDefaultSettings() {
         val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
 
-        // Check if the file exists by checking one key
+        // 1. Existing Tunnel settings initialization
         if (!prefs.contains("enable_prescan")) {
             prefs.edit().apply {
                 putBoolean("enable_prescan", true)
@@ -222,17 +237,43 @@ class MainActivity : AppCompatActivity() {
             }
             Log.i("VAY_DEBUG", "Default settings initialized on first launch.")
         }
+
+        // 2. EXPLICIT UI TOGGLE DEFAULTS
+        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        if (!appPrefs.contains("default_configs_at_start")) {
+            appPrefs.edit().apply {
+                // TRUE: Show official configs by default on startup
+                putBoolean("default_configs_at_start", true)
+
+                // FALSE: Hide legacy/pure VayDNS configs by default
+                if (!appPrefs.contains("display_vaydns_configs")) {
+                    putBoolean("display_vaydns_configs", false)
+                }
+                apply()
+            }
+        }
     }
 
     private val preferenceChangeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
         if (key == "default_to_vpn_mode") {
             runOnUiThread { updateModeUI() }
         }
+        if (key == "display_vaydns_configs") {
+            runOnUiThread { refreshConfigList() }
+        }
     }
 
     private fun updateModeUI() {
         val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
         val startInVpnMode = appPrefs.getBoolean("default_to_vpn_mode", true)
+
+        if (isVpnConnected) {
+            Toast.makeText(this, "Please stop the tunnel before changing VPN/Proxy Mode.", Toast.LENGTH_LONG).show()
+            // Silently revert the shared preference back so it matches the current running UI state
+            appPrefs.edit().putBoolean("default_to_vpn_mode", !isProxyMode).apply()
+            return
+        }
+
         isProxyMode = !startInVpnMode
 
         if (isProxyMode) {
@@ -308,6 +349,99 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContentView(R.layout.activity_main)
+
+        drawerLayout = findViewById(R.id.drawer_layout)
+        val surfaceColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface, Color.WHITE)
+        drawerLayout.setStatusBarBackgroundColor(surfaceColor)
+
+        navView = findViewById(R.id.nav_view)
+
+        // This creates the 3-line hamburger icon and links it to opening the drawer
+        toggle = androidx.appcompat.app.ActionBarDrawerToggle(
+            this,
+            drawerLayout,
+            findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar), // <-- Bulletproof explicit lookup
+            R.string.navigation_drawer_open,
+            R.string.navigation_drawer_close
+        )
+        drawerLayout.addDrawerListener(toggle)
+        toggle.syncState()
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setHomeButtonEnabled(true)
+
+        // Handle clicks for the left menu items
+        navView.setNavigationItemSelectedListener { menuItem ->
+            when (menuItem.itemId) {
+                R.id.action_select_apps -> {
+                    startActivity(Intent(this, AppSelectorActivity::class.java))
+                }
+                R.id.action_daily_traffic -> {
+                    showDailyTrafficDialog()
+                }
+                R.id.action_tunnel_settings -> {
+                    startActivity(Intent(this, TunnelSettingsActivity::class.java))
+                }
+
+                R.id.action_settings -> {
+                    startActivity(Intent(this, GlobalSettingsActivity::class.java))
+                }
+
+                R.id.action_check_app_update -> {
+                    checkForAppUpdate()
+                    true
+                }
+
+                R.id.action_how_to_use -> {
+                    showHowToUseDialog()
+                }
+
+                R.id.action_verify -> {
+                    showVerificationDialog()
+                    true
+                }
+
+                R.id.action_about -> {
+                    val version = try {
+                        packageManager.getPackageInfo(packageName, 0).versionName
+                    } catch (e: Exception) {
+                        "1.0"
+                    }
+
+                    // Use MaterialAlertDialogBuilder to respect your Day/Night themes
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("VayDNS")
+                        .setMessage("""
+            Version: $version
+
+            DNS Tunneling app designed for heavily censored environments.
+
+            Made with ❤️
+            x.com/Starling226
+            https://github.com/Starling226/vaydns-vpn
+        """.trimIndent())
+                        .setPositiveButton("Close", null)
+                        .setIcon(R.mipmap.ic_launcher_round)
+                        .show() // .show() handles create and show automatically
+
+                    // DELETE the manual setTextColor line.
+                    // The theme overlay we created earlier handles this now.
+                    true
+                }
+                /**R.id.action_about -> {
+                    // Your existing About dialog logic...
+                    val version = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "1.0" }
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                        .setTitle("VayDNS")
+                        .setMessage("Version: $version\n\nDNS Tunneling app designed for heavily censored environments.\n\nMade with ❤️\nx.com/Starling226\nhttps://github.com/Starling226/vaydns-vpn")
+                        .setPositiveButton("Close", null)
+                        .setIcon(R.mipmap.ic_launcher_round)
+                        .show()
+                }*/
+            }
+            // Close the drawer automatically after tapping an item
+            drawerLayout.closeDrawer(androidx.core.view.GravityCompat.START)
+            true
+        }
 
         // Toolbar + menu
         val toolbar = findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)
@@ -436,13 +570,47 @@ class MainActivity : AppCompatActivity() {
             } else {
                 val config = configList.find { it.id == selectedConfigId }
 
-                if (config != null && config.protocol.lowercase() == "http" && !isProxyMode) {
-                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                        .setTitle("VPN Mode Unavailable")
-                        .setMessage("This default configuration uses an HTTP proxy. HTTP proxies cannot be used in VPN Mode.\n\nPlease switch to Proxy Mode to use this server.\n\n---\n\nاین پیکربندی پیش‌فرض از یک پروکسی HTTP استفاده می‌کند. پروکسی‌های HTTP در حالت VPN قابل استفاده نیستند.\n\nلطفاً برای استفاده از این سرور به حالت پروکسی (Proxy Mode) تغییر وضعیت دهید.")
-                        .setPositiveButton("OK", null)
-                        .show()
-                    return@setOnClickListener // Block connection
+                if (config != null) {
+                    // Fetch the discriminator to see what we are dealing with
+                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+                    val configType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
+
+                    // GUARDRAIL 1: Block Hysteria in Proxy Mode
+                    //val isDirectMode = configType.lowercase() == "direct"
+                    val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                    val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
+                    val configTypeLower = configType.lowercase()
+
+                    val isSupported = when {
+                        configTypeLower == "direct" -> activeProtocol != "vaydns"
+                        configTypeLower == "" -> activeProtocol == "vaydns"
+                        else -> configTypeLower.contains(activeProtocol.lowercase())
+                    }
+                    if (!isSupported) {
+                        Toast.makeText(this@MainActivity, "This config does not support ${activeProtocol.uppercase()}.", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener // Instantly abort the connection attempt
+                    }
+
+                    val isDirectMode = activeProtocol.lowercase() != "vaydns"
+
+                    if (isDirectMode && isProxyMode) {
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle("Proxy Mode Unavailable")
+                            .setMessage("Direct protocols (like Hysteria2, Reality, and Vless-WS) currently require VPN Mode to function properly.\n\nPlease switch to VPN Mode to use this server.\n\n---\n\nپروتکل‌های مستقیم (مانند Hysteria2، Reality و Vless-WS) در حال حاضر فقط در حالت VPN کار می‌کنند.\n\nلطفاً برای استفاده از این سرور به حالت VPN تغییر وضعیت دهید.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                        return@setOnClickListener // Block connection
+                    }
+
+                    // GUARDRAIL 2: Block HTTP in VPN Mode
+                    if (config.protocol.lowercase() == "http" && !isProxyMode) {
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                            .setTitle("VPN Mode Unavailable")
+                            // ... your existing HTTP error message ...
+                            .setPositiveButton("OK", null)
+                            .show()
+                        return@setOnClickListener // Block connection
+                    }
                 }
                 if (!isProxyMode) {
                     // Safety check: Prevent starting VPN with no apps selected
@@ -492,6 +660,16 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(pingReceiver, pingFilter)
         }
 
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (drawerLayout.isDrawerOpen(androidx.core.view.GravityCompat.START)) {
+                    drawerLayout.closeDrawer(androidx.core.view.GravityCompat.START)
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
     }
 
     private fun applyCurrentSort() {
@@ -714,6 +892,7 @@ class MainActivity : AppCompatActivity() {
 
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
+        //val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
         val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
         val workers = tunnelPrefs.getInt("workers", 20)
         val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
@@ -756,26 +935,50 @@ class MainActivity : AppCompatActivity() {
         val jsonArray = org.json.JSONArray()
         for (config in configList) {
             val finalConfig = if (config.isDefault) DefaultConfigProvider.getActualConfig(this@MainActivity, config) else config
+            val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+            val rawConfigType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
 
-            val currentMode = finalConfig.mode.lowercase()
+            val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+            val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-            if (currentMode == "udp" || currentMode == "tcp") {
-                if (configProbeTimeout > 10000L) {
-                    configProbeTimeout = 10000L
+            var activeProtocol = if (globalOverride) {
+                globalProtocol
+            } else if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_tunnelProtocol", null)
+                    ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
+            } else {
+                finalConfig.tunnelProtocol
+            }
+
+            if (config.isDefault) {
+                val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
+                if (!supportedProtocols.contains(activeProtocol.lowercase())) {
+                    activeProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
                 }
+            }
+
+            // =========================================================
+            // GUARDRAIL: Skip Direct Configs for Custom Resolver Scans
+            // =========================================================
+            if (activeProtocol.lowercase() != "vaydns") {
+                continue // Skip Hysteria/Reality configs entirely
             }
 
             val jsonTaskObj = org.json.JSONObject().apply {
                 put("id", config.id)
                 put("is_default", config.isDefault)
-                put("config_index", if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L)
+                put("config_index", nativeIndex)
+
+                // NEW: Inject Direct Protocol parameters
+                put("config_type", "vaydns")
+                put("server_ip", targetIp) // The IP the user manually entered in the dialog
 
                 // Pass the safely formatted target straight to the Go workers
                 put("dns_mode", targetMode)
                 put("resolvers", formattedResolver)
                 put("base_doh_url", if (targetMode.lowercase() == "doh") formattedResolver else "")
 
-                //put("custom_domain", finalConfig.domain)
                 put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
                 put("custom_pubkey", finalConfig.pubkey)
                 put("proxy_type", proxyType)
@@ -818,6 +1021,7 @@ class MainActivity : AppCompatActivity() {
 
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
+        val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
         val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
         val workers = tunnelPrefs.getInt("workers", 20)
         val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
@@ -846,18 +1050,64 @@ class MainActivity : AppCompatActivity() {
             val finalConfig = if (config.isDefault) DefaultConfigProvider.getActualConfig(this@MainActivity, config) else config
             val multipathDnsList = getMultipathResolvers(config.id, finalConfig.dnsAddress, finalConfig.mode)
 
+            // PER-CONFIG PROTOCOL EXTRACTION ---
+            val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+            val rawConfigType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
+
+            val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+            val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
+
+            var activeProtocol = if (globalOverride) {
+                globalProtocol
+            } else if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_tunnelProtocol", null)
+                    ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
+            } else {
+                finalConfig.tunnelProtocol
+            }
+
+            if (config.isDefault) {
+                val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
+                if (!supportedProtocols.contains(activeProtocol.lowercase())) {
+                    activeProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
+                }
+            }
+
+            val configVlessIp = if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_vlessIp", "") ?: ""
+            } else {
+                finalConfig.vlessIp
+            }
+
+            val finalVlessIp = if (configVlessIp.isNotEmpty()) {
+                configVlessIp
+            } else {
+                tunnelPrefs.getString("vless_ws_ip", "") ?: ""
+            }
+
+            val isDirectMode = activeProtocol.lowercase() != "vaydns"
+            val cleanConfigType = if (isDirectMode) "direct" else "vaydns"
+            val cleanProtocol = if (isDirectMode) activeProtocol else finalConfig.protocol
+            val serverIp = if (isDirectMode && !config.isDefault) finalConfig.dnsAddress else ""
+
             val jsonTaskObj = org.json.JSONObject().apply {
                 put("id", config.id)
                 put("is_default", config.isDefault)
-                put("config_index", if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L)
+                put("config_index", nativeIndex)
+
+                // Inject Direct Protocol parameters
+                put("config_type", cleanConfigType)
+                put("server_ip", serverIp)
+                put("protocol", cleanProtocol)
+                put("vless_ws_ip", finalVlessIp)
                 put("dns_mode", finalConfig.mode)
-                //put("custom_domain", finalConfig.domain)
                 put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
                 put("custom_pubkey", finalConfig.pubkey)
                 put("resolvers", multipathDnsList)
                 put("base_doh_url", if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else "")
                 put("proxy_type", proxyType)
-                put("protocol", finalConfig.protocol)
 
                 // Mirror authentication parameter construction criteria explicitly
                 put("user", if (finalConfig.protocol == "shadowsocks") finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
@@ -900,8 +1150,24 @@ class MainActivity : AppCompatActivity() {
         configList.clear()
         val userConfigs = loadAllConfigs(this)
 
+        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val displayVaydnsConfigs = appPrefs.getBoolean("display_vaydns_configs", false)
+
         val defaultConfigs = if (switchDefault.isChecked) {
-            DefaultConfigProvider.getDefaultConfigs(this)
+            val allDefaults = DefaultConfigProvider.getDefaultConfigs(this)
+
+            // 2. Filter based on explicit visibility
+            allDefaults.filter { config ->
+                val nativeIndex = config.id.removePrefix("default_").toLongOrNull() ?: 0L
+                val configType = mobile.Mobile.getDefaultConfigType(nativeIndex).lowercase().trim()
+
+                // If the config is PURELY VayDNS (no other protocols attached)
+                if (configType == "vaydns") {
+                    displayVaydnsConfigs // Show only if the toggle is ON
+                } else {
+                    true // Always show multi-protocol/modern configs
+                }
+            }
         } else {
             emptyList()
         }
@@ -923,11 +1189,51 @@ class MainActivity : AppCompatActivity() {
                     configAdapter?.updateSelectedId(config.id)
                 },
                 onEditClicked = { config ->
+                    // All configs can now be edited to select their protocol!
                     val intent = Intent(this, ConfigEditorActivity::class.java).apply {
                         putExtra("CONFIG_ID", config.id)
                     }
                     startActivity(intent)
                 },
+                /**onEditClicked = { config ->
+                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+                    val configType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
+
+                    // Allow editing if the config explicitly supports vaydns (or is a fallback)
+                    val canEdit = configType.lowercase().contains("vaydns") || configType.trim().isEmpty()
+
+                    if (!canEdit) {
+                        Toast.makeText(this, "Direct-only protocol configs cannot be edited in this version.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val intent = Intent(this, ConfigEditorActivity::class.java).apply {
+                            putExtra("CONFIG_ID", config.id)
+                        }
+                        startActivity(intent)
+                    }
+                },*/
+                /**onEditClicked = { config ->
+                    // 1. Fetch the discriminator to see if it's a direct protocol
+                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+                    val configType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
+                    //val isDirectMode = configType.lowercase() == "direct"
+                    val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                    val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
+
+                    val isDirectMode = if (configType.lowercase().contains(activeProtocol.lowercase())) {
+                        activeProtocol.lowercase() != "vaydns" // Use the radio group choice
+                    } else {
+                        !configType.lowercase().contains("vaydns") // Fallback if vaydns isn't supported at all
+                    }
+                    // 2. Block editor access for direct configs
+                    if (isDirectMode) {
+                        Toast.makeText(this, "Direct protocol configs cannot be edited in this version.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val intent = Intent(this, ConfigEditorActivity::class.java).apply {
+                            putExtra("CONFIG_ID", config.id)
+                        }
+                        startActivity(intent)
+                    }
+                },*/
                 onDeleteClicked = { config -> showDeleteConfirmation(config) },
                 onExportClicked = { config ->
                     if (config.isDefault) {
@@ -1083,7 +1389,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
-//        menu.add(Menu.NONE, 1001, Menu.NONE, "Update Configs")
+
+        val isOfficialBuild = mobile.Mobile.isOfficialBuild()
+        menu?.findItem(R.id.action_cf_scanner)?.isVisible = isOfficialBuild
         return true
     }
 
@@ -1242,13 +1550,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        val buildStatus = mobile.Mobile.getBuildStatus()
+        //val buildStatus = mobile.Mobile.getBuildStatus()
         val configCount = mobile.Mobile.getDefaultConfigCount()
-        val isOfficialBuild = buildStatus == "Official Release" || configCount > 0
+        //val isOfficialBuild = buildStatus == "Official Release" || configCount > 0
+        val isOfficialBuild = mobile.Mobile.isOfficialBuild()
 
         // Read user preferences (Default is false/invisible)
-        val menuPrefs = getSharedPreferences("VayDNS_MenuPrefs", Context.MODE_PRIVATE)
-        val showAppUpdate = menuPrefs.getBoolean("show_check_app_update", false)
+        val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
+        // val showAppUpdate = menuPrefs.getBoolean("show_check_app_update", true)
         val showUpdateConfigs = menuPrefs.getBoolean("show_update_configs", false)
         val showUpdateResolvers = menuPrefs.getBoolean("show_update_resolvers", false)
         val showUploadConfigs = menuPrefs.getBoolean("show_upload_configs", false)
@@ -1268,17 +1577,19 @@ class MainActivity : AppCompatActivity() {
 
         if (!isOfficialBuild) {
             // Hide all private infrastructure options for completely public community builds
-            menu.findItem(R.id.action_verify)?.isVisible = false
-            menu.findItem(R.id.action_check_app_update)?.isVisible = false
+            // menu.findItem(R.id.action_verify)?.isVisible = false
+            // menu.findItem(R.id.action_check_app_update)?.isVisible = false
             menu.findItem(R.id.action_update_configs)?.isVisible = false
             menu.findItem(R.id.action_update_resolvers)?.isVisible = false
             menu.findItem(R.id.action_upload_resolvers)?.isVisible = false
             menu.findItem(R.id.action_upload_configs)?.isVisible = false
             menu.findItem(R.id.action_quick_scanner)?.isVisible = false
+            menu.findItem(R.id.action_cf_scanner)?.isVisible = false
         } else {
             // HYBRID VAULT MODE: Keep App Verification visible, but filter out sync tools if configs are omitted
-            menu.findItem(R.id.action_verify)?.isVisible = true
-            menu.findItem(R.id.action_check_app_update)?.isVisible = showAppUpdate
+            // menu.findItem(R.id.action_verify)?.isVisible = true
+            // menu.findItem(R.id.action_check_app_update)?.isVisible = showAppUpdate
+            menu.findItem(R.id.action_cf_scanner)?.isVisible = true
 
             if (configCount == 0L) {
                 // If official configs are entirely missing, hide all config/resolver sync & scanning mechanics
@@ -1303,26 +1614,47 @@ class MainActivity : AppCompatActivity() {
             if (savedKey != null && verifyItem != null) {
                 val stillValid = mobile.Mobile.checkVerification(savedKey)
                 if (stillValid) {
+                    verifyItem.setIcon(R.drawable.ic_check_modern)
                     verifyItem.title = "App Verified ✅"
+                    val greenColor = android.graphics.Color.parseColor("#4CAF50")
+                    verifyItem.icon?.mutate()?.setTint(greenColor)
                 } else {
                     verifyItem.title = "App Not Verified ⚠️"
+                    verifyItem.icon?.mutate()?.setTintList(null)
                     prefs.edit().remove("verified_public_key").apply()
                 }
             }
         }
-
-        // Synchronize the Toggle Mode Menu Item Text on startup
-        val modeToggleItem = menu.findItem(R.id.action_toggle_mode)
-        if (modeToggleItem != null) {
-            if (isProxyMode) {
-                modeToggleItem.title = "Switch to VPN Mode"
-            } else {
-                modeToggleItem.title = "Switch to Proxy Mode"
-            }
-        }
-
 //        return true
         return super.onPrepareOptionsMenu(menu)
+    }
+
+    private fun checkAppVerificationState() {
+        // Find the Left Drawer and the Verify Item
+        val navView = findViewById<com.google.android.material.navigation.NavigationView>(R.id.nav_view)
+        val verifyItem = navView.menu.findItem(R.id.action_verify) ?: return
+
+        // 🟢 FIX: Ensure the Verify App item is ALWAYS visible for all builds (Official & Community)
+        verifyItem.isVisible = true
+
+        // Check the saved key and update the UI
+        val prefs = getSharedPreferences("VayDNS_Prefs", Context.MODE_PRIVATE)
+        val savedKey = prefs.getString("verified_public_key", null)
+
+        if (!savedKey.isNullOrEmpty() && mobile.Mobile.checkVerification(savedKey)) {
+            verifyItem.setIcon(R.drawable.ic_check_modern)
+            verifyItem.title = "Verified Successfully"
+            val greenColor = android.graphics.Color.parseColor("#4CAF50")
+            verifyItem.icon?.mutate()?.setTint(greenColor)
+        } else {
+            verifyItem.title = "Verify App"
+            verifyItem.icon?.mutate()?.setTintList(null)
+
+            // If the key was invalid/corrupted, clear it
+            if (!savedKey.isNullOrEmpty()) {
+                prefs.edit().remove("verified_public_key").apply()
+            }
+        }
     }
 
     private fun showVerificationDialog() {
@@ -1446,6 +1778,67 @@ class MainActivity : AppCompatActivity() {
         resultContainer.addView(statusIcon)
         resultContainer.addView(statusText)
 
+        checkAppVerificationState()
+        // =========================================================
+        // Instantly update the Left Drawer Menu Checkmark
+        // =========================================================
+        /**val navView = findViewById<com.google.android.material.navigation.NavigationView>(R.id.nav_view)
+        val verifyItem = navView.menu.findItem(R.id.action_verify)
+
+        if (verifyItem != null) {
+            if (isVerified) {
+                verifyItem.setIcon(R.drawable.ic_check_modern)
+                verifyItem.title = "Verified Successfully"
+
+                // Override the drawer's default gray tint to allow the Green color
+                val greenColor = android.graphics.Color.parseColor("#4CAF50")
+                verifyItem.icon?.mutate()?.setTint(greenColor)
+            } else {
+                verifyItem.title = "Verify App"
+                // Clear the tint so it reverts to standard drawer colors
+                verifyItem.icon?.mutate()?.setTintList(null)
+            }
+        }*/
+
+        val resultDialog = AlertDialog.Builder(this)
+            .setView(resultContainer)
+            .setPositiveButton("OK", null)
+            .create()
+
+        resultDialog.show()
+
+        // Style OK button
+        resultDialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
+            setTextColor(Color.parseColor("#2F4A6F"))
+            text = "OK"
+        }
+    }
+
+    private fun showVerificationResult2(isVerified: Boolean) {
+        val resultContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(0, 50, 0, 50)
+        }
+
+        val statusIcon = TextView(this).apply {
+            text = if (isVerified) "✅" else "❌"
+            textSize = 48f
+            gravity = Gravity.CENTER
+        }
+
+        val statusText = TextView(this).apply {
+            text = if (isVerified) "Verified Official Build" else "NOT VERIFIED\n(Modified or Unofficial)"
+            textSize = 18f
+            setTextColor(if (isVerified) Color.parseColor("#006400") else Color.RED)
+            gravity = Gravity.CENTER
+            setPadding(0, 20, 0, 0)
+            setTypeface(null, android.graphics.Typeface.BOLD)
+        }
+
+        resultContainer.addView(statusIcon)
+        resultContainer.addView(statusText)
+
         val resultDialog = AlertDialog.Builder(this)
             .setView(resultContainer)
             .setPositiveButton("OK", null)
@@ -1461,6 +1854,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
+
+        if (::toggle.isInitialized && toggle.onOptionsItemSelected(item)) {
+            return true
+        }
+
         return when (item.itemId) {
 
             R.id.action_quick_scanner -> {
@@ -1486,6 +1884,7 @@ class MainActivity : AppCompatActivity() {
 
                         // Tunnel Parameters for End-to-End Test
                         putExtra("DOMAIN", config.domain)
+                        putExtra("CONFIG_ID", config.id)
                         putExtra("PUBKEY", config.pubkey)
                         putExtra("RECORD_TYPE", config.recordType)
                         putExtra("IS_DEFAULT", config.isDefault)
@@ -1565,8 +1964,36 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
-            R.id.action_tunnel_settings -> {
-                startActivity(Intent(this, TunnelSettingsActivity::class.java))
+            R.id.action_cf_scanner -> {
+                if (isVpnConnected) {
+                    Toast.makeText(this, "Please stop the VPN before running a scan.", Toast.LENGTH_LONG).show()
+                    return true
+                }
+
+                val rawConfig = configList.find { it.id == selectedConfigId }
+                if (rawConfig == null) {
+                    Toast.makeText(this, "Please select a config first. The scanner requires a domain to test.", Toast.LENGTH_LONG).show()
+                    return true
+                }
+
+                val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
+                val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+
+                val configTypeLower = (if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else config.mode ?: "").lowercase()
+                val supportsVless = configTypeLower.contains("vless-ws")
+
+                if (!supportsVless) {
+                    Toast.makeText(this, "Cloudflare Scanner requires a VLESS-WS configuration. This config does not support it.", Toast.LENGTH_LONG).show()
+                    return true // Instantly abort
+                }
+
+                val intent = Intent(this, CloudflareScannerActivity::class.java).apply {
+                    putExtra("IS_DEFAULT", config.isDefault)
+                    putExtra("CONFIG_INDEX", nativeIndex)
+                    putExtra("DOMAIN", config.domain)
+                    putExtra("CONFIG_ID", config.id)
+                }
+                startActivity(intent)
                 true
             }
 
@@ -1577,21 +2004,6 @@ class MainActivity : AppCompatActivity() {
 
             R.id.action_add_config -> {
                 startActivity(Intent(this, ConfigEditorActivity::class.java))
-                true
-            }
-
-            R.id.action_select_apps -> {
-                startActivity(Intent(this, AppSelectorActivity::class.java))
-                true
-            }
-
-            R.id.action_verify -> {
-                showVerificationDialog()
-                true
-            }
-
-            R.id.action_check_app_update -> {
-                checkForAppUpdate()
                 true
             }
 
@@ -1627,16 +2039,6 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
-            R.id.action_daily_traffic -> {
-                showDailyTrafficDialog()
-                true
-            }
-
-            R.id.action_how_to_use -> {
-                showHowToUseDialog()
-                true
-            }
-
             R.id.action_import_resolvers -> {
                 startActivity(Intent(this, ResolverTransferActivity::class.java).putExtra("MODE", "IMPORT"))
                 true
@@ -1646,63 +2048,6 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
-            R.id.action_toggle_mode -> {
-                if (isVpnConnected) {
-                    Toast.makeText(this, "Please stop the current connection first.", Toast.LENGTH_SHORT).show()
-                    return true
-                }
-
-                isProxyMode = !isProxyMode
-                if (isProxyMode) {
-                    item.title = "Switch to VPN Mode"
-                    layoutVpnControls.visibility = android.view.View.GONE
-                    layoutProxyControls.visibility = android.view.View.VISIBLE
-                    //tvProxyAddress.text = "SOCKS5: Waiting for connection..."
-                    if (::etProxyPort.isInitialized) {
-                        etProxyPort.isEnabled = true
-                    }
-                    //Toast.makeText(this, "Proxy Mode Enabled", Toast.LENGTH_SHORT).show()
-                } else {
-                    item.title = "Switch to Proxy Mode"
-                    layoutVpnControls.visibility = android.view.View.VISIBLE
-                    layoutProxyControls.visibility = android.view.View.GONE
-                    //Toast.makeText(this, "VPN Mode Enabled", Toast.LENGTH_SHORT).show()
-                }
-                true
-            }
-
-            R.id.action_settings -> {
-                startActivity(Intent(this, GlobalSettingsActivity::class.java))
-                true
-            }
-
-            R.id.action_about -> {
-                val version = try {
-                    packageManager.getPackageInfo(packageName, 0).versionName
-                } catch (e: Exception) {
-                    "1.0"
-                }
-
-                // Use MaterialAlertDialogBuilder to respect your Day/Night themes
-                MaterialAlertDialogBuilder(this)
-                    .setTitle("VayDNS")
-                    .setMessage("""
-            Version: $version
-
-            DNS Tunneling app designed for heavily censored environments.
-
-            Made with ❤️
-            x.com/Starling226
-            https://github.com/Starling226/vaydns-vpn
-        """.trimIndent())
-                    .setPositiveButton("Close", null)
-                    .setIcon(R.mipmap.ic_launcher_round)
-                    .show() // .show() handles create and show automatically
-
-                // DELETE the manual setTextColor line.
-                // The theme overlay we created earlier handles this now.
-                true
-            }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -2478,10 +2823,7 @@ class MainActivity : AppCompatActivity() {
             .putString("proxy_port", currentPort)
             .apply()
 
-        // Update UI to show we are checking domains
-        tvStatus.text = "Status: Verifying Domains..."
-        tvStatus.setTextColor(Color.parseColor("#FFA500")) // Orange for verifying
-        btnToggle.text = "CONNECTING..."
+        // Disable button while processing
         btnToggle.isEnabled = false
         btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.GRAY)
 
@@ -2497,230 +2839,334 @@ class MainActivity : AppCompatActivity() {
             -1L
         }
 
-        val multipathDns = getMultipathResolvers(config.id, finalConfig.dnsAddress, finalConfig.mode)
+        // Fetch the discriminator to decide the routing path
+        val configType = if (config.isDefault) {
+            mobile.Mobile.getDefaultConfigType(nativeIndex)
+        } else {
+            "vaydns"
+        }
 
-        // 1. Launch a background coroutine so the UI doesn't freeze
-        CoroutineScope(Dispatchers.IO).launch {
+        val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+        val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-            // Grab the first resolver from the multipath list to use for the ping test
-            val testResolver = multipathDns.split(",").firstOrNull()?.trim() ?: "8.8.8.8:53"
+        var activeProtocol = if (globalOverride) {
+            globalProtocol
+        } else if (config.isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${config.id}_tunnelProtocol", null)
+                ?: configType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
+        } else {
+            finalConfig.tunnelProtocol
+        }
 
-            val tunnelPrefs = this@MainActivity.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-            val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
+        if (config.isDefault) {
+            val supportedProtocols = configType.lowercase().split(",").map { it.trim() }
+            if (!supportedProtocols.contains(activeProtocol.lowercase())) {
 
-            // Force True E2E (lightE2E = false) for the Pre-Flight Scanner to bypass DPI
-            val lightE2E = false
+                // 1. Warn the user
+                Toast.makeText(
+                    this,
+                    "Connection Failed: This server no longer supports '${activeProtocol}'.Please edit the config to select a valid protocol.",
+                    Toast.LENGTH_LONG
+                ).show()
+                val btnToggle = findViewById<Button>(R.id.btn_toggle)
+                val tvStatus = findViewById<TextView>(R.id.tv_status)
 
-            //val workers = tunnelPrefs.getInt("workers", 20)
-            val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
-            val uTimeout = tunnelPrefs.getInt("udp_timeout", 1000)
-            val retries = tunnelPrefs.getInt("retries", 0)
-            var pTimeout = tunnelPrefs.getInt("probe_timeout", 15000).toLong()
+                btnToggle?.isEnabled = true
+                btnToggle?.text = "START TUNNEL"
+                tvStatus?.text = "Status: Disconnected"
+                val primaryColor = com.google.android.material.color.MaterialColors.getColor(this, android.R.attr.colorPrimary, Color.BLUE)
+                btnToggle?.backgroundTintList = android.content.res.ColorStateList.valueOf(primaryColor)
+                // 2. Abort the VPN launch immediately
+                return
+            }
+        }
 
-            val currentMode = finalConfig.mode.lowercase()
+        // 1. Fetch the specific IP for this config
+        val configVlessIp = if (config.isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${config.id}_vlessIp", "") ?: ""
+        } else {
+            finalConfig.vlessIp
+        }
 
-            // Replicate ConfigAdapter.kt Timeout Logic
-            if (!lightE2E && (currentMode == "udp" || currentMode == "tcp")) {
-                if (pTimeout > 10000L) {
-                    pTimeout = 10000L
-                }
+        // 2. Fallback to the Global IP if the config doesn't have one
+        val finalVlessIp = if (configVlessIp.isNotEmpty()) {
+            configVlessIp
+        } else {
+            tunnelPrefs.getString("vless_ws_ip", "") ?: ""
+        }
+
+        val isDirectMode = activeProtocol.lowercase() != "vaydns"
+        // =================================================================
+        // ARCHITECTURAL FORK: DIRECT PROTOCOL (HYSTERIA)
+        // =================================================================
+
+        if (isDirectMode) {
+
+            // If the JSON is cleanly marked "direct", use the Global Settings override.
+
+            //val finalProtocol = if (configType.lowercase() == "direct") activeProtocol else configType.lowercase()
+            val finalProtocol = if (activeProtocol != "vaydns") activeProtocol else configType.split(",").firstOrNull { it != "vaydns" } ?: "hysteria2"
+
+            if (finalProtocol == "vaydns") {
+                Toast.makeText(this@MainActivity, "This is a direct config. Please select Hysteria or Reality in Settings.", Toast.LENGTH_LONG).show()
+                btnToggle.isEnabled = true
+                btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
+                return
             }
 
-            // Replicate ConfigAdapter.kt Worker Logic
-            /**val safeWorkers = if (currentMode == "udp" && workers > 20) {
-                20
-            } else {
-                workers
-            }*/
+            // 1. Fetch the engine type first
+//            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+            val engineType = tunnelPrefs.getString("tun_engine", "sing-box")
 
-            val safeWorkers = 5
-            // Parse Auth and URL Variables
-            val baseDohUrl = if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else ""
-            val ssMethod = finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
-            val user = if (finalConfig.protocol == "shadowsocks") ssMethod else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none"
-            val pass = if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none"
-            val engineQuickScan = false
+            // 2. The Engine Guardrail
+            if (engineType != "sing-box") {
+                Toast.makeText(this@MainActivity, "Hysteria requires the sing-box engine. Please change your Tunnel Settings.", Toast.LENGTH_LONG).show()
 
-            // Safely scan domains using the Isolated Sandboxed Service
-            val healthyDomains = if (finalConfig.useMultiDomains) {
-
-                // This suspends the coroutine until the Scanner Service sends the broadcast back
-                suspendCancellableCoroutine { continuation ->
-
-                    val receiver = object : android.content.BroadcastReceiver() {
-                        override fun onReceive(context: Context, intent: Intent) {
-                            val result = intent.getStringExtra("HEALTHY_DOMAINS") ?: ""
-                            try { context.unregisterReceiver(this) } catch(e: Exception){}
-
-                            // Resume the coroutine with the healthy domains string!
-                            if (continuation.isActive) {
-                                continuation.resume(result, null)
-                            }
-                        }
-                    }
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        this@MainActivity.registerReceiver(receiver, android.content.IntentFilter("ACTION_DOMAIN_SCAN_RESULT"), Context.RECEIVER_NOT_EXPORTED)
-                    } else {
-                        this@MainActivity.registerReceiver(receiver, android.content.IntentFilter("ACTION_DOMAIN_SCAN_RESULT"))
-                    }
-
-                    // Pack all variables and launch the Domain Sandbox
-                    val scanIntent = Intent(this@MainActivity, VayDomainService::class.java).apply {
-                        putExtra("USE_MULTI_DOMAINS", finalConfig.useMultiDomains)
-                        putExtra("IS_DEFAULT", config.isDefault)
-                        putExtra("CONFIG_INDEX", nativeIndex)
-                        putExtra("DOMAINS", finalConfig.domain)
-                        putExtra("RESOLVER_IP", testResolver)
-                        putExtra("DNS_MODE", finalConfig.mode)
-                        putExtra("PUBKEY", finalConfig.pubkey)
-                        putExtra("BASE_DOH_URL", baseDohUrl)
-                        putExtra("PROXY_TYPE", proxyType)
-                        putExtra("TUNNEL_PROTOCOL", finalConfig.protocol)
-                        putExtra("PROXY_USER", user)
-                        putExtra("PROXY_PASS", pass)
-                        putExtra("SS_METHOD", ssMethod)
-                        putExtra("RECORD_TYPE", finalConfig.recordType)
-                        putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)
-                        putExtra("KEEP_ALIVE", finalConfig.keepAlive)
-                        putExtra("CLIENT_ID_SIZE", finalConfig.clientIdSize)
-                        putExtra("MTU", finalConfig.mtu)
-                        putExtra("WORKERS", safeWorkers.toLong())
-                        putExtra("TUNNEL_WAIT", tWait.toLong())
-                        putExtra("UDP_TIMEOUT", uTimeout.toLong())
-                        putExtra("PROBE_TIMEOUT", pTimeout)
-                        putExtra("RETRIES", retries.toLong())
-                        putExtra("LIGHT_E2E", lightE2E)
-                        putExtra("QUICK_SCAN", engineQuickScan)
-                    }
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        this@MainActivity.startForegroundService(scanIntent)
-                    } else {
-                        this@MainActivity.startService(scanIntent)
-                    }
-
-                    // If the user clicks the "Disconnect" button while scanning, cancel everything
-                    continuation.invokeOnCancellation {
-                        val stopIntent = Intent(this@MainActivity, VayDomainService::class.java).apply { action = "ACTION_STOP_DOMAIN_SCANNER" }
-                        this@MainActivity.startService(stopIntent)
-                        try { this@MainActivity.unregisterReceiver(receiver) } catch(e: Exception){}
-                    }
-                }
-            } else {
-                // If OFF, bypass the scanner and extract the first domain locally
-                finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain
+                // Gracefully reset the UI so the user isn't stuck
+                btnToggle.isEnabled = true
+                btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
+                return
             }
 
-            // 2. Return to the Main UI Thread to process the results
-            withContext(Dispatchers.Main) {
+            // 3. Proceed with Hysteria connection
+            tvStatus.text = "Status: Connecting to Node..."
+            tvStatus.setTextColor(Color.parseColor("#008080")) // Teal for Direct Connection
+            btnToggle.text = "CONNECTING..."
 
-                if (finalConfig.useMultiDomains && healthyDomains.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "All tunnel domains are blocked by your ISP!", Toast.LENGTH_LONG).show()
+            val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
+                action = "ACTION_START_VPN"
+                putStringArrayListExtra("ALLOWED_APPS_LIST", ArrayList(selectedApps))
+                putExtra("IS_DEFAULT_CONFIG", config.isDefault)
+                putExtra("CONFIG_ID", config.id)
+                putExtra("CONFIG_INDEX", nativeIndex)
+                putExtra("CONFIG_TYPE", "direct")
+                putExtra("PROTOCOL", finalProtocol)
+                putExtra("ENGINE_TYPE", engineType)
+                putExtra("VLESS_WS_IP", finalVlessIp)
+            }
 
-                    // Reset the Connect Button
-                    isVpnConnected = false
-                    btnToggle.isEnabled = true
-                    btnToggle.text = "START TUNNEL"
-                    btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
-                    tvStatus.text = "Status: Disconnected"
-                    tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
-                    return@withContext // Abort the connection
+            if (isProxyMode) {
+                var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
+                if (proxyPort < 1024 || proxyPort > 65535) {
+                    proxyPort = 1080
+                    etProxyPort.setText("1080")
+                    Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
                 }
+                intent.putExtra("PROXY_PORT", proxyPort.toLong())
+                intent.setClass(this@MainActivity, VayProxyService::class.java)
 
-                // Fallback sanity check for empty domains
-                if (healthyDomains.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "Invalid configuration. Domain is empty.", Toast.LENGTH_SHORT).show()
-                    isVpnConnected = false
-                    btnToggle.isEnabled = true
-                    btnToggle.text = "START TUNNEL"
-                    btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
-                    tvStatus.text = "Status: Disconnected"
-                    tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
-                    return@withContext
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
                 }
-
-                // If we have healthy domains, proceed to connect!
-                tvStatus.text = "Status: Connecting..."
-
-                val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
-                    action = "ACTION_START_VPN"
-                    putStringArrayListExtra("ALLOWED_APPS_LIST", ArrayList(selectedApps))
-
-                    val nativeIndex = if (config.isDefault) {
-                        config.id.removePrefix("default_").toLongOrNull() ?: 0L
-                    } else {
-                        -1L
-                    }
-
-                    putExtra("IS_DEFAULT_CONFIG", config.isDefault)
-                    putExtra("CONFIG_ID", config.id)
-                    putExtra("CONFIG_INDEX", nativeIndex)
-                    putExtra("USE_MULTI_DOMAINS", finalConfig.useMultiDomains)
-                    //  Inject the filtered healthy domains here instead of the raw ones!
-                    putExtra("DOMAIN", healthyDomains)
-
-                    putExtra("PUBKEY", finalConfig.pubkey)
-
-                    val baseDohUrl = if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else ""
-                    putExtra("BASE_DOH_URL", baseDohUrl)
-                    putExtra("UDP", multipathDns)
-                    putExtra("MODE", finalConfig.mode)
-                    putExtra("RECORD_TYPE", finalConfig.recordType)
-                    putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)
-                    putExtra("KEEP_ALIVE", finalConfig.keepAlive)
-                    putExtra("CLIENT_ID_SIZE", finalConfig.clientIdSize)
-                    putExtra("MTU", config.mtu)
-                    putExtra("DNSTT_COMPATIBLE", finalConfig.dnsttCompatible)
-                    putExtra("USE_AUTH", finalConfig.useAuth)
-                    putExtra("PROTOCOL", finalConfig.protocol)
-                    putExtra("AUTH_PROTOCOL", finalConfig.authProtocol)
-                    putExtra("SS_METHOD", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
-
-                    val finalUser = if (finalConfig.protocol == "shadowsocks") {
-                        finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
-                    } else if (config.useAuth) {
-                        finalConfig.user.ifEmpty { "none" }
-                    } else {
-                        "none"
-                    }
-                    val finalPass = if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none"
-
-                    putExtra("USER", finalUser)
-                    putExtra("PASS", finalPass)
-                }
-
-                if (isProxyMode) {
-                    var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
-                    // Guardrail: Android prevents binding to ports under 1024 without root
-                    if (proxyPort < 1024 || proxyPort > 65535) {
-                        proxyPort = 1080
-                        etProxyPort.setText("1080")
-                        Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
-                    }
-                    intent.putExtra("PROXY_PORT", proxyPort.toLong()) // Gomobile expects Long
-
-                    intent.setClass(this@MainActivity, VayProxyService::class.java)
+            } else {
+                val vpnIntent = VpnService.prepare(this@MainActivity)
+                if (vpnIntent != null) {
+                    vpnPermissionLauncher.launch(vpnIntent)
+                } else {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(intent)
                     } else {
                         startService(intent)
                     }
+                }
+            }
+
+            // =================================================================
+            // ARCHITECTURAL FORK: DNS TUNNEL (VAYDNS)
+            // =================================================================
+        } else {
+            tvStatus.text = "Status: Verifying Domains..."
+            tvStatus.setTextColor(Color.parseColor("#FFA500")) // Orange for verifying
+            btnToggle.text = "CONNECTING..."
+
+            val multipathDns = getMultipathResolvers(config.id, finalConfig.dnsAddress, finalConfig.mode)
+
+            CoroutineScope(Dispatchers.IO).launch {
+                val testResolver = multipathDns.split(",").firstOrNull()?.trim() ?: "8.8.8.8:53"
+                val tunnelPrefs = this@MainActivity.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
+                val lightE2E = false
+                val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
+                val uTimeout = tunnelPrefs.getInt("udp_timeout", 1000)
+                val retries = tunnelPrefs.getInt("retries", 0)
+                var pTimeout = tunnelPrefs.getInt("probe_timeout", 15000).toLong()
+
+                val currentMode = finalConfig.mode.lowercase()
+                if (!lightE2E && (currentMode == "udp" || currentMode == "tcp")) {
+                    if (pTimeout > 10000L) pTimeout = 10000L
+                }
+
+                val safeWorkers = 5
+                val baseDohUrl = if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else ""
+                val ssMethod = finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
+                val user = if (finalConfig.protocol == "shadowsocks") ssMethod else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none"
+                val pass = if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none"
+                val engineQuickScan = false
+
+                val healthyDomains = if (finalConfig.useMultiDomains) {
+                    kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+                        val receiver = object : android.content.BroadcastReceiver() {
+                            override fun onReceive(context: Context, intent: Intent) {
+                                val result = intent.getStringExtra("HEALTHY_DOMAINS") ?: ""
+                                try { context.unregisterReceiver(this) } catch(e: Exception){}
+                                if (continuation.isActive) continuation.resume(result)
+                            }
+                        }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            this@MainActivity.registerReceiver(receiver, android.content.IntentFilter("ACTION_DOMAIN_SCAN_RESULT"), Context.RECEIVER_NOT_EXPORTED)
+                        } else {
+                            this@MainActivity.registerReceiver(receiver, android.content.IntentFilter("ACTION_DOMAIN_SCAN_RESULT"))
+                        }
+
+                        val scanIntent = Intent(this@MainActivity, VayDomainService::class.java).apply {
+                            putExtra("USE_MULTI_DOMAINS", finalConfig.useMultiDomains)
+                            putExtra("IS_DEFAULT", config.isDefault)
+                            putExtra("CONFIG_INDEX", nativeIndex)
+                            putExtra("DOMAINS", finalConfig.domain)
+                            putExtra("RESOLVER_IP", testResolver)
+                            putExtra("DNS_MODE", finalConfig.mode)
+                            putExtra("PUBKEY", finalConfig.pubkey)
+                            putExtra("BASE_DOH_URL", baseDohUrl)
+                            putExtra("PROXY_TYPE", proxyType)
+                            putExtra("TUNNEL_PROTOCOL", finalConfig.protocol)
+                            putExtra("PROXY_USER", user)
+                            putExtra("PROXY_PASS", pass)
+                            putExtra("SS_METHOD", ssMethod)
+                            putExtra("RECORD_TYPE", finalConfig.recordType)
+                            putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)
+                            putExtra("KEEP_ALIVE", finalConfig.keepAlive)
+                            putExtra("CLIENT_ID_SIZE", finalConfig.clientIdSize)
+                            putExtra("MTU", finalConfig.mtu)
+                            putExtra("WORKERS", safeWorkers.toLong())
+                            putExtra("TUNNEL_WAIT", tWait.toLong())
+                            putExtra("UDP_TIMEOUT", uTimeout.toLong())
+                            putExtra("PROBE_TIMEOUT", pTimeout)
+                            putExtra("RETRIES", retries.toLong())
+                            putExtra("LIGHT_E2E", lightE2E)
+                            putExtra("QUICK_SCAN", engineQuickScan)
+                        }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            this@MainActivity.startForegroundService(scanIntent)
+                        } else {
+                            this@MainActivity.startService(scanIntent)
+                        }
+
+                        continuation.invokeOnCancellation {
+                            val stopIntent = Intent(this@MainActivity, VayDomainService::class.java).apply { action = "ACTION_STOP_DOMAIN_SCANNER" }
+                            this@MainActivity.startService(stopIntent)
+                            try { this@MainActivity.unregisterReceiver(receiver) } catch(e: Exception){}
+                        }
+                    }
                 } else {
-                    // VPN MODE: Use standard Android VpnService logic
-                    val vpnIntent = VpnService.prepare(this@MainActivity)
-                    if (vpnIntent != null) {
-                        vpnPermissionLauncher.launch(vpnIntent)
-                    } else {
+                    finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (finalConfig.useMultiDomains && healthyDomains.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "All tunnel domains are blocked by your ISP!", Toast.LENGTH_LONG).show()
+                        isVpnConnected = false
+                        btnToggle.isEnabled = true
+                        btnToggle.text = "START TUNNEL"
+                        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
+                        tvStatus.text = "Status: Disconnected"
+                        tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
+                        return@withContext
+                    }
+
+                    if (healthyDomains.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "Invalid configuration. Domain is empty.", Toast.LENGTH_SHORT).show()
+                        isVpnConnected = false
+                        btnToggle.isEnabled = true
+                        btnToggle.text = "START TUNNEL"
+                        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
+                        tvStatus.text = "Status: Disconnected"
+                        tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
+                        return@withContext
+                    }
+
+                    tvStatus.text = "Status: Connecting..."
+
+                    val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
+                        action = "ACTION_START_VPN"
+                        putStringArrayListExtra("ALLOWED_APPS_LIST", ArrayList(selectedApps))
+
+                        val engineType = tunnelPrefs.getString("tun_engine", "sing-box")
+                        putExtra("ENGINE_TYPE", engineType)
+
+                        putExtra("IS_DEFAULT_CONFIG", config.isDefault)
+                        putExtra("CONFIG_ID", config.id)
+                        putExtra("CONFIG_INDEX", nativeIndex)
+                        putExtra("CONFIG_TYPE", "vaydns")
+
+                        putExtra("USE_MULTI_DOMAINS", finalConfig.useMultiDomains)
+                        putExtra("DOMAIN", healthyDomains)
+                        putExtra("PUBKEY", finalConfig.pubkey)
+
+                        val finalBaseDohUrl = if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else ""
+                        putExtra("BASE_DOH_URL", finalBaseDohUrl)
+                        putExtra("UDP", multipathDns)
+                        putExtra("MODE", finalConfig.mode)
+                        putExtra("RECORD_TYPE", finalConfig.recordType)
+                        putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)
+                        putExtra("KEEP_ALIVE", finalConfig.keepAlive)
+                        putExtra("CLIENT_ID_SIZE", finalConfig.clientIdSize)
+                        putExtra("MTU", config.mtu)
+                        putExtra("DNSTT_COMPATIBLE", finalConfig.dnsttCompatible)
+                        putExtra("USE_AUTH", finalConfig.useAuth)
+                        putExtra("PROTOCOL", finalConfig.protocol)
+                        putExtra("AUTH_PROTOCOL", finalConfig.authProtocol)
+                        putExtra("SS_METHOD", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
+
+                        val finalUserVal = if (finalConfig.protocol == "shadowsocks") {
+                            finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
+                        } else if (config.useAuth) {
+                            finalConfig.user.ifEmpty { "none" }
+                        } else {
+                            "none"
+                        }
+                        val finalPassVal = if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none"
+
+                        putExtra("USER", finalUserVal)
+                        putExtra("PASS", finalPassVal)
+                    }
+
+                    if (isProxyMode) {
+                        var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
+                        if (proxyPort < 1024 || proxyPort > 65535) {
+                            proxyPort = 1080
+                            etProxyPort.setText("1080")
+                            Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
+                        }
+                        intent.putExtra("PROXY_PORT", proxyPort.toLong())
+                        intent.setClass(this@MainActivity, VayProxyService::class.java)
+
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             startForegroundService(intent)
                         } else {
                             startService(intent)
                         }
+                    } else {
+                        val vpnIntent = VpnService.prepare(this@MainActivity)
+                        if (vpnIntent != null) {
+                            vpnPermissionLauncher.launch(vpnIntent)
+                        } else {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
+                        }
                     }
                 }
-            } // End of withContext(Dispatchers.Main)
-        } // End of CoroutineScope
+            }
+        }
     }
 
     private fun stopVpnService() {
@@ -2745,6 +3191,7 @@ class MainActivity : AppCompatActivity() {
         tvStatus.text = "Status: Disconnected"
         tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
 
+        supportActionBar?.title = "VayDNS"
 // Unlock and reset the UI after exactly 1 second
         btnToggle.postDelayed({
             btnToggle.isEnabled = true
@@ -2760,10 +3207,17 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-
+        // INSTANT MENU REFRESH: Force Android to redraw the toolbar menu based on new settings
+        invalidateOptionsMenu()
+        checkAppVerificationState()
         // INSTANT SYNC: Check the startup behavior settings every time we return to this screen
         val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
-        val defaultConfigsEnabled = appPrefs.getBoolean("default_configs_at_start", false)
+        val defaultConfigsEnabled = appPrefs.getBoolean("default_configs_at_start", true)
+
+        val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        val savedVlessIp = tunnelPrefs.getString("vless_ws_ip", "") ?: ""
+        // Pass the saved preference to the Go core layer to sync the latency scanner
+        mobile.Mobile.setGlobalVlessWsIP(savedVlessIp)
 
         // Update the switch visually without triggering the manual listener twice
         switchDefault.setOnCheckedChangeListener(null)

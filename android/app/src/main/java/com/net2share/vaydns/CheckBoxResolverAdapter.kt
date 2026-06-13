@@ -1,5 +1,8 @@
 package com.net2share.vaydns
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Color
 import android.text.Editable
 import android.text.TextWatcher
@@ -47,6 +50,28 @@ class CheckBoxResolverAdapter(
         holder.editText.isFocusable = entry.isManual
         holder.editText.isFocusableInTouchMode = entry.isManual
         holder.editText.isCursorVisible = entry.isManual
+
+        val copyToClipboard = { view: View ->
+            if (entry.address.isNotBlank()) {
+                val clipboard = view.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Resolver IP", entry.address)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(view.context, "Copied: ${entry.address}", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        if (!entry.isManual) {
+            // For scanned entries: Single tap or long press copies to clipboard
+            holder.editText.setOnClickListener { copyToClipboard(it) }
+            holder.editText.setOnLongClickListener {
+                copyToClipboard(it)
+                true // Event consumed
+            }
+        } else {
+            // For manual entries: Clear listeners so they don't break the keyboard popping up
+            holder.editText.setOnClickListener(null)
+            holder.editText.setOnLongClickListener(null)
+        }
 
         holder.checkBox.setOnCheckedChangeListener(null)
         holder.checkBox.isChecked = entry.isChecked

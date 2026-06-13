@@ -30,6 +30,13 @@ class ResolverAdapter(
         holder.tvIp.text = item.ip
         holder.tvLatency.text = "${item.latencyMs} ms"
 
+        holder.itemView.setOnClickListener { view ->
+            val clipboard = view.context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("IP Address", item.ip)
+            clipboard.setPrimaryClip(clip)
+            android.widget.Toast.makeText(view.context, "Copied: ${item.ip}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+
         if (isQuickScanner) {
             holder.itemView.setOnClickListener(null)
             holder.itemView.isClickable = false
