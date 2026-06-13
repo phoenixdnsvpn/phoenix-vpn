@@ -8,7 +8,8 @@ VayDNS VPN is a high-performance DNS-based tunneling solution. Originally develo
 
 - **vaydns**: The "Tunnel" layer. It encapsulates data into DNS queries (DoH, DoT, or UDP) to bypass firewalls and deep packet inspection (DPI).
 - **Tun2Socks**: The "VPN" layer. It captures all IP traffic from the Android TUN interface and transparently forwards it through the VayDNS tunnel.
-- **f35**: The E2E resolver scanner. To proble and rapidly measuring the latency and reliability of DNS resolvers across a network.
+- **sing-box**: The "Protocol Core" layer. We rely on sing-box for its unmatched ability to manage advanced censorship-resistant protocols (like Hysteria2, Reality, and VLESS-WS) and perform intelligent traffic routing. Because sing-box excels at complex proxy logic, we pair it with tun2socks—using tun2socks as a high-performance bridge to capture raw IP traffic from the Android TUN interface and seamlessly feed it into the sing-box engine.
+- **f35**: The E2E resolver scanner. To probe and rapidly measuring the latency and reliability of DNS resolvers across a network.
 
 ### Transparency & Purpose
 VayDNS VPN is a transparent, source-available project dedicated to promoting digital freedom and providing secure internet access for users in countries facing heavy internet censorship. The primary objective of this software is to facilitate open communication and information access through DNS tunneling technology. This project is strictly educational and humanitarian in nature; it does not target, exploit, or attack any systems, networks, or infrastructure. The source code is made available for public audit to ensure transparency and trust within the community of users who rely on these tools for safe and restricted-free connectivity.
@@ -208,10 +209,17 @@ This project would not be possible without the incredible work of the following 
     
 -   **[tun2socks](https://github.com/xjasonlyu/tun2socks)**: For the high-performance implementation of TUN-to-SOCKS conversion, enabling system-wide VPN functionality.
 
+-   **[sing-box](https://github.com/SagerNet/sing-box)**: For the highly optimized universal proxy core, powering our advanced direct protocol support and intelligent traffic routing.
+
 -   **[f35](https://github.com/nxdp/f35)**: For the End-to-End DNS Resolver Scanner
 
 -   **[dnst-url-spec](https://github.com/net2share/dnst-url-spec)**: A standard URL format for sharing DNS-tunneled proxy configurations across clients and apps.
 
+-   **[Hysteria2](https://github.com/apernet/hysteria Hysteria)**: For the powerful, UDP-optimized transport protocol that delivers incredible speeds over unreliable and heavily censored networks.
+
+-   **[REALITY](https://github.com/XTLS/REALITY)**: For the innovative stealth protocol that flawlessly masks proxy traffic without requiring a dedicated domain or standard TLS certificate.
+
+-   **[VLESS-WS](https://github.com/XTLS/Xray-coreXray-core)**: For pioneering the VLESS protocol and laying the foundational architecture for modern anti-censorship technologies.
 
 ## License & Disclaimer
 
