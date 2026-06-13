@@ -159,11 +159,6 @@ class VayScannerService : Service() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
 
-        /**val pendingIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, DnsScannerResultActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )*/
-
         val pendingIntent = PendingIntent.getActivity(
             this, 0, Intent(this, DnsScannerResultActivity::class.java).apply {
                 // Use addFlags instead of direct assignment
@@ -173,12 +168,6 @@ class VayScannerService : Service() {
         )
 
         // Route the tap to the existing activity in memory, don't spawn a new one
-        /*val pendingIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, DnsScannerResultActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )*/
 
         val notification = NotificationCompat.Builder(this, "VAY_SCANNER_CHANNEL")
             .setContentTitle("VayDNS Scanner Running")
@@ -221,10 +210,6 @@ class VayScannerService : Service() {
     }
 
     private fun updateNotification(text: String) {
-        /**val pendingIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, DnsScannerResultActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )*/
         // Route the tap to the existing activity in memory, don't spawn a new one
 
         val intent = Intent(this, DnsScannerResultActivity::class.java).apply {
@@ -237,12 +222,6 @@ class VayScannerService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        /**al pendingIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, DnsScannerResultActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )*/
         val notification = NotificationCompat.Builder(this, "VAY_SCANNER_CHANNEL")
             .setContentTitle("VayDNS Scanner Running")
             .setContentText(text)
@@ -280,30 +259,4 @@ class VayScannerService : Service() {
         }.start()
     }
 
-    /**override fun onDestroy() {
-        if (wakeLock?.isHeld == true) wakeLock?.release()
-
-        // 1. Tell Go to stop everything immediately
-        Mobile.stopF35Scan()
-
-        // 2. Allow 500ms for the Go runtime to send FIN packets
-        // This is the critical window that prevents the router/NAT saturation
-        Handler(Looper.getMainLooper()).postDelayed({
-            // Instead of System.exit(0), we simply let the service stop itself
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            super.onDestroy()
-            android.os.Process.killProcess(android.os.Process.myPid())
-            // If memory is still an issue, let Android OS manage the process lifecycle naturally
-        }, 1000)
-    }*/
-
-    /**override fun onDestroy() {
-        if (wakeLock?.isHeld == true) wakeLock?.release()
-        super.onDestroy()
-
-        // 💀 THE SANDBOX ASSASSIN 💀
-        // When the service is stopped (either batch finished or user pressed stop),
-        // completely nuke the process to free the Go Heap memory instantly.
-        System.exit(0)
-    }*/
 }

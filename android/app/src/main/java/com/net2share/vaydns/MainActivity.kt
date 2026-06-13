@@ -427,16 +427,6 @@ class MainActivity : AppCompatActivity() {
                     // The theme overlay we created earlier handles this now.
                     true
                 }
-                /**R.id.action_about -> {
-                    // Your existing About dialog logic...
-                    val version = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "1.0" }
-                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                        .setTitle("VayDNS")
-                        .setMessage("Version: $version\n\nDNS Tunneling app designed for heavily censored environments.\n\nMade with ❤️\nx.com/Starling226\nhttps://github.com/Starling226/vaydns-vpn")
-                        .setPositiveButton("Close", null)
-                        .setIcon(R.mipmap.ic_launcher_round)
-                        .show()
-                }*/
             }
             // Close the drawer automatically after tapping an item
             drawerLayout.closeDrawer(androidx.core.view.GravityCompat.START)
@@ -1195,45 +1185,6 @@ class MainActivity : AppCompatActivity() {
                     }
                     startActivity(intent)
                 },
-                /**onEditClicked = { config ->
-                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
-                    val configType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
-
-                    // Allow editing if the config explicitly supports vaydns (or is a fallback)
-                    val canEdit = configType.lowercase().contains("vaydns") || configType.trim().isEmpty()
-
-                    if (!canEdit) {
-                        Toast.makeText(this, "Direct-only protocol configs cannot be edited in this version.", Toast.LENGTH_SHORT).show()
-                    } else {
-                        val intent = Intent(this, ConfigEditorActivity::class.java).apply {
-                            putExtra("CONFIG_ID", config.id)
-                        }
-                        startActivity(intent)
-                    }
-                },*/
-                /**onEditClicked = { config ->
-                    // 1. Fetch the discriminator to see if it's a direct protocol
-                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
-                    val configType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
-                    //val isDirectMode = configType.lowercase() == "direct"
-                    val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-                    val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
-
-                    val isDirectMode = if (configType.lowercase().contains(activeProtocol.lowercase())) {
-                        activeProtocol.lowercase() != "vaydns" // Use the radio group choice
-                    } else {
-                        !configType.lowercase().contains("vaydns") // Fallback if vaydns isn't supported at all
-                    }
-                    // 2. Block editor access for direct configs
-                    if (isDirectMode) {
-                        Toast.makeText(this, "Direct protocol configs cannot be edited in this version.", Toast.LENGTH_SHORT).show()
-                    } else {
-                        val intent = Intent(this, ConfigEditorActivity::class.java).apply {
-                            putExtra("CONFIG_ID", config.id)
-                        }
-                        startActivity(intent)
-                    }
-                },*/
                 onDeleteClicked = { config -> showDeleteConfirmation(config) },
                 onExportClicked = { config ->
                     if (config.isDefault) {
@@ -1782,23 +1733,6 @@ class MainActivity : AppCompatActivity() {
         // =========================================================
         // Instantly update the Left Drawer Menu Checkmark
         // =========================================================
-        /**val navView = findViewById<com.google.android.material.navigation.NavigationView>(R.id.nav_view)
-        val verifyItem = navView.menu.findItem(R.id.action_verify)
-
-        if (verifyItem != null) {
-            if (isVerified) {
-                verifyItem.setIcon(R.drawable.ic_check_modern)
-                verifyItem.title = "Verified Successfully"
-
-                // Override the drawer's default gray tint to allow the Green color
-                val greenColor = android.graphics.Color.parseColor("#4CAF50")
-                verifyItem.icon?.mutate()?.setTint(greenColor)
-            } else {
-                verifyItem.title = "Verify App"
-                // Clear the tint so it reverts to standard drawer colors
-                verifyItem.icon?.mutate()?.setTintList(null)
-            }
-        }*/
 
         val resultDialog = AlertDialog.Builder(this)
             .setView(resultContainer)
