@@ -27,7 +27,9 @@ VayDNS VPN is a transparent, source-available project dedicated to promoting dig
 
 - **Light E2E Scanner:** Added a highly optimized "fast-fail" handshake scanner. This bypasses heavy payload checks to rapidly verify raw connectivity, delivering instant Alive/Dead results.
 
-- **Quick DNS Scanning:** Built-in DNS scanner to scan thousands of IP addresses to identify local DNS resolvers as a pre selection IP's to scan with E2E scanner.
+- **Quick DNS Scanner:** Built-in DNS scanner to scan thousands of IP addresses to identify local DNS resolvers as a pre selection IP's to scan with E2E scanner.
+
+- **Cloudflare Scanner:** Integrated a native Application-Layer (Layer 7) IP Scanner to automatically discover and map "clean" Cloudflare front-end IPs. This is to ensure VLESS-WS connections remain completely stable even when server IPs are blocked by aggressive DPI.
 
 - **Multi-Worker Ping:** Implemented parallel worker processing for ping tests. This significantly increases scanning speed when testing multiple resolvers across various configurations.
 
