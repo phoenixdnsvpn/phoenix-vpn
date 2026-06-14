@@ -247,7 +247,7 @@ class MainActivity : AppCompatActivity() {
 
                 // FALSE: Hide legacy/pure VayDNS configs by default
                 if (!appPrefs.contains("display_vaydns_configs")) {
-                    putBoolean("display_vaydns_configs", false)
+                    putBoolean("display_vaydns_configs", true)
                 }
                 apply()
             }

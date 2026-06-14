@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"log"
 //	"fmt"
 )
 
@@ -123,7 +124,11 @@ func decryptAESGCM(data []byte, hexKey string) ([]byte, error) {
 func ensureParsed() {
 	configMu.Lock()
 	defer configMu.Unlock()
-
+	
+	if len(InjectedConfigs) == 0 {
+		log.Printf("VAY_DEBUG: WARNING - No configs were injected at compile time!")
+	}
+	
 	if len(defaultConfigs) > 0 {
 		return
 	}
