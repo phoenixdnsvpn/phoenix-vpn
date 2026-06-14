@@ -3104,9 +3104,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopVpnService() {
-        //val stopIntent = Intent(this, VayVpnService::class.java).apply {
-        //    action = "ACTION_STOP_VPN"
-        //}
         //startService(stopIntent)
         startService(Intent(this, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
         startService(Intent(this, VayProxyService::class.java).apply { action = "ACTION_STOP_VPN" })
