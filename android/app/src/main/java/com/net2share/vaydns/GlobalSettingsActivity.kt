@@ -123,7 +123,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             rgTunnelMode.check(R.id.rb_mode_proxy)
         }
 
-        cbDisplayVaydnsConfigs.isChecked = appPrefs.getBoolean("display_vaydns_configs", false)
+        cbDisplayVaydnsConfigs.isChecked = appPrefs.getBoolean("display_vaydns_configs", true)
 
         // Load Menu Toggles
         // cbUpdateApp.isChecked = menuPrefs.getBoolean("show_check_app_update", true)
