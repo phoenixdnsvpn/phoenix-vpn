@@ -3167,11 +3167,6 @@ class MainActivity : AppCompatActivity() {
         checkForPendingDnsUpdates()
         refreshConfigList()   // refresh after returning from editor
 
-        // 2. NOW we trigger the pings, ensuring it only happens once per app launch
-        /**if (!hasRunStartupPing) {
-            hasRunStartupPing = true
-            triggerStartupPings(configList)
-        }*/
     }
 
     override fun onDestroy() {
