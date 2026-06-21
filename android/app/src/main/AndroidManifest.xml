@@ -131,10 +131,6 @@
             android:name=".CFScannerService"
             android:exported="false" />
 
-        <service
-            android:name=".CFScannerService"
-            android:exported="false" />
-
         <activity
             android:name=".CloudflareScannerActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"

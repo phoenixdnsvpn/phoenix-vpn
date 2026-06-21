@@ -2930,7 +2930,7 @@ class MainActivity : AppCompatActivity() {
 
             // 1. Fetch the engine type first
 //            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-            val engineType = tunnelPrefs.getString("tun_engine", "sing-box")
+            var engineType = tunnelPrefs.getString("tun_engine", "sing-box")
 
            // 2. Silent Engine Guardrail: Direct protocols natively require Sing-box
             if (engineType != "sing-box") {
