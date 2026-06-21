@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"log"
 //	"fmt"
 )
 
@@ -52,6 +51,11 @@ type DefaultConfig struct {
 	Pass            string `json:"pass"`
 	FreeScanner     bool   `json:"freeScanner"`
 
+	// --- Protocol Specific Embedded Structs ---
+	// Go will seamlessly unmarshal flat JSON into this!
+	HysteriaConfig
+	RealityConfig
+	VlessWsConfig
 }
 
 type ConfigWrapper struct {
@@ -124,11 +128,7 @@ func decryptAESGCM(data []byte, hexKey string) ([]byte, error) {
 func ensureParsed() {
 	configMu.Lock()
 	defer configMu.Unlock()
-	
-	if len(InjectedConfigs) == 0 {
-		log.Printf("VAY_DEBUG: WARNING - No configs were injected at compile time!")
-	}
-	
+
 	if len(defaultConfigs) > 0 {
 		return
 	}
@@ -301,6 +301,21 @@ func GetDefaultConfigVersion() int64 {
 func GetDefaultConfigCount() int64 {
 	ensureParsed()
 	return int64(len(defaultConfigs))
+}
+
+func GetDefaultConfigDomainCount(index int64) int64 {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return 0
+	}
+	parts := strings.Split(defaultConfigs[index].Domain, ",")
+	count := 0
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			count++
+		}
+	}
+	return int64(count)
 }
 
 func GetDefaultConfigName(index int64) string {

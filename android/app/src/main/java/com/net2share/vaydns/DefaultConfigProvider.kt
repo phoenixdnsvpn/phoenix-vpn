@@ -53,7 +53,8 @@ object DefaultConfigProvider {
                 pass = "",
                 // user = if (hasAuth) "********" else "",
                 // pass = if (hasAuth) "********" else "",
-                useMultiDomains = overrides.getBoolean("${id}_useMultiDomains", false)
+                useMultiDomains = overrides.getBoolean("${id}_useMultiDomains", false),
+                domainIndex = overrides.getInt("${id}_domainIndex", 0)
             )
             defaultList.add(config)
         }

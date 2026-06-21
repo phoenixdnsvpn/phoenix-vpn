@@ -1,5 +1,6 @@
 package com.net2share.vaydns
 
+import android.content.Context
 import android.app.Service
 import android.content.Intent
 import android.os.Handler
@@ -37,10 +38,34 @@ class VayRowPingService : Service() {
             val serverIp = intent.getStringExtra("SERVER_IP") ?: "" // Only used for custom configs
             val protocol = intent.getStringExtra("PROTOCOL") ?: ""
             val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
+            val domain = intent.getStringExtra("DOMAIN") ?: "" // Extract for SNI
+
+            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+            val useLayer7 = tunnelPrefs.getBoolean("use_layer7_ping", true)
 
             Thread {
                 mobile.Mobile.setGlobalVlessWsIP(vlessWsIp)
-                val latency = Mobile.pingDirectServer(isDefault, configIndex, serverIp, configType.lowercase(),protocol.lowercase())
+
+                val latency = if (useLayer7) {
+                    Mobile.pingDirectServerLayer7(
+                        isDefault,
+                        configIndex,
+                        serverIp,
+                        configType.lowercase(),
+                        protocol.lowercase(),
+                        domain, // Passed down as customSni
+                        "/"     // Passed down as default customPath for VLESS-WS
+                    )
+                } else {
+                    Mobile.pingDirectServer(
+                        isDefault,
+                        configIndex,
+                        serverIp,
+                        configType.lowercase(),
+                        protocol.lowercase()
+                    )
+                }
+
                 broadcastResult(configId, latency)
             }.start()
 
@@ -52,6 +77,7 @@ class VayRowPingService : Service() {
             val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
             val mode = intent.getStringExtra("MODE") ?: ""
             val domain = intent.getStringExtra("DOMAIN") ?: ""
+            val domainIndex = intent.getIntExtra("DOMAIN_INDEX", 0)
             val pubkey = intent.getStringExtra("PUBKEY") ?: ""
             val multipathDnsList = intent.getStringExtra("MULTIPATH_DNS") ?: ""
             val baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
@@ -74,7 +100,7 @@ class VayRowPingService : Service() {
 
             Thread {
                 val bestLatency = Mobile.pingMultipleServers(
-                    isDefault, configIndex, mode, domain, pubkey, multipathDnsList,
+                    isDefault, configIndex, domainIndex.toLong(), mode, domain, pubkey, multipathDnsList,
                     baseDohUrl, proxyType, protocol, user, pass, ssMethod,
                     recordType, idleTimeout, keepAlive, clientIdSize, mtu,
                     workers, tunnelWait, udpTimeout, probeTimeout, retries,

@@ -15,6 +15,10 @@ import mobile.Mobile
 
 class VayProxyService : Service() {
 
+    companion object {
+        var isServiceAlive = false
+    }
+
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var isStopping = false
 
@@ -95,37 +99,35 @@ class VayProxyService : Service() {
                     pendingRxSave += diffRx
                     pendingTxSave += diffTx
 
-                    // --- NATIVE ANDROID OS STATS MATH ---
-                    val osRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
-                    val osTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
-                    val currentOsRx = if (osRx < 0) 0L else osRx
-                    val currentOsTx = if (osTx < 0) 0L else osTx
+                    // --- NATIVE ANDROID OS STATS MATH (STRICT PROXY ONLY) ---
+                    val proxyStats = getProxyInterfaceStats()
+
+                    val currentOsRx = proxyStats.first
+                    val currentOsTx = proxyStats.second
 
                     if (previousOsRxBytes == 0L && previousOsTxBytes == 0L) {
                         previousOsRxBytes = currentOsRx
                         previousOsTxBytes = currentOsTx
                     }
 
-                    val diffOsRx = if (currentOsRx > previousOsRxBytes) currentOsRx - previousOsRxBytes else 0L
-                    val diffOsTx = if (currentOsTx > previousOsTxBytes) currentOsTx - previousOsTxBytes else 0L
-
-                    sessionOsRx += diffOsRx
-                    sessionOsTx += diffOsTx
-
-                    // Subtract the internal Go payload from total Android traffic
-                    val pureOsDiffRx = if (diffOsRx > diffRx) diffOsRx - diffRx else 0L
-                    val pureOsDiffTx = if (diffOsTx > diffTx) diffOsTx - diffTx else 0L
-
-                    val osRxSpeed = (pureOsDiffRx / elapsedSec).toLong()
-                    val osTxSpeed = (pureOsDiffTx / elapsedSec).toLong()
+                    // Calculate the payload size for this tick.
+                    val diffOsRx = if (currentOsRx >= previousOsRxBytes) currentOsRx - previousOsRxBytes else 0L
+                    val diffOsTx = if (currentOsTx >= previousOsTxBytes) currentOsTx - previousOsTxBytes else 0L
 
                     previousOsRxBytes = currentOsRx
                     previousOsTxBytes = currentOsTx
 
-                    absoluteDailyOsRx += pureOsDiffRx
-                    absoluteDailyOsTx += pureOsDiffTx
-                    pendingOsRxSave += pureOsDiffRx
-                    pendingOsTxSave += pureOsDiffTx
+                    sessionOsRx += diffOsRx
+                    sessionOsTx += diffOsTx
+
+                    // OS Speed = Pure Proxy Bytes / Time Elapsed
+                    val osRxSpeed = (diffOsRx / elapsedSec).toLong()
+                    val osTxSpeed = (diffOsTx / elapsedSec).toLong()
+
+                    absoluteDailyOsRx += diffOsRx
+                    absoluteDailyOsTx += diffOsTx
+                    pendingOsRxSave += diffOsRx
+                    pendingOsTxSave += diffOsTx
 
                     // ==========================================
                     // 1. DATABASE FLUSH LOGIC (Every ~10 seconds)
@@ -241,6 +243,7 @@ class VayProxyService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
+        isServiceAlive = true
 
         if (intent == null || intent.action == "ACTION_STOP_VPN") {
             cleanupAndStop()
@@ -272,6 +275,7 @@ class VayProxyService : Service() {
                 val configIndex = intent.getLongExtra("CONFIG_INDEX", 0L)
                 val baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
                 val domain = intent.getStringExtra("DOMAIN") ?: ""
+                val domainIndex = intent.getIntExtra("DOMAIN_INDEX", 0)
                 val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
                 val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
                 val mode = intent.getStringExtra("MODE") ?: "udp"
@@ -325,18 +329,22 @@ class VayProxyService : Service() {
                     val originalRetries = prefs.getInt("retries", 0).toLong()
                     val preScanRetries = if (originalRetries < 1L) 1L else originalRetries
 
-                    finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                    finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                    finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                    finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                    finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                    finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                    finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                    finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
                 }
 
                 Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
 
+                val engineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
+                val configType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
+                val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: "" // Or pull from SharedPreferences
+
                 val result = Mobile.startProxy(
-                    isDefaultConfig, configIndex, useMultiDomains, finalUdp, finalTcp, finalDoh, finalDot, baseDohUrl, domain, pubkey,
+                    engineType, isDefaultConfig, configIndex, configType, useMultiDomains, domainIndex.toLong(), finalUdp, finalTcp, finalDoh, finalDot, baseDohUrl, domain, pubkey,
                     recordType, idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible,
-                    useAuth, protocol, ssMethod, user, pass, proxyPort
+                    useAuth, protocol, ssMethod, user, pass, proxyPort.toLong(), vlessWsIp
                 )
 
                 if (result.startsWith("Success")) {
@@ -430,40 +438,76 @@ class VayProxyService : Service() {
     }
 
     override fun onDestroy() {
-        android.util.Log.i("VayProxy", "Destroying Proxy Service and freeing ports...")
-        cleanupAndStop()
-        super.onDestroy()
+        android.util.Log.i("VayProxy", "onDestroy: Proxy Service closed.")
 
-        // Kill this isolated process to guarantee the SOCKS listener is destroyed
-        // This instantly frees Port 1080 for the next connection.
-        System.exit(0)
+        // Failsafe: If the Android OS destroyed the service unexpectedly
+        // (e.g., low memory), ensure our cleanup and 1.5s flush still runs!
+        if (!isStopping) {
+            cleanupAndStop()
+        }
+
+        super.onDestroy()
     }
 
     private fun cleanupAndStop() {
+        isServiceAlive = false
+
         if (isStopping) return
         isStopping = true
 
-        Log.i("VAY_PROXY", "PURGE: Killing proxy resources...")
+        Log.i("VAY_PROXY", "PURGE: Initiating Graceful Self-Destruct...")
         stopForeground(STOP_FOREGROUND_REMOVE)
         statsHandler.removeCallbacks(statsRunnable)
         flushPendingTraffic()
 
         Thread {
-            try {
-                Mobile.stopVpn()
-            } catch (e: Exception) {
-                Log.e("VAY_PROXY", "Stop error: ${e.message}")
-            } finally {
-                // GUARANTEED WAKELOCK RELEASE
+            // 1. ISOLATE GO SHUTDOWN
+            // We put Mobile.stopVpn() on its OWN nested thread.
+            // If Go hangs, this nested thread dies silently without blocking Android!
+            Thread {
                 try {
-                    wakeLock?.let {
-                        if (it.isHeld) it.release()
-                    }
+                    Mobile.stopVpn()
                 } catch (e: Exception) {
-                    Log.e("VAY_PROXY", "WakeLock release error: ${e.message}")
+                    Log.e("VAY_PROXY", "Stop error: ${e.message}")
                 }
-                stopSelf()
+            }.start()
+
+            // 2. GUARANTEED WAKELOCK RELEASE
+            try {
+                wakeLock?.let {
+                    if (it.isHeld) it.release()
+                }
+            } catch (e: Exception) {
+                Log.e("VAY_PROXY", "WakeLock release error: ${e.message}")
             }
+
+            // 3. POLITE ANDROID SHUTDOWN
+            // Tell Android OS this service is stopping legally (Prevents Auto-Restart)
+            stopSelf()
+
+            // 4. THE OS GUILLOTINE
+            // Give Android 1.5 seconds to process stopSelf() and unbind the service
+            Thread.sleep(1500)
+
+            // 5. THE SANDBOX FLUSH
+            // Kill the JVM. This forces the Linux kernel to release Port 1080
+            // and clears any frozen Go sockets!
+            System.exit(0)
         }.start()
+    }
+
+    // =================================================================
+    // STRICT PROXY READER: Safely halves the UID traffic to prevent
+    // localhost loopback double-counting in Proxy Mode.
+    // =================================================================
+    private fun getProxyInterfaceStats(): Pair<Long, Long> {
+        val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
+        val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
+
+        if (uidRx > 0 || uidTx > 0) {
+            return Pair(uidRx / 2, uidTx / 2)
+        }
+
+        return Pair(0L, 0L)
     }
 }

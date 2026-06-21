@@ -53,6 +53,7 @@ class DnsScannerActivity : AppCompatActivity() {
     private var selectedPass = "none"
     private var resolversList: List<String> = emptyList()
     private var isDefaultConfig = false
+    private var domainIndex = 0
     private lateinit var tvE2eModeLabel: TextView
     private lateinit var rgE2eMode: RadioGroup
     private lateinit var tvQuickScanModeLabel: TextView
@@ -125,6 +126,7 @@ class DnsScannerActivity : AppCompatActivity() {
         selectedDomain = intent.getStringExtra("DOMAIN") ?: ""
         selectedPubkey = intent.getStringExtra("PUBKEY") ?: ""
         configId = intent.getStringExtra("CONFIG_ID") ?: ""
+        domainIndex = intent.getIntExtra("DOMAIN_INDEX", 0)
         selectedRecordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
         selectedIdleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
         selectedKeepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
@@ -456,16 +458,6 @@ class DnsScannerActivity : AppCompatActivity() {
             etWorkers.setText(getWorkerCountForMode())
         }
 
-        /**rgE2eMode.setOnCheckedChangeListener { _, checkedId ->
-            if (!switchConservative.isChecked) { // Don't override if they are in conservative mode
-                if (checkedId == R.id.rb_light_e2e) {
-                    etWorkers.setText("40")
-                } else {
-                    etWorkers.setText("20")
-                }
-            }
-        }*/
-
         btnSelectCidr.setOnClickListener { showCidrSelectionDialog() }
 
         // Update workers and wait when conservative mode changes
@@ -486,46 +478,9 @@ class DnsScannerActivity : AppCompatActivity() {
             }
         }
 
-        /**switchConservative.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                // Safer, slower settings for restrictive firewalls
-                etWorkers.setText("10")
-                etTunnelWait.setText("5000")
-                etUdpTimeout.setText("2000")
-                etProbeTimeout.setText("8")
-                etRetries.setText("2")
-            } else {
-                // High-performance settings
-                if (isQuickScanner) {
-                    etWorkers.setText("40")
-                } else if (rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e) {
-                    etWorkers.setText("20")
-                } else {
-                    etWorkers.setText("20")
-                }
-                etTunnelWait.setText("3000")
-                etUdpTimeout.setText("1000")
-                etProbeTimeout.setText("15")
-                etRetries.setText("1")
-            }
-        }*/
-
         rgTunnelMode.setOnCheckedChangeListener { _, _ ->
             etWorkers.setText(getWorkerCountForMode())
         }
-
-        /**rgTunnelMode.setOnCheckedChangeListener { _, checkedId ->
-            // Only update if not in Conservative mode (which should keep its own strict values)
-            if (!switchConservative.isChecked) {
-                if (checkedId == R.id.rb_mode_udp) {
-                    // UDP Mode: Limit to 20 to protect router NAT
-                    etWorkers.setText("20")
-                } else {
-                    // TCP/DoT/DoH: Allow up to 40 (TCP handles resets gracefully)
-                    etWorkers.setText("40")
-                }
-            }
-        }*/
     }
 
     private fun loadEncryptedResolvers() {
@@ -1346,6 +1301,7 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("IS_QUICK_SCANNER", isQuickScanner)
             putExtra("CONFIG_ID", configId)
             putExtra("DOMAIN", selectedDomain)
+            putExtra("domainIndex", domainIndex)
             putExtra("PUBKEY", selectedPubkey)
             putExtra("MODE", selectedMode)
             //putExtra("RESOLVERS", finalResolvers.joinToString(","))

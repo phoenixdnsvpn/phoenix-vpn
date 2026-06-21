@@ -48,6 +48,7 @@ type PingTask struct {
 	ID           string `json:"id"`
 	IsDefault    bool   `json:"is_default"`
 	ConfigIndex  int64  `json:"config_index"`
+	DomainIndex  int64  `json:"domain_index"`
 	ConfigType   string `json:"config_type"` 
 	ServerIP     string `json:"server_ip"`   
 	DnsMode      string `json:"dns_mode"`
@@ -69,7 +70,7 @@ type PingTask struct {
 
 // StartF35Scan initiates a scan using the f35 engine logic.
 func StartF35Scan(
-	isDefault bool, configIndex int64, dnsMode string, customDomain string, customPublicKey string,
+	isDefault bool, configIndex int64, domainIndex int64, dnsMode string, customDomain string, customPublicKey string,
 	resolversList string, baseDohUrl string, proxyType string, tunnelProtocol string, proxyUser string,
 	proxyPass string, ssMethod string, recordType string, idleTimeout string, keepAlive string,
 	clientIdSize int, mtu int, workers int, tunnelWait int, udpTimeout int, probeTimeout int, 
@@ -107,6 +108,8 @@ func StartF35Scan(
 		proxyPass = getDefaultConfigPass(configIndex)
 	}
 
+	domainToUse = ExtractActiveDomain(domainToUse, domainIndex, false)
+
 	// 1. Fallback to standard SOCKS if authentication credentials are missing
 	if proxyUser == "" || proxyUser == "none" {
 		if tunnelProtocol == "ssh" {
@@ -123,6 +126,35 @@ func StartF35Scan(
 	if tunnelProtocol == "ssh" && strings.Contains(proxyPass, "-----BEGIN") {
 		proxyPass = FormatSSHKey(proxyPass)
 	}
+	
+/*
+fmt.Printf("VAY_DEBUG: --- StartF35Scan Parameters ---\n")
+	fmt.Printf("VAY_DEBUG: isDefault: %t\n", isDefault)
+	fmt.Printf("VAY_DEBUG: configIndex: %d\n", configIndex)
+	fmt.Printf("VAY_DEBUG: dnsMode: %q\n", dnsMode)
+	fmt.Printf("VAY_DEBUG: customDomain: %q\n", customDomain)
+	fmt.Printf("VAY_DEBUG: customPublicKey: %q\n", customPublicKey)
+	fmt.Printf("VAY_DEBUG: resolversList length: %d chars\n", len(resolversList))
+	fmt.Printf("VAY_DEBUG: baseDohUrl: %q\n", baseDohUrl)
+	fmt.Printf("VAY_DEBUG: proxyType: %q\n", proxyType)
+	fmt.Printf("VAY_DEBUG: tunnelProtocol: %q\n", tunnelProtocol)
+	fmt.Printf("VAY_DEBUG: proxyUser: %q\n", proxyUser)
+	fmt.Printf("VAY_DEBUG: proxyPass: %q\n", proxyPass)
+	fmt.Printf("VAY_DEBUG: ssMethod: %q\n", ssMethod)
+	fmt.Printf("VAY_DEBUG: recordType: %q\n", recordType)
+	fmt.Printf("VAY_DEBUG: idleTimeout: %q\n", idleTimeout)
+	fmt.Printf("VAY_DEBUG: keepAlive: %q\n", keepAlive)
+	fmt.Printf("VAY_DEBUG: clientIdSize: %d\n", clientIdSize)
+	fmt.Printf("VAY_DEBUG: mtu: %d\n", mtu)
+	fmt.Printf("VAY_DEBUG: workers: %d\n", workers)
+	fmt.Printf("VAY_DEBUG: tunnelWait: %d\n", tunnelWait)
+	fmt.Printf("VAY_DEBUG: udpTimeout: %d\n", udpTimeout)
+	fmt.Printf("VAY_DEBUG: probeTimeout: %d\n", probeTimeout)
+	fmt.Printf("VAY_DEBUG: retries: %d\n", retries)
+	fmt.Printf("VAY_DEBUG: lightE2EEnabled: %t\n", lightE2EEnabled)
+	fmt.Printf("VAY_DEBUG: engineQuickScan: %t\n", engineQuickScan)
+	fmt.Printf("VAY_DEBUG: --------------------------------\n")
+*/
 	
 //	engineQuickScan = false //we will enable this in future
 	cfg := f35.DefaultConfig()
@@ -207,6 +239,22 @@ func StartF35Scan(
 		return "error|" + err.Error()
 	}
 
+/*
+	hooks := f35.Hooks{
+	    OnResult: func(res f35.Result) {
+	        // 1. Increment the counter thread-safely
+	        count := atomic.AddInt32(&testCounter, 1)
+
+	        // 2. Print directly to Logcat
+	        // Standard fmt.Printf in Go Mobile usually maps to Logcat 'I' or 'D'
+	        fmt.Printf("VAY_DEBUG: Progress [%d / 5024] - Resolver: %s\n", count, res.Resolver)
+
+	        // 3. Ghost Mode: Do NOT store or queue anything
+	        // resultMu.Lock() ... (commented out)
+	    },
+	}
+*/
+
 	hooks := f35.Hooks{
 		OnResult: func(res f35.Result) {
 //			fmt.Printf("GO_DEBUG: Result generated for %s - Latency: %d\n", res.Resolver, res.LatencyMS)
@@ -265,23 +313,26 @@ func StartF35Scan(
 // PingMultipleServers concurrently tests all backup resolvers using the advanced f35 worker engine
 // and prints detailed real-time benchmarks for each node directly to Logcat.
 func PingMultipleServers(
-	isDefault bool, configIndex int64, dnsMode string, customDomain string, customPublicKey string,
+	isDefault bool, configIndex int64, domainIndex int64, dnsMode string, customDomain string, customPublicKey string,
 	resolversList string, baseDohUrl string, proxyType string, tunnelProtocol string, proxyUser string,
 	proxyPass string, ssMethod string, recordType string, idleTimeout string, keepAlive string,
 	clientIdSize int64, mtu int64, workers int64, tunnelWait int64, udpTimeout int64, probeTimeout int64, 
 	retries int64, lightE2EEnabled bool, engineQuickScan bool,
 ) int64 {
 
+	// fmt.Printf("VAY_DEBUG: [Multi-Ping Engine] Starting parallel batch check for resolvers group...\n")
+
 	rowPingMu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
 	rowPingCancel = cancel
 	rowPingMu.Unlock()
-		
+	
+	// fmt.Printf("VAY_DEBUG: A [Multi-Ping Engine] %v - %v - %v\n",tunnelProtocol,proxyUser,proxyPass)
 	domainToUse := customDomain
 	pubkeyToUse := customPublicKey
 
 	if isDefault {
-
+		// fmt.Printf("VAY_DEBUG: B [Multi-Ping Engine] %v - %v - %v\n",tunnelProtocol,proxyUser,proxyPass)
 		domainToUse = getDefaultConfigDomain(configIndex)
 		pubkeyToUse = getDefaultConfigPubkey(configIndex)
 		recordType = GetDefaultConfigRecordType(configIndex)
@@ -290,8 +341,10 @@ func PingMultipleServers(
 		clientIdSize = GetDefaultConfigClientIdSize(configIndex)
 		proxyUser = getDefaultConfigUser(configIndex)
 		proxyPass = getDefaultConfigPass(configIndex)
-
+		// fmt.Printf("VAY_DEBUG: C [Multi-Ping Engine] %v - %v - %v\n",tunnelProtocol,proxyUser,proxyPass)
 	}
+
+	domainToUse = ExtractActiveDomain(domainToUse, domainIndex, false)
 
 	if proxyUser == "" || proxyUser == "none" {
 		if tunnelProtocol == "ssh" {
@@ -418,7 +471,7 @@ func PingMultipleServers(
 	}
 
 	// Execute synchronously using the job-channels engine embedded within scan.go
-
+//	_ = f35.ScanWithContext(context.Background(), cfg, hooks)
 	_ = f35.ScanWithContext(ctx, cfg, hooks)	
 
 	if minLatency == 99999 {
@@ -496,6 +549,8 @@ pingMu.Lock()
 				proxyPass = getDefaultConfigPass(t.ConfigIndex)
 				dnsMode = t.DnsMode // Retain active mode set from main workspace rows
 			}
+
+			domainToUse = ExtractActiveDomain(domainToUse, t.DomainIndex, false)
 
 			if proxyUser == "" || proxyUser == "none" {
 				if tunnelProtocol == "ssh" {
@@ -645,7 +700,7 @@ func GetScanResults() string {
 // CheckHealthyDomains tests a list of domains against a resolver using the f35 E2E scanner engine.
 func CheckHealthyDomains(
 	useMultiDomains bool, isDefault bool, configIndex int64,
-	domains string, resolverIP string,
+	domainIndex int64, domains string, resolverIP string,
 	dnsMode string, pubkey string, baseDohUrl string, proxyType string,
 	tunnelProtocol string, proxyUser string, proxyPass string, ssMethod string,
 	recordType string, idleTimeout string, keepAlive string,
@@ -666,6 +721,9 @@ func CheckHealthyDomains(
 		proxyUser = getDefaultConfigUser(configIndex)
 		proxyPass = getDefaultConfigPass(configIndex)
 	}
+
+	domainToUse = ExtractActiveDomain(domainToUse, domainIndex, useMultiDomains)
+    log.Printf("VAY_DEBUG: Domain to USe: %v", domainToUse)
 
 	if proxyUser == "" || proxyUser == "none" {
 		if tunnelProtocol == "ssh" {

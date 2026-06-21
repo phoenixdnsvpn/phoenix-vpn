@@ -115,39 +115,36 @@ class VayVpnService : VpnService() {
                     pendingRxSave += diffRx
                     pendingTxSave += diffTx
 
-                    // --- NATIVE ANDROID OS STATS MATH ---
-                    val osRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
-                    val osTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
-                    val currentOsRx = if (osRx < 0) 0L else osRx
-                    val currentOsTx = if (osTx < 0) 0L else osTx
+                    // --- NATIVE ANDROID OS STATS MATH (STRICT TUNNEL ONLY) ---
+                    val tunStats = getTunInterfaceStats()
+
+                    val currentOsRx = tunStats.first
+                    val currentOsTx = tunStats.second
 
                     if (previousOsRxBytes == 0L && previousOsTxBytes == 0L) {
                         previousOsRxBytes = currentOsRx
                         previousOsTxBytes = currentOsTx
                     }
 
-                    // Calculate RAW OS volume
-                    val diffOsRx = if (currentOsRx > previousOsRxBytes) currentOsRx - previousOsRxBytes else 0L
-                    val diffOsTx = if (currentOsTx > previousOsTxBytes) currentOsTx - previousOsTxBytes else 0L
-
-                    sessionOsRx += diffOsRx
-                    sessionOsTx += diffOsTx
-
-                    // Subtract the internal Go payload from total Android traffic (RAW BYTES)
-                    val pureOsDiffRx = if (diffOsRx > diffRx) diffOsRx - diffRx else 0L
-                    val pureOsDiffTx = if (diffOsTx > diffTx) diffOsTx - diffTx else 0L
-
-                    // OS Speed = Pure OS Bytes / Time Elapsed
-                    val osRxSpeed = (pureOsDiffRx / elapsedSec).toLong()
-                    val osTxSpeed = (pureOsDiffTx / elapsedSec).toLong()
+                    // Calculate the payload size for this tick.
+                    // (The >= check protects against negative jumps if the tunnel drops and resets to 0)
+                    val diffOsRx = if (currentOsRx >= previousOsRxBytes) currentOsRx - previousOsRxBytes else 0L
+                    val diffOsTx = if (currentOsTx >= previousOsTxBytes) currentOsTx - previousOsTxBytes else 0L
 
                     previousOsRxBytes = currentOsRx
                     previousOsTxBytes = currentOsTx
 
-                    absoluteDailyOsRx += pureOsDiffRx
-                    absoluteDailyOsTx += pureOsDiffTx
-                    pendingOsRxSave += pureOsDiffRx
-                    pendingOsTxSave += pureOsDiffTx
+                    sessionOsRx += diffOsRx
+                    sessionOsTx += diffOsTx
+
+                    // OS Speed = Pure TUN Bytes / Time Elapsed
+                    val osRxSpeed = (diffOsRx / elapsedSec).toLong()
+                    val osTxSpeed = (diffOsTx / elapsedSec).toLong()
+
+                    absoluteDailyOsRx += diffOsRx
+                    absoluteDailyOsTx += diffOsTx
+                    pendingOsRxSave += diffOsRx
+                    pendingOsTxSave += diffOsTx
 
                     // ==========================================
                     // 1. DATABASE FLUSH LOGIC (Every ~10 seconds)
@@ -316,27 +313,7 @@ class VayVpnService : VpnService() {
         }
 
         if (intent?.action == "ACTION_STOP_VPN") {
-            isStopping = true
-            stopForeground(STOP_FOREGROUND_REMOVE)
-
-            Thread {
-                synchronized(goLock) {
-                    try {
-                        protector?.deactivate()
-                        protector = null
-
-                        // 1. Tell Go to stop (Go's engine closes the detached goFd)
-                        Mobile.stopVpn()
-                        Thread.sleep(500)
-                        // 2. Close the original Android interface (Removes Blue Key)
-                        tunInterface?.close()
-                        tunInterface = null
-                    } finally {
-                        stopSelf()
-                        isStopping = false
-                    }
-                }
-            }.start()
+            cleanupAndStop()
             return START_NOT_STICKY
         }
 
@@ -373,6 +350,7 @@ class VayVpnService : VpnService() {
                     val configIndex = intent?.getLongExtra("CONFIG_INDEX", 0L) ?: 0L
                     val configType = intent?.getStringExtra("CONFIG_TYPE") ?: "vaydns"
                     val domain = intent?.getStringExtra("DOMAIN") ?: ""
+                    val domainIndex = intent?.getIntExtra("DOMAIN_INDEX", 0) ?: 0
                     val pubkey = (intent?.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
                     val baseDohUrl = intent?.getStringExtra("BASE_DOH_URL") ?: ""
                     val dnsAddress = intent?.getStringExtra("UDP") ?: "8.8.8.8:53"
@@ -395,6 +373,17 @@ class VayVpnService : VpnService() {
                     val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
                     sessionOsRx = 0L
                     sessionOsTx = 0L
+
+                    val lowerProto = protocol.lowercase()
+                    val lowerConfig = configType.lowercase()
+
+                    val finalMtu = if (lowerConfig == "direct" ||
+                        lowerProto == "hysteria" || lowerProto == "hysteria2" ||
+                        lowerProto == "reality" || lowerProto == "vless" || lowerProto == "vless-ws") {
+                        1500 // High-speed direct protocols get unfragmented MTU
+                    } else {
+                        1232 // Legacy VayDNS DNS tunneling keeps the safe, smaller block
+                    }
 
                     mobile.Mobile.initVault(filesDir.absolutePath)
 
@@ -419,9 +408,16 @@ class VayVpnService : VpnService() {
                     builder.setSession("VayDNS Tunnel Active")
                         .addAddress("10.0.0.2", 24)
                         .addDnsServer("8.8.8.8")
-                        .setMtu(1232)
+                        .setMtu(finalMtu)
                         .addRoute("0.0.0.0", 0)
                         .setBlocking(false)
+
+                    // Setting this to 'null' forces Android to keep the VPN alive
+                    // even if the Wi-Fi or LTE drops temporarily. This allows the
+                    // Go engine to pause and reconnect without dropping the user's connection!
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                        builder.setUnderlyingNetworks(null)
+                    }
 
                     // Bypass routing for the server itself and the resolver
                     //if (serverIp != null && isValidIp(serverIp)) builder.addRoute(serverIp, 32)
@@ -513,10 +509,10 @@ class VayVpnService : VpnService() {
                         val originalRetries = prefs.getInt("retries", 0).toLong()
                         val preScanRetries = if (originalRetries < 1L) 1L else originalRetries // max(1, currently set)
 
-                        finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                        finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                        finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                        finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                        finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                        finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                        finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                        finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
                     }
 
                     Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
@@ -555,6 +551,7 @@ class VayVpnService : VpnService() {
                             configIndex,
                             configType,
                             useMultiDomains,
+                            domainIndex.toLong(),
                             finalUdp,
                             finalTcp,
                             finalDoh,
@@ -583,10 +580,18 @@ class VayVpnService : VpnService() {
                             runVerificationLogic() // Move verification to a helper to keep this clean
                         } else {
                             updateNotification("Engine Failed to Start")
+
+                            // 1. Broadcast ERROR instead of DISCONNECTED so MainActivity kills it
                             sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
-                                putExtra("status", "DISCONNECTED")
+                                putExtra("status", "ERROR")
+                                putExtra("message", result.replace("Error: ", ""))
                                 setPackage(packageName)
                             })
+
+                            // 2. Safely trigger self-destruct from the Main Thread
+                            Handler(Looper.getMainLooper()).post {
+                                cleanupAndStop()
+                            }
                         }
 
                     } else {
@@ -630,7 +635,8 @@ class VayVpnService : VpnService() {
                 Log.e("VayDNS", "Go-Level verification failed: $verifyResult")
 
                 sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
-                    putExtra("status", "DISCONNECTED")
+                    putExtra("status", "ERROR")
+                    putExtra("message", "Verification Failed: Server Unreachable")
                     setPackage(packageName)
                 })
                 updateNotification("Connection Failed")
@@ -702,39 +708,34 @@ class VayVpnService : VpnService() {
         if (isStopping) return
         isStopping = true
 
-        Log.e("VAY_DEBUG", "PURGE: Killing network resources...")
+        Log.e("VAY_DEBUG", "PURGE: Initiating Graceful Self-Destruct...")
         statsHandler.removeCallbacks(statsRunnable)
         flushPendingTraffic()
+        stopForeground(STOP_FOREGROUND_REMOVE)
 
-        synchronized(goLock) {
+        Thread {
+            // 1. Instantly kill the Android side of the TUN interface
             try {
-                // 1. Deactivate protector first - stops log flood/SecurityException
-                protector?.deactivate()
-
-                // 2. CLOSE TUN INTERFACE - This is the most important part.
-                // It forces Go's tun2socks read/write calls to crash immediately.
                 tunInterface?.close()
                 tunInterface = null
+            } catch (e: Exception) {}
 
-                // 3. Signal Go to stop
-                Mobile.stopVpn()
+            // 2. Tell Go to stop on an independent thread so a crash/hang cannot block our OS cleanup!
+            Thread {
+                try { Mobile.stopVpn() } catch (e: Exception) {}
+            }.start()
 
-                Log.e("VAY_DEBUG", "PURGE: Finished.")
-            } catch (e: Exception) {
-                Log.e("VAY_DEBUG", "Purge Error: ${e.message}")
-            } finally {
-                // 4. GUARANTEED WAKELOCK RELEASE
-                try {
-                    wakeLock?.let {
-                        if (it.isHeld) it.release()
-                    }
-                } catch (e: Exception) {
-                    Log.e("VAY_DEBUG", "WakeLock release error: ${e.message}")
-                }
-                isStopping = false
-                stopSelf()
-            }
-        }
+            // 3. Tell Android OS this service is officially stopping legally (Prevents Auto-Restart)
+            stopSelf()
+
+            // 4. Give Android 1.5 seconds to process stopSelf() and deregister the VPN
+            Thread.sleep(1500)
+
+            // 5. The Sandbox Flush: Kill the JVM.
+            // This forces the Linux kernel to close Go's duplicated 'syscall.Dup' FDs,
+            // which guarantees the Blue Key vanishes forever!
+            System.exit(0)
+        }.start()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -747,18 +748,52 @@ class VayVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        Log.i("VayDNS", "onDestroy: Closing Go session...")
-
-        // 1. Explicitly run your cleanup logic to safely shut down Go and the TUN interface
-        cleanupAndStop()
-
-        // 2. Run the standard Android lifecycle teardown
+        Log.i("VayDNS", "onDestroy: Closing Service...")
         super.onDestroy()
+    }
 
-        //  3. Obliterate the isolated :vpn process.
-        // This instantly cures any kcp-go socket leaks or memory panics,
-        // leaving a perfectly clean slate for the next time the user hits START.
-        System.exit(0)
+    // =================================================================
+    // STRICT TUNNEL READER: Never reads whole-device background traffic
+    // =================================================================
+    private fun getTunInterfaceStats(): Pair<Long, Long> {
+        // Method 1: procfs (Most reliable for direct interface stats)
+        try {
+            val file = java.io.File("/proc/net/dev")
+            if (file.exists()) {
+                val lines = file.readLines()
+                for (line in lines) {
+                    if (line.contains("tun") || line.contains("vpn")) {
+                        val dataStr = line.substringAfter(":")
+                        val parts = dataStr.trim().split(Regex("\\s+"))
+                        if (parts.size >= 9) {
+                            return Pair(parts[0].toLong(), parts[8].toLong()) // Download, Upload
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) { }
+
+        // Method 2: sysfs
+        try {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            for (intf in interfaces) {
+                if (intf.name.startsWith("tun") || intf.name.startsWith("vpn")) {
+                    val download = java.io.File("/sys/class/net/${intf.name}/statistics/rx_bytes").readText().trim().toLong()
+                    val upload = java.io.File("/sys/class/net/${intf.name}/statistics/tx_bytes").readText().trim().toLong()
+                    return Pair(download, upload)
+                }
+            }
+        } catch (e: Exception) { }
+
+        // Method 3: Safe App UID Fallback (Divided by 2 to prevent double-counting)
+        // This guarantees we only track the VPN engine, completely ignoring background OS tasks.
+        val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
+        val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
+        if (uidRx > 0 || uidTx > 0) {
+            return Pair(uidRx / 2, uidTx / 2)
+        }
+
+        return Pair(0L, 0L)
     }
 
 }

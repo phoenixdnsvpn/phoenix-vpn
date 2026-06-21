@@ -144,25 +144,30 @@
                 android:backgroundTint="?attr/colorOnSurface"
                 android:visibility="gone" />
 
-            <TextView
-                android:id="@+id/tv_protocol_mode_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Cloudflare IP Address"
-                android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                android:layout_marginBottom="16dp"/>
-
-            <EditText
-                android:id="@+id/et_vless_ws_ip"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Cloudflare Front-End IP (Leave it blank to use default)"
-                android:textColor="?attr/colorOnSurface"
-                android:textColorHint="?android:attr/textColorSecondary" android:inputType="text"
-                android:maxLines="1"
-                android:layout_marginBottom="24dp"
-                android:textSize="15sp"/>
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Global VLESS/Cloudflare IPs"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <ImageButton
+                    android:id="@+id/btn_cf_history"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@android:drawable/ic_menu_recent_history"
+                    app:tint="?attr/colorPrimary" />
+
+            </LinearLayout>
 
             <View
                 android:id="@+id/div_startup_mode_divider"
@@ -185,16 +190,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Enable Default Configs at Start"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface"
-                app:thumbTint="?attr/colorPrimary"
-                android:layout_marginBottom="16dp" />
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_display_vaydns_configs"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Display VayDNS Configs"
                 android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"
@@ -282,6 +277,69 @@
                     android:gravity="center"
                     android:textColor="?attr/colorOnSurface"/>
             </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="VayDNS Settings"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="24dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Tunnel MTU (0 = Default, 30-130)"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp"/>
+
+                <EditText
+                    android:id="@+id/et_vaydns_mtu"
+                    android:layout_width="80dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:maxLength="3"
+                    android:gravity="center"
+                    android:textColor="?attr/colorOnSurface"/>
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ping Layer (Reality)"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_use_layer7_ping"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use Layer 7"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="24dp" />
 
             <View
                 android:layout_width="match_parent"

@@ -183,6 +183,17 @@ class ConfigAdapter(
             activePings.add(config.id)
             holder.latency.text = "Ping..."
 
+            // Guarantees the UI will never permanently lock up if the Go backend hangs or crashes.
+            CoroutineScope(Dispatchers.Main).launch {
+                kotlinx.coroutines.delay(12000) // Wait 12 seconds max
+                if (activePings.contains(config.id)) {
+                    android.util.Log.e("VAY_DEBUG", "UI Safety Net: Auto-unlocking ping for ${config.id}")
+                    activePings.remove(config.id)
+                    pingCache[config.id] = -2L // Mark as Dead/Timeout
+                    notifyDataSetChanged() // Refresh the UI row
+                }
+            }
+
             val appPrefs = context.getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
             val useAllResolvers = appPrefs.getBoolean("use_all_resolvers_for_ping", false)
             val mainActivity = context as MainActivity
@@ -229,6 +240,12 @@ class ConfigAdapter(
                 workers
             }
 
+            val domainIndex = if (finalConfig.isDefault) {
+                context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE).getInt("${finalConfig.id}_domainIndex", 0)
+            } else {
+                finalConfig.domainIndex
+            }
+
             val serviceIntent = Intent(context, VayRowPingService::class.java).apply {
 
                 val rawConfigType = if (finalConfig.isDefault) mobile.Mobile.getDefaultConfigType(configIndex) else "vaydns"
@@ -273,8 +290,9 @@ class ConfigAdapter(
                 putExtra("IS_DEFAULT", finalConfig.isDefault)
                 putExtra("CONFIG_INDEX", configIndex)
                 putExtra("MODE", finalConfig.mode)
-
-                putExtra("DOMAIN", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
+                putExtra("DOMAIN_INDEX", domainIndex)
+                // putExtra("DOMAIN", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
+                putExtra("DOMAIN", finalConfig.domain)
                 putExtra("PUBKEY", finalConfig.pubkey)
                 putExtra("MULTIPATH_DNS", multipathDnsList)
                 putExtra("BASE_DOH_URL", if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else "")

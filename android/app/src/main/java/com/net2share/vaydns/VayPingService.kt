@@ -1,5 +1,6 @@
 package com.net2share.vaydns
 
+import android.content.Context
 import android.app.Service
 import android.content.Intent
 import android.os.Handler
@@ -34,7 +35,14 @@ class VayPingService : Service() {
             )
 
             // 2. Run the lightning-fast native process for Direct Configs (it skips VayDNS configs)
-            val directResultsStr = Mobile.pingAllDirectConfigs(tasksJson)
+            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+            val useLayer7 = tunnelPrefs.getBoolean("use_layer7_ping", true)
+
+            val directResultsStr = if (useLayer7) {
+                Mobile.pingAllDirectConfigsLayer7(tasksJson)
+            } else {
+                Mobile.pingAllDirectConfigs(tasksJson)
+            }
 
             // 3. Merge the JSON results cleanly
             val finalJson = org.json.JSONObject()

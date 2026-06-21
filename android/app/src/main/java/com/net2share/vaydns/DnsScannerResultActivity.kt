@@ -51,6 +51,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private var configId = ""
     private var isDefaultConfig = false
     private var configIndex = 0L
+    private var domainIndex = 0
     private var baseDohUrl = ""
     private var domain = ""
     private var pubkey = ""
@@ -138,7 +139,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         configId = intent.getStringExtra("CONFIG_ID") ?: ""
         isDefaultConfig = configId.startsWith("default_")
         configIndex = if (isDefaultConfig) configId.removePrefix("default_").toLongOrNull() ?: 0L else 0L
-
+        domainIndex = intent.getIntExtra("domainIndex", 0)
         baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
         domain = intent.getStringExtra("DOMAIN") ?: ""
         pubkey = intent.getStringExtra("PUBKEY") ?: ""
@@ -314,7 +315,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
         Mobile.initVault(filesDir.absolutePath)
 
-        // 🟢 REGISTRATION REGISTERED ONCE IN ONCREATE
+        // REGISTRATION REGISTERED ONCE IN ONCREATE
         val filter = IntentFilter().apply {
             addAction("SCANNER_UI_REFRESH")
             addAction("SCANNER_BATCH_FINISHED")
@@ -332,7 +333,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 🟢 Cleaned: Merged data collected in the background into UI rows instantly
+        // Merged data collected in the background into UI rows instantly
         adapter.notifyDataSetChanged()
         tvProgress.text = "$scannedCount / $totalResolvers"
         tvPassed.text = "$passedCount passed"
@@ -340,7 +341,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // 🟢 Cleaned: Removed unregisterReceiver() from here to keep scanning active!
+        // Removed unregisterReceiver() from here to keep scanning active!
     }
 
     private fun stopScanProcess() {
@@ -382,6 +383,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
             val serviceIntent = Intent(this, VayScannerService::class.java).apply {
                 putExtra("isDefaultConfig", isDefaultConfig)
                 putExtra("configIndex", configIndex)
+                putExtra("domainIndex", domainIndex)
                 putExtra("selectedMode", selectedMode)
                 putExtra("domain", domain)
                 putExtra("pubkey", pubkey)

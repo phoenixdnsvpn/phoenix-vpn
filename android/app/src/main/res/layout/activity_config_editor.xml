@@ -86,6 +86,18 @@
                 android:inputType="text"
                 android:visibility="gone" />
 
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_best_cf_ip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Get best IP from Global Settings"
+                android:textSize="14sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/tv_domain_label"
                 android:layout_width="wrap_content"
@@ -101,6 +113,30 @@
                 android:textColor="?attr/colorOnSurface"
                 android:textColorHint="?android:attr/textColorSecondary"
                 android:hint="t.example.com,t.domain.com" />
+
+            <TextView
+                android:id="@+id/tv_domain_selector_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Select Active Domain:"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="16dp"
+                android:visibility="gone"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/rg_domain_selector"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="8dp"
+                android:visibility="gone">
+
+                <RadioButton android:id="@+id/rb_domain_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?attr/colorOnSurface" android:buttonTint="?attr/colorPrimary" android:text="Domain 1" />
+                <RadioButton android:id="@+id/rb_domain_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?attr/colorOnSurface" android:buttonTint="?attr/colorPrimary" android:text="Domain 2" />
+                <RadioButton android:id="@+id/rb_domain_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?attr/colorOnSurface" android:buttonTint="?attr/colorPrimary" android:text="Domain 3" />
+                <RadioButton android:id="@+id/rb_domain_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?attr/colorOnSurface" android:buttonTint="?attr/colorPrimary" android:text="Domain 4" />
+            </RadioGroup>
 
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_multi_domain"

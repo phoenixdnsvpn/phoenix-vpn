@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"context"
+	// "crypto/tls"
 	"encoding/json"
 	"encoding/binary"
 	"fmt"
@@ -18,7 +19,9 @@ import (
 	"sync/atomic"
 	"strconv"
 	"sort"
-	
+	// "os/exec"
+	// "regexp"
+		
 	"github.com/Starling226/vaydns-vpn/bridge"
 	"github.com/Starling226/vaydns-vpn/vaydns/client"
 	"github.com/xjasonlyu/tun2socks/v2/engine"
@@ -92,6 +95,30 @@ func translateFakeToReal(input string) string {
 	return net.JoinHostPort(realHost, port)
 }
  
+// ExtractActiveDomain handles the logic for selecting a single domain or keeping all domains.
+func ExtractActiveDomain(rawDomains string, domainIndex int64, useMultiDomains bool) string {
+	if useMultiDomains {
+		return rawDomains
+	}
+	parts := strings.Split(rawDomains, ",")
+	var cleanParts []string
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			cleanParts = append(cleanParts, strings.TrimSpace(p))
+		}
+	}
+	if len(cleanParts) == 0 {
+		return ""
+	}
+	
+	idx := int(domainIndex)
+	if idx >= 0 && idx < len(cleanParts) {
+		return cleanParts[idx]
+	}
+	
+	return cleanParts[0]
+}
+ 
 func StartVpn(
 	fd int,
 	engineType string,
@@ -99,6 +126,7 @@ func StartVpn(
 	configIndex int64,
 	configType string,
 	useMultiDomains bool,
+	domainIndex int64,
 	udp string,
 	tcp string,
 	doh string, 
@@ -163,7 +191,22 @@ func StartVpn(
 					activeProto == "reality" || activeProto == "vless" || activeProto == "vless-ws" || 
 					configTypeLower == "direct"
 							
+	if isDirectMode {
+		engineType = "sing-box"
+	}
+								
     log.Printf("VAY_DEBUG: protocol: %v", protocol)
+    // ==========================================
+	// DYNAMIC TUN MTU (OS-Level, completely separate from VayDNS MTU)
+	// ==========================================
+	var finalMtu int
+	if isDirectMode {
+		finalMtu = 1500 // High-speed unfragmented pipe for tun2socks -> sing-box
+	} else {
+		finalMtu = 1232 // Safe pipe for tun2socks -> VayDNS engine
+	}
+	log.Printf("VAY_DEBUG: OS/TUN MTU set to %d", finalMtu)
+	    
     
 	if isDefault {
 		domainToUse = getDefaultConfigDomain(configIndex)
@@ -201,12 +244,14 @@ func StartVpn(
 		}
 	}
 
-    if !useMultiDomains {
+    domainToUse = ExtractActiveDomain(domainToUse, domainIndex, useMultiDomains)
+
+    /*if !useMultiDomains {
 		parts := strings.Split(domainToUse, ",")
 		if len(parts) > 0 {
 			domainToUse = strings.TrimSpace(parts[0])
 		}
-	}
+	}*/
 	
 	realUdp := translateMultipathFakeToReal(udp)
 	realTcp := translateMultipathFakeToReal(tcp)
@@ -249,6 +294,14 @@ func StartVpn(
 		}()
 	}
 	
+/*	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
+			log.Printf("VAY_DEBUG: Tunnel Error: %v", err)
+		}
+	}()*/
+
 	if protocol == "" || protocol == "socks" {
 		protocol = "socks5"
 	}
@@ -343,9 +396,9 @@ func StartVpn(
 		}
 		
 		singBoxProxyString := fmt.Sprintf("socks5://127.0.0.1:%d", singBoxListenPort)
-		startTun2SocksEngine(wg, newFd, singBoxProxyString)
+		startTun2SocksEngine(wg, newFd, singBoxProxyString, finalMtu)
 	} else {				
-		startTun2SocksEngine(wg, newFd, proxyString)
+		startTun2SocksEngine(wg, newFd, proxyString, finalMtu)
 	}
 
 	// 6. SHUTDOWN WATCHER
@@ -372,10 +425,10 @@ func StartVpn(
 }
 
 func StartProxy(
-	isDefault bool, configIndex int64, useMultiDomains bool, udp string, tcp string, doh string, dot string, baseDohUrl string,
+	engineType string, isDefault bool, configIndex int64, configType string, useMultiDomains bool, domainIndex int64, udp string, tcp string, doh string, dot string, baseDohUrl string,
 	customDomain string, customPubkey string, recordType string, idleTimeout string,
 	KeepAlive string, clientIDSize int, mtu int, compatDnstt bool, useAuth bool,
-	protocol string, ssMethod string, user string, pass string, customPort int,
+	protocol string, ssMethod string, user string, pass string, customPort int, vlessWsIp string,
 ) string {
 	mu.Lock()
 
@@ -419,47 +472,80 @@ func StartProxy(
 		clientIDSize = int(GetDefaultConfigClientIdSize(configIndex))
 		compatDnstt = GetDefaultConfigDnsttCompatible(configIndex)
 	}
+	
+	domainToUse = ExtractActiveDomain(domainToUse, domainIndex, useMultiDomains)
 
-    if !useMultiDomains {
+    /*if !useMultiDomains {
 		parts := strings.Split(domainToUse, ",")
 		if len(parts) > 0 {
 			domainToUse = strings.TrimSpace(parts[0])
 		}
-	}
+	}*/
 	
 	realUdp := translateMultipathFakeToReal(udp)
 	realTcp := translateMultipathFakeToReal(tcp)
 	realDoh := translateMultipathFakeToReal(doh)
 	realDot := translateMultipathFakeToReal(dot)
     	    	
-	tCfg := bridge.TunnelConfig{
-		BaseDohURL:       baseDohUrl,
-		UdpAddr:          realUdp,
-		TcpAddr:          realTcp,
-		DohURL:           realDoh,
-		DotAddr:          realDot,
-		Domain:           domainToUse,
-		ListenAddr:       proxyAddr,
-		LogLevel:         "error",
-		UtlsDistribution: "chrome",
-		RecordType:       recordType,
-		PubkeyHex:        pubkeyToUse,
-		Protector:        nil, 
-		IdleTimeout:      idleTimeout,
-		KeepAlive:        KeepAlive,
-		UDPTimeout:       "1s",
-		ClientIDSize:     clientIDSize,
-		MTU:              mtu,
-		CompatDnstt:      compatDnstt,
-	}
+	configTypeLower := strings.ToLower(configType)
+	activeProto := strings.ToLower(protocol)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
-			log.Printf("VAY_DEBUG: Proxy Tunnel Error: %v", err)
+	isDirectMode := !strings.Contains(configTypeLower, "vaydns") || 
+					activeProto == "hysteria" || activeProto == "hysteria2" || 
+					activeProto == "reality" || activeProto == "vless" || activeProto == "vless-ws" || 
+					configTypeLower == "direct"
+					
+	// SILENT ENGINE FALLBACK
+	if isDirectMode {
+		engineType = "sing-box"
+	}
+						
+	if isDirectMode {
+		// PATH A: DIRECT PROTOCOLS (Sing-box)
+		if engineType == "sing-box" {
+			log.Printf("VAY_DEBUG: Booting Sing-box in PROXY MODE on port %d", customPort)
+			
+			// We pass 'customPort' directly to Sing-box so it creates a SOCKS5 server on that exact port.
+			// No tun2socks is needed!
+			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp)
+			
+			if err != nil {
+				return fmt.Sprintf("Error|sing-box proxy failure: %v", err)
+			}
+		} else {
+			return "Error|Only sing-box is supported for direct proxy mode"
 		}
-	}()
+	} else {
+		// PATH B: VAYDNS TUNNEL
+		tCfg := bridge.TunnelConfig{
+			BaseDohURL:       baseDohUrl,
+			UdpAddr:          realUdp,
+			TcpAddr:          realTcp,
+			DohURL:           realDoh,
+			DotAddr:          realDot,
+			Domain:           domainToUse,
+			ListenAddr:       proxyAddr,
+			LogLevel:         "error",
+			UtlsDistribution: "chrome",
+			RecordType:       recordType,
+			PubkeyHex:        pubkeyToUse,
+			Protector:        nil, 
+			IdleTimeout:      idleTimeout,
+			KeepAlive:        KeepAlive,
+			UDPTimeout:       "1s",
+			ClientIDSize:     clientIDSize,
+			MTU:              mtu,
+			CompatDnstt:      compatDnstt,
+		}
+							    	    	
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
+				log.Printf("VAY_DEBUG: Proxy Tunnel Error: %v", err)
+			}
+		}()
+	}
 
 	return fmt.Sprintf("Success|%s", proxyAddr)
 }
@@ -616,7 +702,7 @@ func FormatSSHKey(raw string) string {
 }
 
 func SyncPreScanResolvers(
-	isDefault bool, configIndex int64,
+	isDefault bool, configIndex int64, domainIndex int64,
 	resolversList string, dnsMode string, domain string, pubkey string, baseDohUrl string, 
 	proxyType string, authProtocol string, user string, pass string, ssMethod string,
 	recordType string, idleTimeout string, keepAlive string, clientIdSize int,
@@ -635,7 +721,7 @@ func SyncPreScanResolvers(
 	engineQuickScan := false
 
 	StartF35Scan(
-		isDefault, configIndex, dnsMode, domain, pubkey, resolversList,
+		isDefault, configIndex, domainIndex, dnsMode, domain, pubkey, resolversList,
 		baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType,
 		idleTimeout, keepAlive, clientIdSize, mtu, workers, tunnelWait, udpTimeout,
 		probeTimeout, retries, lightE2EEnabled, engineQuickScan,
@@ -703,87 +789,6 @@ waitLoop:
 	return strings.Join(sorted, ",")
 }
 
-func PingServer(
-	isDefault bool, configIndex int64,
-	address string, dnsMode string, domain string, pubkey string, baseDohUrl string,
-	proxyType string, authProtocol string, user string, pass string, ssMethod string,
-	recordType string, idleTimeout string, keepAlive string, clientIdSize int,
-	lightE2EEnabled bool, workers int, tunnelWait int, probeTimeout int, udpTimeout int, retries int,
-) int64 {
-	address = strings.TrimSpace(address)
-	if address == "" {
-		return -1
-	}
-
-	resultMu.Lock()
-	resultQueue = make([]string, 0)
-	resultMu.Unlock()
-
-	mtu := 0
-	engineQuickScan := false
-
-	StartF35Scan(
-		isDefault, configIndex, dnsMode, domain, pubkey, address,
-		baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType,
-		idleTimeout, keepAlive, clientIdSize, mtu, workers, tunnelWait, udpTimeout,
-		probeTimeout, retries, lightE2EEnabled, engineQuickScan,
-	)
-
-	maxWait := time.Duration(probeTimeout + tunnelWait + 1000) * time.Millisecond
-	timeout := time.After(maxWait)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-waitLoop:
-	for {
-		select {
-		case <-timeout:
-			break waitLoop
-		case <-ticker.C:
-			scanMu.Lock()
-			status := scanStatus
-			scanMu.Unlock()
-			if status == "finished" || status == "error" {
-				break waitLoop
-			}
-		}
-	}
-
-	resultMu.Lock()
-	resList := append([]string{}, resultQueue...)
-	resultQueue = make([]string, 0)
-	resultMu.Unlock()
-
-	if len(resList) == 0 {
-		return -1
-	}
-
-	var finalLatency int64 = -1
-
-	for _, item := range resList {
-		var j map[string]interface{}
-		if err := json.Unmarshal([]byte(item), &j); err == nil {
-			addr, ok1 := j["resolver"].(string)
-			latFloat, ok2 := j["latency_ms"].(float64)
-			if ok1 && ok2 && strings.Contains(addr, address) && latFloat > 0 {
-				finalLatency = int64(latFloat)
-			}
-		}
-	}
-
-	return finalLatency
-}
-
-func PingDirectServer(isDefault bool, configIndex int64, customIP string, configType string, protocol string) int64 {
-	return -1
-}
-
-// PingAllDirectConfigs is disabled in the open-source/community build.
-// Returns an empty JSON object so the Android UI parsing doesn't crash.
-func PingAllDirectConfigs(tasksJson string) string {
-	return "{}"
-}
-
 func getQType(recordType string) uint16 {
 	switch strings.ToLower(strings.TrimSpace(recordType)) {
 	case "a": return 1
@@ -799,19 +804,32 @@ func getQType(recordType string) uint16 {
 	}
 }
 
-func CheckHealthyDomainsQuick(useMultiDomains bool, isDefault bool, configIndex int64, domains string, resolverIP string, recordType string) string {
+// Helper functions
+func mustMarshal(v interface{}) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func mustParseURL(raw string) *url.URL {
+	u, _ := url.Parse(raw)
+	return u
+}
+
+func CheckHealthyDomainsQuick(useMultiDomains bool, isDefault bool, configIndex int64, domainIndex int64, domains string, resolverIP string, recordType string) string {
 	domainToUse := domains
 
 	if isDefault {
 		domainToUse = getDefaultConfigDomain(configIndex)
 	}
 
-	if !useMultiDomains {
+	domainToUse = ExtractActiveDomain(domainToUse, domainIndex, useMultiDomains)    
+
+	/*if !useMultiDomains {
 		parts := strings.Split(domainToUse, ",")
 		if len(parts) > 0 {
 			domainToUse = strings.TrimSpace(parts[0])
 		}
-	}
+	}*/
 
 	rawDomains := strings.Split(domainToUse, ",")
 	
@@ -899,6 +917,77 @@ func CheckHealthyDomainsQuick(useMultiDomains bool, isDefault bool, configIndex 
 	}
 
 	return strings.Join(results, ",")
+}
+
+func PingServer(
+	isDefault bool, configIndex int64, domainIndex int64,
+	address string, dnsMode string, domain string, pubkey string, baseDohUrl string,
+	proxyType string, authProtocol string, user string, pass string, ssMethod string,
+	recordType string, idleTimeout string, keepAlive string, clientIdSize int,
+	lightE2EEnabled bool, workers int, tunnelWait int, probeTimeout int, udpTimeout int, retries int,
+) int64 {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return -1
+	}
+
+	resultMu.Lock()
+	resultQueue = make([]string, 0)
+	resultMu.Unlock()
+
+	mtu := 0
+	engineQuickScan := false
+
+	StartF35Scan(
+		isDefault, configIndex, domainIndex, dnsMode, domain, pubkey, address,
+		baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType,
+		idleTimeout, keepAlive, clientIdSize, mtu, workers, tunnelWait, udpTimeout,
+		probeTimeout, retries, lightE2EEnabled, engineQuickScan,
+	)
+
+	maxWait := time.Duration(probeTimeout + tunnelWait + 1000) * time.Millisecond
+	timeout := time.After(maxWait)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+waitLoop:
+	for {
+		select {
+		case <-timeout:
+			break waitLoop
+		case <-ticker.C:
+			scanMu.Lock()
+			status := scanStatus
+			scanMu.Unlock()
+			if status == "finished" || status == "error" {
+				break waitLoop
+			}
+		}
+	}
+
+	resultMu.Lock()
+	resList := append([]string{}, resultQueue...)
+	resultQueue = make([]string, 0)
+	resultMu.Unlock()
+
+	if len(resList) == 0 {
+		return -1
+	}
+
+	var finalLatency int64 = -1
+
+	for _, item := range resList {
+		var j map[string]interface{}
+		if err := json.Unmarshal([]byte(item), &j); err == nil {
+			addr, ok1 := j["resolver"].(string)
+			latFloat, ok2 := j["latency_ms"].(float64)
+			if ok1 && ok2 && strings.Contains(addr, address) && latFloat > 0 {
+				finalLatency = int64(latFloat)
+			}
+		}
+	}
+
+	return finalLatency
 }
 
 func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string) error {
@@ -1155,7 +1244,7 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 	return nil
 }
 
-func startTun2SocksEngine(wg *sync.WaitGroup, fd int, proxyString string) {
+func startTun2SocksEngine(wg *sync.WaitGroup, fd int, proxyString string, finalMtu int) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -1165,7 +1254,7 @@ func startTun2SocksEngine(wg *sync.WaitGroup, fd int, proxyString string) {
 		key := &engine.Key{
 			Proxy:    proxyString,
 			Device:   fmt.Sprintf("fd://%d", fd),
-			MTU:      1232,
+			MTU:      finalMtu,
 //			LogLevel: "debug",
 			LogLevel: "warn",
 		}

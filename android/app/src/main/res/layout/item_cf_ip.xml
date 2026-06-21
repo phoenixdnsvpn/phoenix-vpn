@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp">
+
+    <CheckBox
+        android:id="@+id/cb_cf_ip"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:minHeight="32dp" />
+
+    <EditText
+        android:id="@+id/et_cf_ip_address"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:background="@android:color/transparent"
+        android:hint="Cloudflare IP"
+        android:inputType="textUri"
+        android:textSize="15sp"
+        android:padding="8dp"
+        android:minHeight="36dp" />
+
+    <TextView
+        android:id="@+id/tv_cf_latency"
+        android:layout_width="70dp"
+        android:layout_height="wrap_content"
+        android:text="---"
+        android:textAlignment="viewEnd"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:paddingEnd="8dp" />
+</LinearLayout>

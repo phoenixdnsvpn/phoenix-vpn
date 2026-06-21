@@ -130,6 +130,7 @@ class VayScannerService : Service() {
         // Retrieve Go Configuration
         val isDefaultConfig = intent.getBooleanExtra("isDefaultConfig", false)
         val configIndex = intent.getLongExtra("configIndex", 0L)
+        val domainIndex = intent.getIntExtra("domainIndex", 0)
         val selectedMode = intent.getStringExtra("selectedMode") ?: "udp"
         val domain = intent.getStringExtra("domain") ?: ""
         val pubkey = intent.getStringExtra("pubkey") ?: ""
@@ -191,7 +192,7 @@ class VayScannerService : Service() {
 
         // START GO ENGINE
         val result = Mobile.startF35Scan(
-            isDefaultConfig, configIndex, selectedMode, domain, pubkey, resolvers, baseDohUrl, proxyType, tunnelProtocol,
+            isDefaultConfig, configIndex, domainIndex.toLong(), selectedMode, domain, pubkey, resolvers, baseDohUrl, proxyType, tunnelProtocol,
             user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, mtu, workers, tunnelWait, udpTimeout,
             probeTimeout, retries, lightE2EEnabled, engineQuickScan
         )

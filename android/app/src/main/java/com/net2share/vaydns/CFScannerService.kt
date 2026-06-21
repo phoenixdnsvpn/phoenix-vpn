@@ -49,6 +49,7 @@ class CFScannerService : Service() {
     private fun broadcastUpdate(rawResult: String) {
         val broadcastIntent = Intent("CF_SCANNER_RESULT").setPackage(packageName).apply {
             putExtra("RAW_RESULT", rawResult)
+            putExtra("IS_FINISHED", false)
         }
         sendBroadcast(broadcastIntent)
     }
@@ -57,6 +58,7 @@ class CFScannerService : Service() {
     private fun broadcastResult(rawResult: String) {
         val broadcastIntent = Intent("CF_SCANNER_RESULT").setPackage(packageName).apply {
             putExtra("RAW_RESULT", rawResult)
+            putExtra("IS_FINISHED", true)
         }
         sendBroadcast(broadcastIntent)
 

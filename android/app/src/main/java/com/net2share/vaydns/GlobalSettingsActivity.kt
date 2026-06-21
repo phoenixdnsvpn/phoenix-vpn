@@ -1,6 +1,7 @@
 package com.net2share.vaydns
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.EditText
@@ -15,10 +16,9 @@ class GlobalSettingsActivity : AppCompatActivity() {
 
     private lateinit var cbDefaultAtStart: SwitchCompat
     private lateinit var rgTunnelMode: android.widget.RadioGroup
-    private lateinit var cbDisplayVaydnsConfigs: SwitchCompat
 
     // Menu Toggles
-    // private lateinit var cbUpdateApp: SwitchCompat
+    private lateinit var cbUseLayer7Ping: SwitchCompat
     private lateinit var cbUpdateConfigs: SwitchCompat
     private lateinit var cbUpdateResolvers: SwitchCompat
     private lateinit var cbUploadConfigs: SwitchCompat
@@ -27,7 +27,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var cbExportResolvers: SwitchCompat
 
     // Global VLESS Fallback IP (Still relevant for scanner)
-    private lateinit var etVlessWsIp: EditText
+    private lateinit var btnCfHistory: android.widget.ImageButton
     private lateinit var rgEngineMode: android.widget.RadioGroup
     private lateinit var cbGlobalProtocolOverride: SwitchCompat
     private lateinit var spinnerGlobalProtocol: android.widget.Spinner
@@ -36,12 +36,12 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var etUnlockedDelay: EditText
     private lateinit var etLockedDelay: EditText
     private lateinit var etNotifUpdate: EditText
-
+    private lateinit var etVaydnsMtu: EditText
     private lateinit var tvGlobalProtocolHeader: TextView
     private lateinit var divProtocolModeDivider: View
     private lateinit var tvStartupBehaviorHeader: TextView
     private lateinit var divStartupModeDivider: View
-    private lateinit var tvProtocolModeLabel: TextView
+    // private lateinit var tvProtocolModeLabel: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,9 +64,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
         // Bind UI Elements
         cbDefaultAtStart = findViewById(R.id.cb_default_configs_at_start)
         rgTunnelMode = findViewById(R.id.rg_tunnel_mode)
-        cbDisplayVaydnsConfigs = findViewById(R.id.cb_display_vaydns_configs)
 
-        // cbUpdateApp = findViewById(R.id.cb_show_check_app_update)
+        cbUseLayer7Ping = findViewById(R.id.cb_use_layer7_ping)
         cbUpdateConfigs = findViewById(R.id.cb_show_update_configs)
         cbUpdateResolvers = findViewById(R.id.cb_show_update_resolvers)
         cbUploadConfigs = findViewById(R.id.cb_show_upload_configs)
@@ -74,11 +73,16 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbImportResolvers = findViewById(R.id.cb_show_import_resolvers)
         cbExportResolvers = findViewById(R.id.cb_show_export_resolvers)
 
-        etVlessWsIp = findViewById(R.id.et_vless_ws_ip)
+        btnCfHistory = findViewById(R.id.btn_cf_history)
         rgEngineMode = findViewById(R.id.rg_engine_mode)
 
         // Bind Override UI
         cbGlobalProtocolOverride = findViewById(R.id.cb_global_protocol_override)
+        btnCfHistory.setOnClickListener {
+            val intent = Intent(this, CfIpManagerActivity::class.java)
+            startActivity(intent)
+        }
+
         spinnerGlobalProtocol = findViewById(R.id.spinner_global_protocol)
 
         // Populate the Spinner
@@ -95,12 +99,13 @@ class GlobalSettingsActivity : AppCompatActivity() {
         etUnlockedDelay = findViewById(R.id.et_unlocked_delay)
         etLockedDelay = findViewById(R.id.et_locked_delay)
         etNotifUpdate = findViewById(R.id.et_notif_update)
+        etVaydnsMtu = findViewById(R.id.et_vaydns_mtu)
 
         tvGlobalProtocolHeader = findViewById(R.id.tv_global_protocol_header)
         divProtocolModeDivider = findViewById(R.id.div_protocol_mode_divider)
         tvStartupBehaviorHeader = findViewById(R.id.tv_startup_behavior_header)
         divStartupModeDivider = findViewById(R.id.div_startup_mode_divider)
-        tvProtocolModeLabel = findViewById(R.id.tv_protocol_mode_label)
+        // tvProtocolModeLabel = findViewById(R.id.tv_protocol_mode_label)
 
         loadSettings()
     }
@@ -113,6 +118,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         etUnlockedDelay.setText(appPrefs.getLong("unlocked_delay_ms", 2000L).toString())
         etLockedDelay.setText(appPrefs.getLong("locked_delay_ms", 5000L).toString())
         etNotifUpdate.setText(appPrefs.getLong("notif_update_ms", 4000L).toString())
+        etVaydnsMtu.setText(appPrefs.getLong("global_vaydns_mtu", 0L).toString())
 
         // Load Startup Preferences
         cbDefaultAtStart.isChecked = appPrefs.getBoolean("default_configs_at_start", true)
@@ -123,10 +129,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
             rgTunnelMode.check(R.id.rb_mode_proxy)
         }
 
-        cbDisplayVaydnsConfigs.isChecked = appPrefs.getBoolean("display_vaydns_configs", true)
-
         // Load Menu Toggles
-        // cbUpdateApp.isChecked = menuPrefs.getBoolean("show_check_app_update", true)
+        cbUseLayer7Ping.isChecked = tunnelPrefs.getBoolean("use_layer7_ping", true)
         cbUpdateConfigs.isChecked = menuPrefs.getBoolean("show_update_configs", false)
         cbUpdateResolvers.isChecked = menuPrefs.getBoolean("show_update_resolvers", false)
         cbUploadConfigs.isChecked = menuPrefs.getBoolean("show_upload_configs", false)
@@ -135,7 +139,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbExportResolvers.isChecked = menuPrefs.getBoolean("show_export_resolvers", false)
 
         // Load VLESS IP Fallback
-        etVlessWsIp.setText(tunnelPrefs.getString("vless_ws_ip", ""))
+        //etVlessWsIp.setText(tunnelPrefs.getString("vless_ws_ip", ""))
         val engineType = tunnelPrefs.getString("tun_engine", "sing-box")
         if (engineType == "tun2socks") {
             rgEngineMode.check(R.id.rb_engine_tun2socks)
@@ -160,7 +164,6 @@ class GlobalSettingsActivity : AppCompatActivity() {
             tvStartupBehaviorHeader.visibility = View.GONE
             divStartupModeDivider.visibility = View.GONE
             cbDefaultAtStart.visibility = View.GONE
-            cbDisplayVaydnsConfigs.visibility = View.GONE
 
             // 2. Completely remove the Global Protocol Override Section
             tvGlobalProtocolHeader.visibility = View.GONE
@@ -175,8 +178,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
             cbUploadResolvers.visibility = View.GONE
 
             // 4. Remove Cloudflare IP Address Section
-            tvProtocolModeLabel.visibility = View.GONE
-            etVlessWsIp.visibility = View.GONE
+            // tvProtocolModeLabel.visibility = View.GONE
+            // etVlessWsIp.visibility = View.GONE
 
         } else if (configCount == 0L) {
             // Fallback for Official Builds that haven't downloaded configs yet
@@ -191,12 +194,6 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
         val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
 
-        // 1. Save VLESS IP
-        var ip = etVlessWsIp.text.toString().trim()
-        if (ip.isEmpty()) {
-            ip = "0.0.0.0"
-        }
-
         val selectedEngine = if (rgEngineMode.checkedRadioButtonId == R.id.rb_engine_tun2socks) {
             "tun2socks"
         } else {
@@ -208,14 +205,15 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val selectedGlobalProto = spinnerGlobalProtocol.selectedItem?.toString() ?: "vaydns"
 
         tunnelPrefs.edit().apply {
-            putString("vless_ws_ip", ip)
+            // putString("vless_ws_ip", ip)
             putString("tun_engine", selectedEngine)
             putBoolean("global_protocol_override", overrideChecked)
             putString("global_protocol_selected", selectedGlobalProto)
+            putBoolean("use_layer7_ping", cbUseLayer7Ping.isChecked)
         }.apply()
 
         tunnelPrefs.edit().apply {
-            putString("vless_ws_ip", ip)
+            // putString("vless_ws_ip", ip)
             putString("tun_engine", selectedEngine)
         }.apply()
 
@@ -239,8 +237,6 @@ class GlobalSettingsActivity : AppCompatActivity() {
             val isVpnSelected = rgTunnelMode.checkedRadioButtonId == R.id.rb_mode_vpn
             putBoolean("default_to_vpn_mode", isVpnSelected)
             putBoolean("default_configs_at_start", cbDefaultAtStart.isChecked)
-            putBoolean("display_vaydns_configs", cbDisplayVaydnsConfigs.isChecked)
-
             putLong("unlocked_delay_ms", unlockedDelay)
             putLong("locked_delay_ms", lockedDelay)
             putLong("notif_update_ms", notifUpdate)
@@ -263,6 +259,38 @@ class GlobalSettingsActivity : AppCompatActivity() {
             //    putBoolean("show_check_app_update", cbUpdateApp.isChecked)
             // }
         }.apply()
+
+        var enteredMtu = etVaydnsMtu.text.toString().toLongOrNull() ?: 0L
+        if (enteredMtu != 0L) {
+            enteredMtu = enteredMtu.coerceIn(30L, 130L)
+        }
+
+        val oldMtu = appPrefs.getLong("global_vaydns_mtu", 0L)
+
+        // Only run the heavy bulk-update loop if the user actually changed the number
+        if (enteredMtu != oldMtu) {
+            appPrefs.edit().putLong("global_vaydns_mtu", enteredMtu).apply()
+
+            try {
+                // 1. Bulk update all User Configs
+                val currentConfigs = com.net2share.vaydns.ConfigEditorActivity.loadAllConfigs(this).toMutableList()
+                for (i in currentConfigs.indices) {
+                    currentConfigs[i] = currentConfigs[i].copy(mtu = enteredMtu)
+                }
+                com.net2share.vaydns.ConfigEditorActivity.saveAllConfigs(this, currentConfigs)
+
+                // 2. Bulk update all Default Official Configs (via their override memories)
+                val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE).edit()
+                val officialConfigCount = Mobile.getDefaultConfigCount()
+                for (i in 0 until officialConfigCount) {
+                    defPrefs.putLong("default_${i}_mtu", enteredMtu)
+                }
+                defPrefs.apply()
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
 
         // Close the activity
         finish()

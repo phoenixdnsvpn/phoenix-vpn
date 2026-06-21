@@ -86,6 +86,10 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
 
             if (intent?.action == "VPN_STATS_UPDATE") {
+                if (!isVpnConnected) {
+                    isVpnConnected = true
+                    updateUIState(true)
+                }
                 val speed = intent.getStringExtra("speed") ?: ""
                 val total = intent.getStringExtra("total") ?: ""
                 tvSpeed.text = speed
@@ -113,11 +117,17 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 "ERROR" -> {
+                    // 1. Wipe the active ID memory
+                    getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE).edit().remove("connected_config_id").apply()
+
+                    // 2. TELL SERVICES TO INITIATE GRACEFUL SELF-DESTRUCT
+                    startService(Intent(this@MainActivity, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
+                    startService(Intent(this@MainActivity, VayProxyService::class.java).apply { action = "ACTION_STOP_VPN" })
+
                     isVpnConnected = false
                     tvProxyIpLabel.text = "IP: 127.0.0.1"
                     updateUIState(false)
 
-                    // Unlock the port field so they can try a new one
                     if (isProxyMode && ::etProxyPort.isInitialized) {
                         etProxyPort.isEnabled = true
                     }
@@ -126,11 +136,17 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
                 }
                 "DISCONNECTED", "STOPPED" -> {
+                    // 1. Wipe the active ID memory
+                    getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE).edit().remove("connected_config_id").apply()
+
+                    // 2. TELL SERVICES TO INITIATE GRACEFUL SELF-DESTRUCT
+                    startService(Intent(this@MainActivity, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
+                    startService(Intent(this@MainActivity, VayProxyService::class.java).apply { action = "ACTION_STOP_VPN" })
+
                     isVpnConnected = false
                     tvProxyIpLabel.text = "IP: 127.0.0.1"
                     updateUIState(false)
 
-                    // Unlock the port field
                     if (isProxyMode && ::etProxyPort.isInitialized) {
                         etProxyPort.isEnabled = true
                     }
@@ -186,8 +202,12 @@ class MainActivity : AppCompatActivity() {
     private fun updateUIState(connected: Boolean) {
         runOnUiThread {
             if (connected) {
+// Read the actual connected config, fallback to selected if missing
+                val prefs = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+                val connectedId = prefs.getString("connected_config_id", selectedConfigId)
+
                 // FIND THE ACTIVE CONFIGURATION NAME FROM THE CACHED LIST
-                val activeConfig = configList.find { it.id == selectedConfigId }
+                val activeConfig = configList.find { it.id == connectedId }
                 if (activeConfig != null) {
                     supportActionBar?.title = "VayDNS - ${activeConfig.name}"
                 } else {
@@ -955,6 +975,12 @@ class MainActivity : AppCompatActivity() {
                 continue // Skip Hysteria/Reality configs entirely
             }
 
+            val domainIndex = if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE).getInt("${config.id}_domainIndex", 0)
+            } else {
+                finalConfig.domainIndex
+            }
+
             val jsonTaskObj = org.json.JSONObject().apply {
                 put("id", config.id)
                 put("is_default", config.isDefault)
@@ -968,8 +994,9 @@ class MainActivity : AppCompatActivity() {
                 put("dns_mode", targetMode)
                 put("resolvers", formattedResolver)
                 put("base_doh_url", if (targetMode.lowercase() == "doh") formattedResolver else "")
-
-                put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
+                put("domain_index", domainIndex)
+                // put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
+                put("custom_domain", finalConfig.domain)
                 put("custom_pubkey", finalConfig.pubkey)
                 put("proxy_type", proxyType)
                 put("protocol", finalConfig.protocol)
@@ -1071,16 +1098,37 @@ class MainActivity : AppCompatActivity() {
                 finalConfig.vlessIp
             }
 
-            val finalVlessIp = if (configVlessIp.isNotEmpty()) {
-                configVlessIp
-            } else {
-                tunnelPrefs.getString("vless_ws_ip", "") ?: ""
-            }
+// Fetch the Vault JSON
+            val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
+            val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
+            var firstGlobalVlessIp = ""
+
+            try {
+                val jsonArray = org.json.JSONArray(jsonString)
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    // We only care about the single checked IP for the VPN Override
+                    if (obj.getBoolean("isChecked")) {
+                        firstGlobalVlessIp = obj.getString("ip")
+                        break
+                    }
+                }
+                // Safety Fallback: If nothing was checked, grab the first available IP
+                if (firstGlobalVlessIp.isEmpty() && jsonArray.length() > 0) {
+                    firstGlobalVlessIp = jsonArray.getJSONObject(0).getString("ip")
+                }
+            } catch (e: Exception) { e.printStackTrace() }
 
             val isDirectMode = activeProtocol.lowercase() != "vaydns"
             val cleanConfigType = if (isDirectMode) "direct" else "vaydns"
             val cleanProtocol = if (isDirectMode) activeProtocol else finalConfig.protocol
             val serverIp = if (isDirectMode && !config.isDefault) finalConfig.dnsAddress else ""
+
+            val domainIndex = if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE).getInt("${config.id}_domainIndex", 0)
+            } else {
+                finalConfig.domainIndex
+            }
 
             val jsonTaskObj = org.json.JSONObject().apply {
                 put("id", config.id)
@@ -1091,9 +1139,11 @@ class MainActivity : AppCompatActivity() {
                 put("config_type", cleanConfigType)
                 put("server_ip", serverIp)
                 put("protocol", cleanProtocol)
-                put("vless_ws_ip", finalVlessIp)
+                put("vless_ws_ip", firstGlobalVlessIp)
                 put("dns_mode", finalConfig.mode)
-                put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
+                // put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
+                put("custom_domain", finalConfig.domain)
+                put("domain_index", domainIndex)
                 put("custom_pubkey", finalConfig.pubkey)
                 put("resolvers", multipathDnsList)
                 put("base_doh_url", if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else "")
@@ -1818,7 +1868,8 @@ class MainActivity : AppCompatActivity() {
 
                         // Tunnel Parameters for End-to-End Test
                         putExtra("DOMAIN", config.domain)
-                        putExtra("CONFIG_ID", config.id)
+                        // putExtra("CONFIG_ID", config.id)
+                        putExtra("DOMAIN_INDEX", config.domainIndex)
                         putExtra("PUBKEY", config.pubkey)
                         putExtra("RECORD_TYPE", config.recordType)
                         putExtra("IS_DEFAULT", config.isDefault)
@@ -1864,11 +1915,18 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     val config = DefaultConfigProvider.getActualConfig(this, rawConfig)
 
+                    val domainIndex = if (config.isDefault) {
+                        getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE).getInt("${config.id}_domainIndex", 0)
+                    } else {
+                        config.domainIndex
+                    }
+
                     val intent = Intent(this, DnsScannerActivity::class.java).apply {
                         putExtra("CONFIG_ID", config.id)
                         putExtra("DNS_ADDRESS", config.dnsAddress)
                         putExtra("IS_QUICK_SCANNER", false)
                         putExtra("DOMAIN", config.domain)
+                        putExtra("DOMAIN_INDEX", domainIndex)
                         putExtra("PUBKEY", config.pubkey)
                         putExtra("RECORD_TYPE", config.recordType)
                         putExtra("IS_DEFAULT", config.isDefault)
@@ -2751,6 +2809,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+            .edit()
+            .putString("connected_config_id", config.id)
+            .apply()
+
         val currentPort = etProxyPort.text.toString().trim()
         getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
             .edit()
@@ -2825,12 +2888,26 @@ class MainActivity : AppCompatActivity() {
             finalConfig.vlessIp
         }
 
-        // 2. Fallback to the Global IP if the config doesn't have one
-        val finalVlessIp = if (configVlessIp.isNotEmpty()) {
-            configVlessIp
-        } else {
-            tunnelPrefs.getString("vless_ws_ip", "") ?: ""
-        }
+        // Fetch the Vault JSON
+        val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
+        val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
+        var firstGlobalVlessIp = ""
+
+        try {
+            val jsonArray = org.json.JSONArray(jsonString)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                // We only care about the single checked IP for the VPN Override
+                if (obj.getBoolean("isChecked")) {
+                    firstGlobalVlessIp = obj.getString("ip")
+                    break
+                }
+            }
+            // Safety Fallback: If nothing was checked, grab the first available IP
+            if (firstGlobalVlessIp.isEmpty() && jsonArray.length() > 0) {
+                firstGlobalVlessIp = jsonArray.getJSONObject(0).getString("ip")
+            }
+        } catch (e: Exception) { e.printStackTrace() }
 
         val isDirectMode = activeProtocol.lowercase() != "vaydns"
         // =================================================================
@@ -2855,14 +2932,9 @@ class MainActivity : AppCompatActivity() {
 //            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
             val engineType = tunnelPrefs.getString("tun_engine", "sing-box")
 
-            // 2. The Engine Guardrail
+           // 2. Silent Engine Guardrail: Direct protocols natively require Sing-box
             if (engineType != "sing-box") {
-                Toast.makeText(this@MainActivity, "Hysteria requires the sing-box engine. Please change your Tunnel Settings.", Toast.LENGTH_LONG).show()
-
-                // Gracefully reset the UI so the user isn't stuck
-                btnToggle.isEnabled = true
-                btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
-                return
+                engineType = "sing-box"
             }
 
             // 3. Proceed with Hysteria connection
@@ -2879,7 +2951,7 @@ class MainActivity : AppCompatActivity() {
                 putExtra("CONFIG_TYPE", "direct")
                 putExtra("PROTOCOL", finalProtocol)
                 putExtra("ENGINE_TYPE", engineType)
-                putExtra("VLESS_WS_IP", finalVlessIp)
+                putExtra("VLESS_WS_IP", firstGlobalVlessIp)
             }
 
             if (isProxyMode) {
@@ -2942,6 +3014,12 @@ class MainActivity : AppCompatActivity() {
                 val pass = if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none"
                 val engineQuickScan = false
 
+                val domainIndex = if (config.isDefault) {
+                    getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE).getInt("${config.id}_domainIndex", 0)
+                } else {
+                    finalConfig.domainIndex
+                }
+
                 val healthyDomains = if (finalConfig.useMultiDomains) {
                     kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
                         val receiver = object : android.content.BroadcastReceiver() {
@@ -2960,6 +3038,7 @@ class MainActivity : AppCompatActivity() {
 
                         val scanIntent = Intent(this@MainActivity, VayDomainService::class.java).apply {
                             putExtra("USE_MULTI_DOMAINS", finalConfig.useMultiDomains)
+                            putExtra("DOMAIN_INDEX", domainIndex)
                             putExtra("IS_DEFAULT", config.isDefault)
                             putExtra("CONFIG_INDEX", nativeIndex)
                             putExtra("DOMAINS", finalConfig.domain)
@@ -3040,6 +3119,7 @@ class MainActivity : AppCompatActivity() {
                         putExtra("CONFIG_TYPE", "vaydns")
 
                         putExtra("USE_MULTI_DOMAINS", finalConfig.useMultiDomains)
+                        putExtra("DOMAIN_INDEX", domainIndex)
                         putExtra("DOMAIN", healthyDomains)
                         putExtra("PUBKEY", finalConfig.pubkey)
 
@@ -3104,7 +3184,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopVpnService() {
-        //startService(stopIntent)
+        getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+            .edit()
+            .remove("connected_config_id")
+            .apply()
+
+        // TELL SERVICES TO INITIATE GRACEFUL SELF-DESTRUCT
         startService(Intent(this, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
         startService(Intent(this, VayProxyService::class.java).apply { action = "ACTION_STOP_VPN" })
 
@@ -3138,17 +3223,102 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+
         // INSTANT MENU REFRESH: Force Android to redraw the toolbar menu based on new settings
         invalidateOptionsMenu()
         checkAppVerificationState()
+
+        val manager = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val prefs = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val connectedId = prefs.getString("connected_config_id", null)
+
+        if (!isProxyMode) {
+            // Check if VayVpnService is actively running in the background
+            var isVpnRunning = false
+            for (service in manager.getRunningServices(Int.MAX_VALUE)) {
+                if (VayVpnService::class.java.name == service.service.className) {
+                    isVpnRunning = true
+                    break
+                }
+            }
+
+            // ZOMBIE SERVICE GATEKEEPER
+            if (isVpnRunning && connectedId == null) {
+                isVpnRunning = false
+            }
+
+            // CLEANUP: If the OS silently killed the VPN, wipe the stuck ID
+            if (!isVpnRunning && connectedId != null) {
+                prefs.edit().remove("connected_config_id").apply()
+            }
+
+            if (isVpnRunning && !isVpnConnected) {
+                isVpnConnected = true
+                updateUIState(true)
+            } else if (!isVpnRunning && isVpnConnected) {
+                isVpnConnected = false
+                updateUIState(false)
+            } else {
+                updateUIState(isVpnRunning)
+            }
+
+        } else {
+            // Check if VayProxyService is actively running in the background
+            var isProxyRunning = false
+            for (service in manager.getRunningServices(Int.MAX_VALUE)) {
+                if (VayProxyService::class.java.name == service.service.className) {
+                    isProxyRunning = true
+                    break
+                }
+            }
+
+            // ZOMBIE PROXY GATEKEEPER
+            if (isProxyRunning && connectedId == null) {
+                isProxyRunning = false
+            }
+
+            if (!isProxyRunning && connectedId != null) {
+                prefs.edit().remove("connected_config_id").apply()
+            }
+
+            if (isProxyRunning && !isVpnConnected) {
+                isVpnConnected = true
+                updateUIState(true)
+            } else if (!isProxyRunning && isVpnConnected) {
+                isVpnConnected = false
+                updateUIState(false)
+            } else {
+                updateUIState(isProxyRunning)
+            }
+        }
+
         // INSTANT SYNC: Check the startup behavior settings every time we return to this screen
         val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
         val defaultConfigsEnabled = appPrefs.getBoolean("default_configs_at_start", true)
 
-        val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-        val savedVlessIp = tunnelPrefs.getString("vless_ws_ip", "") ?: ""
+        // Fetch the Vault JSON
+        val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
+        val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
+        var firstGlobalVlessIp = ""
+
+        try {
+            val jsonArray = org.json.JSONArray(jsonString)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                // We only care about the single checked IP for the VPN Override
+                if (obj.getBoolean("isChecked")) {
+                    firstGlobalVlessIp = obj.getString("ip")
+                    break
+                }
+            }
+            // Safety Fallback: If nothing was checked, grab the first available IP
+            if (firstGlobalVlessIp.isEmpty() && jsonArray.length() > 0) {
+                firstGlobalVlessIp = jsonArray.getJSONObject(0).getString("ip")
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+
         // Pass the saved preference to the Go core layer to sync the latency scanner
-        mobile.Mobile.setGlobalVlessWsIP(savedVlessIp)
+        mobile.Mobile.setGlobalVlessWsIP(firstGlobalVlessIp)
 
         // Update the switch visually without triggering the manual listener twice
         switchDefault.setOnCheckedChangeListener(null)

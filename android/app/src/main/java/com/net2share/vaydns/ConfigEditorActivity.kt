@@ -7,6 +7,7 @@ import android.text.method.HideReturnsTransformationMethod
 import android.widget.Button
 import android.widget.EditText
 import android.widget.RadioGroup
+import android.widget.RadioButton
 import android.widget.Toast
 import android.widget.Spinner
 import android.widget.ArrayAdapter
@@ -54,6 +55,58 @@ class ConfigEditorActivity : AppCompatActivity() {
     private lateinit var layoutMultipathControls: LinearLayout
     private lateinit var tvMultipathLabel: TextView
     private lateinit var tvMultipathDesc: TextView
+    private lateinit var cbBestCfIp: SwitchCompat
+
+    private fun updateDomainRadioGroup() {
+        val domains = if (editingConfigId?.startsWith("default_") == true) {
+            val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
+            val count = mobile.Mobile.getDefaultConfigDomainCount(index).toInt()
+            List(count) { "Domain ${it + 1}" }
+        } else {
+            findViewById<EditText>(R.id.et_domain).text.toString()
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+        }
+
+        val rg = findViewById<RadioGroup>(R.id.rg_domain_selector)
+        val label = findViewById<TextView>(R.id.tv_domain_selector_label)
+        val rbs = arrayOf(
+            findViewById<RadioButton>(R.id.rb_domain_1),
+            findViewById<RadioButton>(R.id.rb_domain_2),
+            findViewById<RadioButton>(R.id.rb_domain_3),
+            findViewById<RadioButton>(R.id.rb_domain_4)
+        )
+
+        if (domains.size > 1) {
+            rg.visibility = View.VISIBLE
+            label.visibility = View.VISIBLE
+        } else {
+            rg.visibility = View.GONE
+            label.visibility = View.GONE
+        }
+
+        for (i in 0..3) {
+            if (i < domains.size) {
+                rbs[i].isEnabled = true
+                rbs[i].text = domains[i]
+            } else {
+                rbs[i].isEnabled = false
+                rbs[i].text = "Unused"
+            }
+        }
+
+        val checkedId = rg.checkedRadioButtonId
+        val checkedIndex = when (checkedId) {
+            R.id.rb_domain_2 -> 1
+            R.id.rb_domain_3 -> 2
+            R.id.rb_domain_4 -> 3
+            else -> 0
+        }
+        if (checkedIndex >= domains.size && domains.isNotEmpty()) {
+            rg.check(R.id.rb_domain_1)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,6 +154,90 @@ class ConfigEditorActivity : AppCompatActivity() {
         tvMultipathLabel = findViewById(R.id.tv_multipath_label)
         tvMultipathDesc = findViewById(R.id.tv_multipath_desc)
 
+        cbBestCfIp = findViewById(R.id.cb_best_cf_ip)
+
+        cbBestCfIp.setOnCheckedChangeListener { buttonView, isChecked ->
+            if (isChecked) {
+// Fetch ALL IPs from the JSON Vault for the Layer 7 scanner
+                val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
+                val jsonString = prefs.getString("vault_ips_json", "[]") ?: "[]"
+                val allIpsList = mutableListOf<String>()
+
+                try {
+                    val jsonArray = org.json.JSONArray(jsonString)
+                    for (i in 0 until jsonArray.length()) {
+                        allIpsList.add(jsonArray.getJSONObject(i).getString("ip"))
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
+
+                val savedIps = allIpsList.joinToString(",")
+
+                if (savedIps.isBlank()) {
+                    Toast.makeText(this, "No IPs in Global Settings!", Toast.LENGTH_SHORT).show()
+                    buttonView.isChecked = false
+                    return@setOnCheckedChangeListener
+                }
+
+                Toast.makeText(this, "Racing Global IPs in background...", Toast.LENGTH_SHORT).show()
+                buttonView.isEnabled = false
+                // Layer 7 latency measurement
+                Thread {
+                    val isDefault = editingConfigId?.startsWith("default_") == true
+                    val cIndex = if (isDefault) editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: -1L else -1L
+
+                    // Grab the domain currently typed into the editor (Adjust the ID to match your domain EditText if needed)
+                    val etDomain = findViewById<EditText>(R.id.et_domain)
+                    val currentDomain = etDomain?.text?.toString()?.trim() ?: ""
+
+                    // Call the NEW Layer 7 Scanner
+                    val result = Mobile.getFastestCloudflareIP(isDefault, cIndex, savedIps, currentDomain)
+
+                    runOnUiThread {
+                        buttonView.isEnabled = true
+                        buttonView.isChecked = false
+
+                        if (result.isNotEmpty() && result.contains("|")) {
+                            val parts = result.split("|")
+                            val bestIp = parts[0]
+                            val latency = parts[1]
+
+                            val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
+                            etVlessIp.setText(bestIp)
+                            Toast.makeText(this@ConfigEditorActivity, "Winner: $bestIp (${latency}ms)", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(this@ConfigEditorActivity, "All IPs failed the Layer 7 Handshake.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }.start()
+
+                // Layer 4 latency measurement
+                /*Thread {
+                    val isDefault = editingConfigId?.startsWith("default_") == true
+                    val cIndex = if (isDefault) editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: -1L else -1L
+
+                    // Call our new native Go scanner
+                    val result = Mobile.pingBestDirectIP(isDefault, cIndex, savedIps, "direct", "vless-ws")
+
+                    runOnUiThread {
+                        buttonView.isEnabled = true
+                        buttonView.isChecked = false // Reset toggle
+
+                        if (result.isNotEmpty() && result.contains("|")) {
+                            val parts = result.split("|")
+                            val bestIp = parts[0]
+                            val latency = parts[1]
+
+                            // TARGET THE CORRECT EDIT TEXT
+                            val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
+                            etVlessIp.setText(bestIp)
+                            Toast.makeText(this@ConfigEditorActivity, "Winner: $bestIp (${latency}ms)", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(this@ConfigEditorActivity, "All Global IPs failed to respond.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }.start()*/
+            }
+        }
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
 
@@ -157,6 +294,16 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val savedMode = prefs.getString("${editingConfigId}_mode", "udp")
                 val savedMtu = prefs.getLong("${editingConfigId}_mtu", 0L)
                 val savedUseMulti = prefs.getBoolean("${editingConfigId}_useMultiDomains", false)
+
+                val savedDomainIndex = prefs.getInt("${editingConfigId}_domainIndex", 0)
+                val selectedId = when (savedDomainIndex) {
+                    1 -> R.id.rb_domain_2
+                    2 -> R.id.rb_domain_3
+                    3 -> R.id.rb_domain_4
+                    else -> R.id.rb_domain_1
+                }
+                findViewById<RadioGroup>(R.id.rg_domain_selector).check(selectedId)
+                updateDomainRadioGroup()
 
                 etName.setText(savedName)
                 etName.isEnabled = true
@@ -365,7 +512,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                         etUser, config.user,
                         etPass, config.pass,
                         tvUserLabel, tvPassLabel,
-                        config.useMultiDomains
+                        config.useMultiDomains,
+                        config.domainIndex
                     )
                 }
                 toolbar.title = "Edit Config"
@@ -439,6 +587,16 @@ class ConfigEditorActivity : AppCompatActivity() {
                 etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
             }
         }
+
+        etDomain.addTextChangedListener(object: TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                if (editingConfigId?.startsWith("default_") != true) {
+                    updateDomainRadioGroup()
+                }
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
 
         // Smart mode switching with value memory
         rgMode.setOnCheckedChangeListener { _, checkedId ->
@@ -561,9 +719,12 @@ class ConfigEditorActivity : AppCompatActivity() {
                 if (selected == "vless-ws" || selected == "vless") {
                     tvVlessIpLabel.visibility = View.VISIBLE
                     etVlessIp.visibility = View.VISIBLE
+                    cbBestCfIp.visibility = View.VISIBLE
                 } else {
                     tvVlessIpLabel.visibility = View.GONE
                     etVlessIp.visibility = View.GONE
+                    cbBestCfIp.visibility = View.GONE      // <-- ADD THIS
+                    cbBestCfIp.isChecked = false
                 }
 
                 if (!isDefault) {
@@ -641,6 +802,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     val allowedDefaultFields = listOf<View?>(
                         etMtu, findViewById(R.id.tv_mtu_label),
                         switchMultiDomain, swUseDefaultResolvers,
+                        findViewById(R.id.tv_domain_selector_label), findViewById(R.id.rg_domain_selector),
                         findViewById(R.id.tv_dns_label), etDns, (etDns.parent as? ViewGroup),
                         findViewById(R.id.tv_multipath_label), findViewById(R.id.tv_multipath_desc),
                         findViewById(R.id.tv_multipath_status), layoutMultipathControls, btnSelectMultipath,
@@ -721,6 +883,13 @@ class ConfigEditorActivity : AppCompatActivity() {
             val selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
             val selectedVlessIp = etVlessIp.text.toString().trim()
 
+            val selectedDomainIndex = when (findViewById<RadioGroup>(R.id.rg_domain_selector).checkedRadioButtonId) {
+                R.id.rb_domain_2 -> 1
+                R.id.rb_domain_3 -> 2
+                R.id.rb_domain_4 -> 3
+                else -> 0
+            }
+
             // --- SANITY CHECK START ---
             fun normalizeDuration(input: String, default: String): String {
                 val raw = input.lowercase().trim()
@@ -778,7 +947,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                 configId,
                 name, domain, pubkey, dns, mode, rt, idle, keep,
                 clientIdSize, mtu,dnstt, useAuth, useSshKey, proxyProtocol,
-                authProtocol, ssMethod, user, pass, useMultiDomains, selectedTunnelProtocol, selectedVlessIp
+                authProtocol, ssMethod, user, pass, useMultiDomains, selectedTunnelProtocol,
+                selectedVlessIp, selectedDomainIndex
             )
             finish()
 
@@ -921,7 +1091,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         etUser: EditText, userValue: String,
         etPass: EditText, passValue: String,
         tvUserLabel: TextView, tvPassLabel: TextView,
-        useMultiDomains: Boolean
+        useMultiDomains: Boolean,
+        domainIndex: Int
     ) {
         // 1. Basic Text Fields
         etName.setText(nameValue)
@@ -935,6 +1106,15 @@ class ConfigEditorActivity : AppCompatActivity() {
         etMtu.setText(mtuValue.toString())
         etUser.setText(userValue)
         etPass.setText(passValue)
+
+        val selectedId = when (domainIndex) {
+            1 -> R.id.rb_domain_2
+            2 -> R.id.rb_domain_3
+            3 -> R.id.rb_domain_4
+            else -> R.id.rb_domain_1
+        }
+        findViewById<RadioGroup>(R.id.rg_domain_selector).check(selectedId)
+        updateDomainRadioGroup()
 
         val adapter = spSsMethod.adapter as? ArrayAdapter<String>
         if (adapter != null) {
@@ -1050,7 +1230,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean,
         useSshKey: Boolean, proxyProtocolValue: String, authProtocolValue: String,
         ssMethod: String, user: String, pass: String, useMultiDomains: Boolean,
-        tunnelProtocol: String, vlessIp: String
+        tunnelProtocol: String, vlessIp: String, domainIndex: Int
     ) {
         obj.put("name", name)
         obj.put("domain", domain)
@@ -1071,6 +1251,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("user", user)
         obj.put("pass", pass)
         obj.put("useMultiDomains", useMultiDomains)
+        obj.put("domainIndex", domainIndex)
         obj.put("tunnelProtocol", tunnelProtocol)
         obj.put("vlessIp", vlessIp)
     }
@@ -1097,7 +1278,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         pass: String,
         useMultiDomains: Boolean,
         tunnelProtocol: String,
-        selectedVlessIp: String
+        selectedVlessIp: String,
+        domainIndex: Int
     ) {
         if (editingConfigId?.startsWith("default_") == true) {
             val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -1109,6 +1291,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putBoolean("${editingConfigId}_useMultiDomains", useMultiDomains)
                 putString("${editingConfigId}_tunnelProtocol", tunnelProtocol)
                 putString("${editingConfigId}_vlessIp", selectedVlessIp)
+                putInt("${editingConfigId}_domainIndex", domainIndex)
             }.apply()
             finish()
             return
@@ -1129,7 +1312,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
                         idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
                         useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass,
-                        useMultiDomains, tunnelProtocol, selectedVlessIp)
+                        useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex)
                     break
                 }
             }
@@ -1141,7 +1324,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
                 idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
                 useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass,
-                useMultiDomains, tunnelProtocol, selectedVlessIp)
+                useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex)
             jsonArray.put(newObj)
 
             // File remapping targets now point to finalAssignedId, not temp placeholders!
@@ -1206,6 +1389,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         user = obj.optString("user", ""),
                         pass = obj.optString("pass", ""),
                         useMultiDomains = obj.optBoolean("useMultiDomains", false),
+                        domainIndex = obj.optInt("domainIndex", 0),
                         tunnelProtocol = obj.optString("tunnelProtocol", "vaydns"),
                         vlessIp = obj.optString("vlessIp", ""),
                         isDefault = false // User configs are never default
@@ -1248,6 +1432,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("useMultiDomains", config.useMultiDomains)
                         put("tunnelProtocol", config.tunnelProtocol)
                         put("vlessIp", config.vlessIp)
+                        put("domainIndex", config.domainIndex)
                     }
                     array.put(obj)
                 }

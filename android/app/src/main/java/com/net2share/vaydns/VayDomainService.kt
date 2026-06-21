@@ -45,6 +45,7 @@ class VayDomainService : Service() {
                 val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
                 val configIndex = intent.getLongExtra("CONFIG_INDEX", 0L)
                 val domains = intent.getStringExtra("DOMAINS") ?: ""
+                val domainIndex = intent.getIntExtra("DOMAIN_INDEX", 0)
                 val resolverIP = intent.getStringExtra("RESOLVER_IP") ?: ""
                 val dnsMode = intent.getStringExtra("DNS_MODE") ?: ""
                 val pubkey = intent.getStringExtra("PUBKEY") ?: ""
@@ -69,7 +70,7 @@ class VayDomainService : Service() {
 
                 // Call the heavy Go Engine
                 val result = Mobile.checkHealthyDomains(
-                    useMultiDomains, isDefault, configIndex, domains, resolverIP, dnsMode, pubkey,
+                    useMultiDomains, isDefault, configIndex, domainIndex.toLong(), domains, resolverIP, dnsMode, pubkey,
                     baseDohUrl, proxyType, tunnelProtocol, proxyUser, proxyPass, ssMethod,
                     recordType, idleTimeout, keepAlive, clientIdSize, mtu, workers, tunnelWait,
                     udpTimeout, probeTimeout, retries, lightE2E, engineQuickScan

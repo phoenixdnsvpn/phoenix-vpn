@@ -23,6 +23,7 @@ class CloudflareScannerActivity : AppCompatActivity() {
 
     private lateinit var tvProgress: TextView
     private lateinit var tvPassed: TextView
+    private lateinit var tvStatus: TextView
     private lateinit var btnStartStop: Button
     private lateinit var btnSet: ImageButton
     private lateinit var btnShare: ImageButton
@@ -40,11 +41,15 @@ class CloudflareScannerActivity : AppCompatActivity() {
     private val scanReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "CF_SCANNER_RESULT") {
+
+                val isFinished = intent.getBooleanExtra("IS_FINISHED", true)
                 // 1. Reset Global UI State (Applies to both success and failure)
-                isScanning = false
-                btnStartStop.text = "START SCAN"
-                btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
-                etScanCount.isEnabled = true // Unlocks the input field universally
+                if (isFinished) {
+                    isScanning = false
+                    btnStartStop.text = "START SCAN"
+                    btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
+                    etScanCount.isEnabled = true // Unlocks the input field universally
+                }
 
                 val rawResult = intent.getStringExtra("RAW_RESULT") ?: ""
 
@@ -58,7 +63,12 @@ class CloudflareScannerActivity : AppCompatActivity() {
                     val foundCount = parts.getOrNull(2) ?: "0"
 
                     // Apply dynamic target count
-                    tvProgress.text = "$scannedCount / $targetCount"
+                    if (isFinished) {
+                        tvStatus.text = "Done"
+                    } else {
+                        tvStatus.text = "Scanning..."
+                    }
+                    tvProgress.text = "$scannedCount / $targetCount" // Back to just numbers!
                     tvPassed.text = "$foundCount found"
 
                     cfResults.clear()
@@ -80,7 +90,8 @@ class CloudflareScannerActivity : AppCompatActivity() {
 
                 } else {
                     // Apply dynamic target count here as well
-                    tvProgress.text = "0 / $targetCount"
+                    tvStatus.text = "Stopped"
+                    tvProgress.text = "0 / $targetCount" // Back to just numbers!
                     tvPassed.text = "0 found"
                     cfResults.clear()
                     adapter.notifyDataSetChanged()
@@ -109,6 +120,7 @@ class CloudflareScannerActivity : AppCompatActivity() {
         etScanCount = findViewById(R.id.et_cf_scan_count)
         tvProgress = findViewById(R.id.tv_cf_progress)
         tvPassed = findViewById(R.id.tv_cf_passed)
+        tvStatus = findViewById(R.id.tv_cf_status)
         btnStartStop = findViewById(R.id.btn_cf_start_stop)
         btnSet = findViewById(R.id.btn_cf_set)
         btnShare = findViewById(R.id.btn_cf_share)
@@ -138,8 +150,9 @@ class CloudflareScannerActivity : AppCompatActivity() {
                 val scanCount = countStr.toIntOrNull() ?: 512
 
                 // Clean UI text as requested
-                tvProgress.text = "Scanning..."
-                tvPassed.text = ""
+                tvStatus.text = "Scanning..."
+                tvProgress.text = "0 / $scanCount"
+                tvPassed.text = "0 found"
 
                 btnSet.isEnabled = false
                 btnShare.isEnabled = false
@@ -164,48 +177,118 @@ class CloudflareScannerActivity : AppCompatActivity() {
         }
 
         btnSet.setOnClickListener {
-            val fastest = cfResults.firstOrNull()
+            if (cfResults.isEmpty()) {
+                Toast.makeText(this, "No valid IPs found yet.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
 
-            if (fastest != null) {
-                MaterialAlertDialogBuilder(this)
-                    .setTitle("Apply Fastest IP")
-                    .setMessage("Set ${fastest.ip} (${fastest.latencyMs} ms) as your VLESS WS Server?")
-                    .setPositiveButton("Apply") { _, _ ->
+            // 1. Create the custom layout for the Dialog
+            val container = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                val padding = (24 * resources.displayMetrics.density).toInt()
+                setPadding(padding, (16 * resources.displayMetrics.density).toInt(), padding, 0)
+            }
 
-                        // 1. Save to Global Settings (Legacy / Fallback)
-                        getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-                            .edit()
-                            .putString("vless_ws_ip", fastest.ip)
-                            .apply()
+            val radioGroup = android.widget.RadioGroup(this).apply {
+                orientation = android.widget.RadioGroup.VERTICAL
+            }
 
-                        Mobile.setGlobalVlessWsIP(fastest.ip)
+            val rbMerge = android.widget.RadioButton(this).apply {
+                id = android.view.View.generateViewId()
+                text = "Merge With Existing IPs"
+                textSize = 16f
+                isChecked = true // Default choice
+            }
 
-                        // 2. NEW: Save specifically to the active config's memory!
-                        if (configId.isNotEmpty()) {
-                            if (isDefaultConfig) {
-                                // Save to official configs override memory
-                                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                                    .edit()
-                                    .putString("${configId}_vlessIp", fastest.ip)
-                                    .apply()
-                            } else {
-                                // Save to custom user configs JSON
-                                val currentConfigs = com.net2share.vaydns.ConfigEditorActivity.loadAllConfigs(this).toMutableList()
-                                val cIndex = currentConfigs.indexOfFirst { it.id == configId }
-                                if (cIndex != -1) {
-                                    currentConfigs[cIndex] = currentConfigs[cIndex].copy(vlessIp = fastest.ip)
-                                    com.net2share.vaydns.ConfigEditorActivity.saveAllConfigs(this, currentConfigs)
-                                }
+            val rbOverwrite = android.widget.RadioButton(this).apply {
+                id = android.view.View.generateViewId()
+                text = "Overwrite Existing IPs"
+                textSize = 16f
+            }
+
+            radioGroup.addView(rbMerge)
+            radioGroup.addView(rbOverwrite)
+            container.addView(radioGroup)
+
+            // 2. Build the new Dialog
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Save IPs")
+                .setView(container)
+                .setPositiveButton("Save") { _, _ ->
+
+                    // Grab the new IPs from the scan results
+                    val scannedIps = cfResults.map { it.ip }
+                    val finalIpsToSave = mutableListOf<String>()
+
+                    // Open the Vault
+                    val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
+                    val existingIpsString = vaultPrefs.getString("saved_ips", "") ?: ""
+
+                    val existingLatencies = vaultPrefs.getString("ip_latencies", "{}") ?: "{}"
+                    val latObj = try { org.json.JSONObject(existingLatencies) } catch (e: Exception) { org.json.JSONObject() }
+
+                    // Add new IPs and speeds to the JSON object
+                    for (res in cfResults) {
+                        latObj.put(res.ip, res.latencyMs)
+                    }
+
+                    // 3. Process based on User Choice
+                    if (rbMerge.isChecked) {
+                        // Parse existing IPs, add them first
+                        val existing = existingIpsString.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        finalIpsToSave.addAll(existing)
+
+                        // Add new IPs, avoiding duplicates
+                        for (ip in scannedIps) {
+                            if (!finalIpsToSave.contains(ip)) {
+                                finalIpsToSave.add(ip)
                             }
                         }
-
-                        Toast.makeText(this, "VLESS WS IP Set to: ${fastest.ip}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // Overwrite: Just use the newly scanned IPs
+                        finalIpsToSave.addAll(scannedIps)
                     }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            } else {
-                Toast.makeText(this, "No valid IPs found yet.", Toast.LENGTH_SHORT).show()
-            }
+
+                    // 4. Save to the Global Vault as a JSON Array!
+                    val jsonArray = org.json.JSONArray()
+
+                    for ((index, ip) in finalIpsToSave.withIndex()) {
+                        val obj = org.json.JSONObject()
+                        obj.put("ip", ip)
+                        // ONLY check the absolute fastest IP (the first one)
+                        obj.put("isChecked", index == 0)
+
+                        // Grab latency if we have it from the scan
+                        val matchedResult = cfResults.find { it.ip == ip }
+                        obj.put("latency", matchedResult?.latencyMs ?: -1)
+
+                        jsonArray.put(obj)
+                    }
+
+                    vaultPrefs.edit().putString("vault_ips_json", jsonArray.toString()).apply()
+
+                    // 5. Also apply the absolute fastest IP to the current config being edited
+                    val fastestIp = scannedIps.firstOrNull() ?: ""
+                    if (fastestIp.isNotEmpty() && configId.isNotEmpty()) {
+                        if (isDefaultConfig) {
+                            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                                .edit()
+                                .putString("${configId}_vlessIp", fastestIp)
+                                .apply()
+                        } else {
+                            val currentConfigs = com.net2share.vaydns.ConfigEditorActivity.loadAllConfigs(this).toMutableList()
+                            val cIndex = currentConfigs.indexOfFirst { it.id == configId }
+                            if (cIndex != -1) {
+                                currentConfigs[cIndex] = currentConfigs[cIndex].copy(vlessIp = fastestIp)
+                                com.net2share.vaydns.ConfigEditorActivity.saveAllConfigs(this, currentConfigs)
+                            }
+                        }
+                    }
+
+                    Toast.makeText(this, "Saved ${scannedIps.size} IPs to Global Vault!", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         btnShare.setOnClickListener {

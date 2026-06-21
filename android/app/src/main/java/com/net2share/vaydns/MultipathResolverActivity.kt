@@ -410,19 +410,6 @@ class MultipathResolverActivity : AppCompatActivity() {
         val selectedPayload = resolverEntries.filter { it.isChecked && it.address.isNotEmpty() }.map { it.address }
         safeWriteToFile(File(filesDir, "selected_multipath_$configId.txt"), selectedPayload.joinToString("\n"))
 
-        // ONE-SHOT DISK COMMITS FOR MANUAL, SCANNED, AND SELECTIONS
-        // 1. Persist manual text lines
-        /**val manualPayload = resolverEntries.filter { it.isManual }.map { it.address }
-        File(filesDir, "manual_resolvers_$configId.txt").writeText(manualPayload.joinToString("\n"))
-
-        // 2. Persist updated scanned lines (Commits any scanned deletions cleanly!)
-        val scannedPayload = resolverEntries.filter { !it.isManual }.map { "${it.address},${it.latency}" }
-        File(filesDir, "resolvers_$configId.txt").writeText(scannedPayload.joinToString("\n"))
-
-        // 3. Persist check state map configurations
-        val selectedPayload = resolverEntries.filter { it.isChecked && it.address.isNotEmpty() }.map { it.address }
-        File(filesDir, "selected_multipath_$configId.txt").writeText(selectedPayload.joinToString("\n"))*/
-
         if (formattingErrorsEncountered) {
             MaterialAlertDialogBuilder(this)
                 .setTitle("Invalid IPs Cleared")
