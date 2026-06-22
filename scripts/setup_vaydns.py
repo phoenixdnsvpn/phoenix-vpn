@@ -38,7 +38,7 @@ def main():
     print("           VayDNS Server Cross-Platform Setup Script")
     print("===================================================================")
     print("SUPPORTED OS:")
-    print("- RHEL Distros (Rocky Linux 9, Alma Linux 9, etc.)")
+    print("- RHEL Distros (Rocky Linux 9/10, Alma Linux 9/10, etc.)")
     print("- Debian Distros (Ubuntu 22.04, Ubuntu 24.04, etc.)")
     print("\nREQUIREMENTS:")
     print("1. You MUST create an 'A' record and an 'NS' record in your domain registrar.")
@@ -53,18 +53,23 @@ def main():
     # Collect inputs
     print("\n--- Server Details ---")
     host = input("IPv4 address of the server: ").strip()
+    
+    # SSH Port handling
+    ssh_port_input = input("SSH Port (default: 22): ").strip()
+    ssh_port = int(ssh_port_input) if ssh_port_input.isdigit() else 22
+    
     user = input("User (default: root): ").strip() or "root"
     password = getpass.getpass("Password: ")
     domain = input("Tunnel domain name (e.g., t.example.com): ").strip()
     record_type = input("Record type (caa, null, txt) [default: caa]: ").strip().lower() or "caa"
 
     # Connect to Server
-    print_step(f"Connecting to {host} as {user}")
+    print_step(f"Connecting to {host}:{ssh_port} as {user}")
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     
     try:
-        ssh.connect(hostname=host, username=user, password=password, timeout=10)
+        ssh.connect(hostname=host, port=ssh_port, username=user, password=password, timeout=10)
         print("[+] Successfully connected!")
     except Exception as e:
         print(f"[-] SSH Connection failed: {e}")
@@ -102,7 +107,9 @@ def main():
         # Idiomatic Ubuntu Firewall Configuration using UFW + Native iptables routing tables
         run_cmd(ssh, "systemctl start ufw", user, password)
         run_cmd(ssh, "systemctl enable ufw", user, password)
-        run_cmd(ssh, "ufw allow 22/tcp", user, password)  # Explicitly prevent SSH lockouts
+        
+        # Explicitly prevent SSH lockouts using the custom port
+        run_cmd(ssh, f"ufw allow {ssh_port}/tcp", user, password)  
         
         # Insert NAT rules safely at line 1 of UFW's before.rules structure
         nat_rule_cmd = (
@@ -118,6 +125,10 @@ def main():
         # Idiomatic RHEL Firewall Configuration using Firewalld
         run_cmd(ssh, "systemctl start firewalld", user, password)
         run_cmd(ssh, "systemctl enable firewalld", user, password)
+        
+        # Explicitly prevent SSH lockouts using the custom port
+        run_cmd(ssh, f"firewall-cmd --permanent --add-port={ssh_port}/tcp", user, password)
+        
         run_cmd(ssh, "firewall-cmd --permanent --add-forward-port=port=53:proto=udp:toport=5300", user, password)
         run_cmd(ssh, "firewall-cmd --permanent --zone=public --set-target=DROP", user, password)
         run_cmd(ssh, "firewall-cmd --reload", user, password)
