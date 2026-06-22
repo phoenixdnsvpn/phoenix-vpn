@@ -437,6 +437,7 @@ class MainActivity : AppCompatActivity() {
 
             Made with ❤️
             x.com/Starling226
+            t.me/Starling226
             https://github.com/Starling226/vaydns-vpn
         """.trimIndent())
                         .setPositiveButton("Close", null)
