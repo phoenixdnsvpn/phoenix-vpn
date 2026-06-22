@@ -69,13 +69,14 @@ class ConfigAdapter(
         val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
         val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-        var activeProtocol = if (globalOverride) {
+        var activeProtocol = if (isDefault && globalOverride) {
             globalProtocol
         } else if (isDefault) {
             context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 .getString("${config.id}_tunnelProtocol", null)
                 ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
         } else {
+            // STRICT GUARDRAIL: Custom configs bypass the global override and strictly use their own protocol
             config.tunnelProtocol
         }
 

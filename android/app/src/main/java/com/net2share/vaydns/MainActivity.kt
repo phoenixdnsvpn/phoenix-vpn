@@ -952,13 +952,14 @@ class MainActivity : AppCompatActivity() {
             val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
             val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-            var activeProtocol = if (globalOverride) {
+            var activeProtocol = if (config.isDefault && globalOverride) {
                 globalProtocol
             } else if (config.isDefault) {
                 getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                     .getString("${config.id}_tunnelProtocol", null)
                     ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
             } else {
+                // STRICT GUARDRAIL: Custom configs bypass the global override and strictly use their own protocol
                 finalConfig.tunnelProtocol
             }
 
@@ -1075,13 +1076,14 @@ class MainActivity : AppCompatActivity() {
             val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
             val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-            var activeProtocol = if (globalOverride) {
+            var activeProtocol = if (config.isDefault && globalOverride) {
                 globalProtocol
             } else if (config.isDefault) {
                 getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                     .getString("${config.id}_tunnelProtocol", null)
                     ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
             } else {
+                // STRICT GUARDRAIL: Custom configs bypass the global override and strictly use their own protocol
                 finalConfig.tunnelProtocol
             }
 
@@ -2848,13 +2850,14 @@ class MainActivity : AppCompatActivity() {
         val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
         val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-        var activeProtocol = if (globalOverride) {
+        var activeProtocol = if (config.isDefault && globalOverride) {
             globalProtocol
         } else if (config.isDefault) {
             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 .getString("${config.id}_tunnelProtocol", null)
                 ?: configType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
         } else {
+            // STRICT GUARDRAIL: Custom configs bypass the global override and strictly use their own protocol
             finalConfig.tunnelProtocol
         }
 
