@@ -1,4 +1,3 @@
-Here is a comprehensive, professional `README.md` for your VayDNS setup script. It includes all of your prerequisites, the crucial cloud firewall warnings, and the `tcpdump` troubleshooting steps, formatted beautifully for GitHub or standard documentation.
 
 ---
 
@@ -17,7 +16,9 @@ A cross-platform Python automation script designed to instantly deploy the VayDN
 
 Before running this script, you must have the following prepared. **Do not run the script until your DNS records are fully propagated.**
 
-1. **A Registered Domain Name:** You must own a domain name (e.g., `example.com`) and have access to its DNS management panel.
+1. **A Registered Domain Name (QNAME Constraints):** You must own a domain name and have access to its DNS management panel. *(If you do not already own one, you can register a cheap, short domain from providers like [Namecheap](https://www.namecheap.com)).*
+* ⚠️ **CRITICAL TUNNEL CONSTRAINT:** Your domain name must be **as short as physically possible** (e.g., `example.com`). Furthermore, the tunnel subdomain must be exactly **one character** (e.g., `t.example.com`).
+* *Why?* VayDNS encodes your internet traffic inside the DNS query name (QNAME). Heavily censored networks often block DNS requests if the query string is too long (typically > 110 characters). A long domain name like `my-personal-private-tunnel.example.com` will consume all the available character space, leaving no room for the actual encrypted data payload, which will cause the VPN connection to fail or throw MTU size errors.
 2. **DNS Records Configuration:** You must create two specific records pointing to your VPS:
 * **`A` Record:** Point a subdomain (e.g., `ns1.example.com`) to your server's IPv4 address.
 * **`NS` Record:** Point your desired tunnel domain (e.g., `t.example.com`) to the `A` record you just created (`ns1.example.com`).
