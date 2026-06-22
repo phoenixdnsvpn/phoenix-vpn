@@ -387,9 +387,13 @@ func StartVpn(
 		log.Printf("VAY_DEBUG: server IP address is %v ",vlessWsIp)		
 		singBoxListenPort := 30000 + rand.Intn(20000) 
 		
+		// ADDED: Update activeSocksPort so the Watchdog knows where to ping
+		mu.Lock()
+		activeSocksPort = singBoxListenPort
+		mu.Unlock()
+
 		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp)
 		if err != nil {
-			// Print immediately to logcat before Kotlin can trigger System.exit(0)
 			errMsg := fmt.Sprintf("Error: sing-box layer failure: %v", err)
 			log.Println("VAY_DEBUG: FATAL -> " + errMsg)
 			return errMsg
@@ -397,10 +401,20 @@ func StartVpn(
 		
 		singBoxProxyString := fmt.Sprintf("socks5://127.0.0.1:%d", singBoxListenPort)
 		startTun2SocksEngine(wg, newFd, singBoxProxyString, finalMtu)
-	} else {				
+	} else {
+		// ADDED: Ensure watchdog knows the final local proxy port if wrapped by SSH/SS
+		if u, err := url.Parse(proxyString); err == nil {
+			if portStr := u.Port(); portStr != "" {
+				if p, err := strconv.Atoi(portStr); err == nil {
+					mu.Lock()
+					activeSocksPort = p
+					mu.Unlock()
+				}
+			}
+		}			
 		startTun2SocksEngine(wg, newFd, proxyString, finalMtu)
 	}
-
+		
 	// 6. SHUTDOWN WATCHER
 	wg.Add(1)
 	go func() {
@@ -622,39 +636,58 @@ func VerifyTunnel() string {
 		return "Fail: VPN not running"
 	}
 
-	proxyURL, err := url.Parse(pUrl)
-	if err != nil {
-		log.Printf("VAY_DEBUG: [Watchdog] Aborted: Invalid proxy URL.")
-		return "Fail: Invalid proxy URL"
-	}	
-	
-	if proxyURL.Scheme != "http" && proxyURL.Scheme != "socks5" {
-		log.Printf("VAY_DEBUG: [Watchdog] Bypassing ping for unsupported scheme: %s", proxyURL.Scheme)
-		return "Success" 
-	}	
-	
+	// Dynamically build the correct local proxy URL (SOCKS5 or HTTP)
+	var localProxyURL *url.URL
+	if strings.HasPrefix(pUrl, "http://") {
+		localProxyURL, _ = url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+	} else {
+		localProxyURL, _ = url.Parse(fmt.Sprintf("socks5://127.0.0.1:%d", port))
+	}
+
 	client := &http.Client{
 		Transport: &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
+			Proxy: http.ProxyURL(localProxyURL),
 		},
-		Timeout: 5 * time.Second, 
+		Timeout: 5 * time.Second, // 5 second timeout per attempt
 	}
 
-	req, err := http.NewRequest("HEAD", "http://www.google.com/generate_204", nil)
+	req, err := http.NewRequestWithContext(appCtx, "HEAD", "http://www.google.com/generate_204", nil)
 	if err != nil {
-		return "Success"
+		return "Fail: Request creation error"
 	}
 
-	log.Printf("VAY_DEBUG: [Watchdog] Firing HTTP ping to bypass connectivity killer...")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("VAY_DEBUG: [Watchdog] Ping dropped. Bypassing kill-switch to maintain connection state.")
-		return "Success" 
-	}
-	defer resp.Body.Close()
+	// RETRY LOOP: Give slow tunnels up to ~15 seconds to establish the connection
+	maxAttempts := 4
+	for i := 1; i <= maxAttempts; i++ {
+		log.Printf("VAY_DEBUG: [Watchdog] Firing HTTP ping attempt %d/%d...", i, maxAttempts)
+		resp, err := client.Do(req)
 
-	log.Printf("VAY_DEBUG: [Watchdog] Network verified successfully.")
-	return "Success"
+		// If the ping succeeds, the tunnel is officially alive!
+		if err == nil && resp != nil {
+			resp.Body.Close()
+			if resp.StatusCode == 204 || resp.StatusCode == 200 {
+				log.Printf("VAY_DEBUG: [Watchdog] Network verified successfully.")
+				return "Success"
+			}
+		}
+
+		log.Printf("VAY_DEBUG: [Watchdog] Attempt %d failed: %v", i, err)
+
+		// If this was the last attempt, don't sleep, just exit the loop to fail
+		if i == maxAttempts {
+			break
+		}
+
+		// Sleep for 2 seconds before trying again. Break early if user clicks STOP.
+		select {
+		case <-appCtx.Done():
+			return "Fail: VPN stopped during verification"
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	log.Printf("VAY_DEBUG: [Watchdog] All ping attempts failed. Server is dead.")
+	return "Fail: Connection timed out"
 }
 
 func GetProxyStats() string {

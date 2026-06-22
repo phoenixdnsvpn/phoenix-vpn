@@ -131,6 +131,7 @@ def main():
         
         run_cmd(ssh, "firewall-cmd --permanent --add-forward-port=port=53:proto=udp:toport=5300", user, password)
         run_cmd(ssh, "firewall-cmd --permanent --zone=public --set-target=DROP", user, password)
+        run_cmd(ssh, "firewall-cmd --permanent --add-masquerade", user, password)
         run_cmd(ssh, "firewall-cmd --reload", user, password)
 
     # 3. Create Service User

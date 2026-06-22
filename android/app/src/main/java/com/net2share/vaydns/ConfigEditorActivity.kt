@@ -666,7 +666,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             val types = mobile.Mobile.getDefaultConfigType(nativeIndex).split(",").map { it.trim().lowercase() }
             if (types.isEmpty() || types[0] == "") listOf("vaydns") else types
         } else {
-            listOf("vaydns", "hysteria2", "reality", "vless-ws")
+            listOf("vaydns")
         }
 
         val tpAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, supportedProtocols)
