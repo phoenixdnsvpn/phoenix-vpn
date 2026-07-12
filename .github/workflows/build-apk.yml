@@ -102,7 +102,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            release-artifacts/VaydnsVpn-*.apk
+            release-artifacts/PhoenixVpn-*.apk
           draft: false
           prerelease: false
         env:
