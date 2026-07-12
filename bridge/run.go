@@ -10,7 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 //	"github.com/net2share/vaydns/client"
-    "github.com/Starling226/vaydns-vpn/vaydns/client"
+    "github.com/Starling226/phoenix-vpn/vaydns/client"
 )
 
 // SocketProtector is an interface that Android will implement

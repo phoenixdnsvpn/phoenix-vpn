@@ -15,7 +15,7 @@ import (
 	"strings"
 	"runtime/debug"
 
-	"github.com/Starling226/vaydns-vpn/bridge"
+	"github.com/Starling226/phoenix-vpn/bridge"
 	"github.com/shadowsocks/go-shadowsocks2/core"
 	"github.com/shadowsocks/go-shadowsocks2/socks"
 	"golang.org/x/crypto/ssh"

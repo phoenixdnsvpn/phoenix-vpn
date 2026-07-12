@@ -1,4 +1,4 @@
-module github.com/Starling226/vaydns-vpn/f35
+module github.com/Starling226/phoenix-vpn/f35
 
 go 1.25.5
 
