@@ -528,7 +528,7 @@ class MainActivity : AppCompatActivity() {
             Made with ❤️
             x.com/Starling226
             t.me/Starling226
-            https://github.com/Starling226/vaydns-vpn
+            https://github.com/Starling226/phoenix-vpn
         """.trimIndent())
                         .setPositiveButton("Close", null)
                         .setIcon(R.mipmap.ic_launcher_round)
@@ -1824,12 +1824,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         val githubLink = TextView(this).apply {
-            text = "github.com/Starling226/vaydns-vpn"
+            text = "github.com/Starling226/phoenix-vpn"
             textSize = 13f
             setTextColor(primaryColor) // Dynamic: Uses your Brand Blue
             setPadding(0, 5, 0, 0)
             setOnClickListener {
-                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Starling226/vaydns-vpn"))
+                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Starling226/phoenix-vpn"))
                 startActivity(intent)
             }
         }
@@ -2830,7 +2830,7 @@ class MainActivity : AppCompatActivity() {
                     // ==========================================
                     // COMMUNITY RELEASE (Check GitHub)
                     // ==========================================
-                    val url = java.net.URL("https://api.github.com/repos/Starling226/vaydns-vpn/releases/latest")
+                    val url = java.net.URL("https://api.github.com/repos/Starling226/phoenix-vpn/releases/latest")
                     val connection = url.openConnection() as java.net.HttpURLConnection
                     connection.apply {
                         requestMethod = "GET"
@@ -2888,7 +2888,7 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 // Connect directly to your public GitHub repository's latest release endpoint
-                val url = URL("https://api.github.com/repos/Starling226/vaydns-vpn/releases/latest")
+                val url = URL("https://api.github.com/repos/Starling226/phoenix-vpn/releases/latest")
                 val connection = url.openConnection() as java.net.HttpURLConnection
                 connection.apply {
                     requestMethod = "GET"
@@ -2973,7 +2973,7 @@ class MainActivity : AppCompatActivity() {
             val versionStr = if (newVersion.startsWith("v")) newVersion else "v$newVersion"
 
             // 3. Construct the GitHub Release URL
-            val downloadUrl = "https://github.com/Starling226/vaydns-vpn/releases/download/$versionStr/VaydnsVpn-$versionStr-$arch.apk"
+            val downloadUrl = "https://github.com/Starling226/phoenix-vpn/releases/download/$versionStr/VaydnsVpn-$versionStr-$arch.apk"
 
             // 4. Show the Dialog
             MaterialAlertDialogBuilder(this)
@@ -3016,7 +3016,7 @@ class MainActivity : AppCompatActivity() {
                 val serverBase = mobile.Mobile.getPrimaryUpdateServer()
                 "$serverBase/assets/$fileName"
             } else {
-                "https://github.com/Starling226/vaydns-vpn/releases/download/$versionStr/$fileName"
+                "https://github.com/Starling226/phoenix-vpn/releases/download/$versionStr/$fileName"
             }
 
             // 4. Show the Dialog
