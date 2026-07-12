@@ -1,4 +1,4 @@
-name: Build VayDNS Android APK (Multi-Arch)
+name: Build Phoenix VPN Android APK (Multi-Arch)
 on:
   push:
     tags:
@@ -64,7 +64,7 @@ jobs:
          
           mkdir -p ../release-artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-arm64-v8a.apk
+          cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/PhoenixVpn-${TAG_NAME}-arm64-v8a.apk
           # .aar is NO longer copied
 
       - name: Build ARMv7 Version
@@ -94,7 +94,7 @@ jobs:
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
          
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/VaydnsVpn-${TAG_NAME}-armeabi-v7a.apk
+          cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/PhoenixVpn-${TAG_NAME}-armeabi-v7a.apk
           # .aar is NO longer copied
 
       - name: Create Release and Upload Assets
