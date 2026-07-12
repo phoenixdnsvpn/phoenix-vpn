@@ -153,7 +153,7 @@ import (
 ```
 ```
 # Fetch core libraries
-cd vaydns-vpn/mobile
+cd phoenix-vpn/mobile
 # Sync dependencies
 go mod tidy
 
@@ -184,7 +184,7 @@ export PING_DOMAIN="example.com"
 gomobile bind -v \
     -target=android/arm64 \
     -androidapi 24 \
-    -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
+    -ldflags="-s -w -X 'github.com/Starling226/phoenix-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
     -trimpath \
     -o ../vaydns-arm64.aar \
     .

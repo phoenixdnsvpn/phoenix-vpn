@@ -166,7 +166,7 @@ import (
 ```
 سپس دستورات زیر را اجرا کنید:
 ```bash
-cd vaydns-vpn/mobile
+cd phoenix-vpn/mobile
 go mod tidy
 go install golang.org/x/mobile/cmd/gomobile@latest
 go install golang.org/x/mobile/cmd/gobind@latest
@@ -192,7 +192,7 @@ export PING_DOMAIN="example.com"
 gomobile bind -v \
     -target=android/arm64 \
     -androidapi 24 \
-    -ldflags="-s -w -X 'github.com/Starling226/vaydns-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
+    -ldflags="-s -w -X 'github.com/Starling226/phoenix-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
     -trimpath \
     -o ../vaydns-arm64.aar \
     .
