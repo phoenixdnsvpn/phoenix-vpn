@@ -16,7 +16,7 @@ import (
 )
 
 // PingDirectServer securely executes a latency check entirely within the native layer.
-func PingDirectServer(isDefault bool, configIndex int64, customIP string, configType string, protocol string) int64 {
+func PingDirectServer(isDefault bool, configIndex int64, customIP string, configType string, protocol string, globalDnsServer string) int64 {
 	var targetIP string
 	var targetPort int = 443
 
@@ -25,14 +25,27 @@ func PingDirectServer(isDefault bool, configIndex int64, customIP string, config
 	if isDefault {
 		actualProtocol := strings.ToLower(protocol)
 
-		if actualProtocol == "hysteria" || actualProtocol == "hysteria2" {
-			targetIP = getHysteriaServerIP(configIndex)
+		if actualProtocol == "hysteria2" {
+			targetIP = getHysteriaServerIP(configIndex, globalDnsServer)
 			targetPort = getHysteriaServerPort(configIndex)
-		} else if actualProtocol == "reality" || actualProtocol == "vless" {
-			targetIP = getRealityServerIP(configIndex)
+		} else if actualProtocol == "reality-tcp" {
+			targetIP = getRealityServerIP(configIndex, globalDnsServer)
 			targetPort = getRealityServerPort(configIndex)
-		} else if actualProtocol == "vless-ws" {
-			targetIP = getVlessServerIP(configIndex)
+		} else if actualProtocol == "reality-xhttp" {
+			targetIP = getRealityServerIP(configIndex, globalDnsServer)
+			serverPortStr := getXhttpPort(configIndex)
+			targetPort, err := strconv.Atoi(serverPortStr)
+			if err != nil || targetPort == 0 {
+				targetPort = 2053 // Safe fallback if the JSON is empty or invalid
+			}				
+		} else if actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" {
+			// Priority 1: Use the IP passed from Kotlin (which holds the user's custom choice or the global fallback)
+			if customIP != "" && customIP != "0.0.0.0" {
+				targetIP = customIP
+			} else {
+				// Priority 2: Fallback to the native vault memory
+				targetIP = getCloudflareIP(configIndex)
+			}
 			targetPort = getVlessServerPort(configIndex)			
 		} else {
 			log.Printf("VAY_DEBUG: [Native Ping] Unknown direct protocol: %s", actualProtocol)
@@ -53,7 +66,7 @@ func PingDirectServer(isDefault bool, configIndex int64, customIP string, config
 	if targetIP == "" {
 		return -1
 	}
-
+	log.Printf("VAY_DEBUG: XXXX : %v %v", targetIP, targetPort)
 	// =========================================================
 	// METHOD 1: Multi-Port TCP Racing
 	// =========================================================
@@ -157,7 +170,7 @@ func PingDirectServer(isDefault bool, configIndex int64, customIP string, config
 
 // PingAllDirectConfigs securely pings all direct protocols in parallel.
 // It parses the exact same JSON array but strictly targets direct nodes.
-func PingAllDirectConfigs(tasksJson string) string {
+func PingAllDirectConfigs(tasksJson string, globalDnsServer string) string {
 	var tasks []PingTask
 	if err := json.Unmarshal([]byte(tasksJson), &tasks); err != nil {
 		return "{}"
@@ -194,7 +207,7 @@ func PingAllDirectConfigs(tasksJson string) string {
 
 			// Execute the secure native ping. 
 			// t.ServerIP will securely be "" for official configs, triggering the native vault lookup.
-			latency := PingDirectServer(t.IsDefault, t.ConfigIndex, t.ServerIP, cType, t.Protocol)
+			latency := PingDirectServer(t.IsDefault, t.ConfigIndex, t.ServerIP, cType, t.Protocol, globalDnsServer)
 			
 			if latency > 0 {
 				resultsMu.Lock()
@@ -214,7 +227,7 @@ func PingAllDirectConfigs(tasksJson string) string {
 }
 
 // PingDirectServerLayer7 performs a true Layer 7 (TLS/HTTP) latency check.
-func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, configType string, protocol string, customSni string, customPath string) int64 {
+func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, configType string, protocol string, customSni string, customPath string, globalDnsServer string) int64 {
 	var targetIP string
 	var targetPort int = 443
 	var sni string
@@ -226,14 +239,22 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 
 	// 1. Extract Routing & Layer 7 Data (SNI / Path)
 	if isDefault {
-        if actualProtocol == "hysteria" || actualProtocol == "hysteria2" || actualProtocol == "vless-ws" {
+        if actualProtocol == "hysteria2" || actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" {
 			log.Printf("VAY_DEBUG: [L7 Ping] Redirecting Hysteria2 to Layer 4 (UDP Obfuscated)")
-			return PingDirectServer(isDefault, configIndex, customIP, configType, protocol)
-		} else if actualProtocol == "reality" || actualProtocol == "vless" {
-			targetIP = getRealityServerIP(configIndex)
+			return PingDirectServer(isDefault, configIndex, customIP, configType, protocol, globalDnsServer)
+		} else if actualProtocol == "reality-tcp" {
+			targetIP = getRealityServerIP(configIndex, globalDnsServer)
 			targetPort = getRealityServerPort(configIndex)
 			sni = getRealityDomain(configIndex)            
-
+		} else if actualProtocol == "reality-xhttp" {
+			targetIP = getRealityServerIP(configIndex, globalDnsServer)
+			serverPortStr := getXhttpPort(configIndex)
+			targetPort, err := strconv.Atoi(serverPortStr)
+			if err != nil || targetPort == 0 {
+				targetPort = 2053 // Safe fallback if the JSON is empty or invalid
+			}
+				
+			sni = getRealityDomain(configIndex)  
 		} else {
 			log.Printf("VAY_DEBUG: [L7 Ping] FAILED -> Unknown default protocol: %s", actualProtocol)
 			return -1
@@ -250,9 +271,9 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 		sni = customSni
 //		wsPath = customPath
 		
-        if actualProtocol == "hysteria" || actualProtocol == "hysteria2" || actualProtocol == "vless-ws" {		
-			log.Printf("VAY_DEBUG: [L7 Ping] Redirecting Custom Hysteria2 to Layer 4 (UDP Obfuscated)")
-			return PingDirectServer(isDefault, configIndex, customIP, configType, protocol)
+        if actualProtocol == "hysteria2" || actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" {		
+			log.Printf("VAY_DEBUG: [L7 Ping] Redirecting Custom direct protocol to Layer 4")
+			return PingDirectServer(isDefault, configIndex, customIP, configType, protocol, globalDnsServer)
 		}
 	}
 
@@ -307,7 +328,7 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 }
 
 // PingAllDirectConfigsLayer7 securely pings all direct protocols in parallel using L7.
-func PingAllDirectConfigsLayer7(tasksJson string) string {
+func PingAllDirectConfigsLayer7(tasksJson string, globalDnsServer string) string {
 	var tasks []map[string]interface{}
 	if err := json.Unmarshal([]byte(tasksJson), &tasks); err != nil {
 		log.Printf("VAY_DEBUG: [L7 Ping] FAILED to unmarshal tasks JSON: %v", err)
@@ -342,9 +363,9 @@ func PingAllDirectConfigsLayer7(tasksJson string) string {
 
 			serverIP, _ := task["server_ip"].(string)
 			protocol, _ := task["protocol"].(string)
-			customDomain, _ := task["custom_domain"].(string) 
+			customDomain, _ := task["custom_domain"].(string)
 
-			latency := PingDirectServerLayer7(isDefault, configIndex, serverIP, configType, protocol, customDomain, "/")
+			latency := PingDirectServerLayer7(isDefault, configIndex, serverIP, configType, protocol, customDomain, "/", globalDnsServer)
 			
 			if latency > 0 {
 				resultsMu.Lock()
@@ -368,7 +389,7 @@ func PingAllDirectConfigsLayer7(tasksJson string) string {
 // PingBestDirectIP securely races a comma-separated list of IPs and returns the fastest one using Layer 4.
 // Returns format: "IP|Latency" or "" if all fail.
 
-func PingBestDirectIP(isDefault bool, configIndex int64, ipList string, configType string, protocol string) string {
+func PingBestDirectIP(isDefault bool, configIndex int64, ipList string, configType string, protocol string, globalDnsServer string) string {
 	parts := strings.Split(ipList, ",")
 	var cleanIPs []string
 	for _, p := range parts {
@@ -398,7 +419,7 @@ func PingBestDirectIP(isDefault bool, configIndex int64, ipList string, configTy
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			latency := PingDirectServer(isDefault, configIndex, targetIP, configType, protocol)
+			latency := PingDirectServer(isDefault, configIndex, targetIP, configType, protocol, globalDnsServer)
 			if latency > 0 {
 				resChan <- pingRes{targetIP, latency}
 			}
@@ -447,10 +468,10 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 	pathToUse := "/vayws"
 
 	if isDefault {
-		if d := getVlessDomain(configIndex); d != "" {
+		if d := getWsDomain(configIndex); d != "" {
 			domainToUse = d
 		}
-		if p := getVlessPath(configIndex); p != "" {
+		if p := getWsPath(configIndex); p != "" {
 			pathToUse = p
 		}
 	}

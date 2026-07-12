@@ -50,16 +50,19 @@ type DefaultConfig struct {
 	User            string `json:"user"`
 	Pass            string `json:"pass"`
 	FreeScanner     bool   `json:"freeScanner"`
-
+	ServerDomain    string `json:"server_domain"`
+	
 	// --- Protocol Specific Embedded Structs ---
 	// Go will seamlessly unmarshal flat JSON into this!
 	HysteriaConfig
 	RealityConfig
 	VlessWsConfig
+	XhttpRealityConfig
 }
 
 type ConfigWrapper struct {
 	Version      int             `json:"version"`
+	Release      string          `json:"release"`
 	ServerURLs   []string        `json:"serverURLs"`
 	AppSecretKey string          `json:"appSecretKey"`
 	VlessWsIP    string          `json:"vless_ws_ip"`
@@ -69,6 +72,7 @@ type ConfigWrapper struct {
 var (
 	defaultConfigs    []DefaultConfig
 	currentVersion    int
+	currentRelease    string
 	currentServerURLs []string
 	currentSecretKey  string
 	configMu          sync.Mutex
@@ -171,6 +175,7 @@ func parseConfigData(data []byte) {
 	if err == nil && len(wrapper.Configs) > 0 {
 		defaultConfigs = wrapper.Configs
 		currentVersion = wrapper.Version
+		currentRelease = wrapper.Release
 		currentServerURLs = wrapper.ServerURLs
 		currentSecretKey = wrapper.AppSecretKey		
 		SetRootVlessWsIP(wrapper.VlessWsIP)
@@ -629,4 +634,45 @@ func GetDefaultConfigType(index int64) string {
 // It returns false for community builds.
 func IsOfficialBuild() bool {
 	return InjectedConfigs != "" && InjectedPrivateKey != ""
+}
+
+func getServerDomain(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	if defaultConfigs[index].ServerDomain != "" {
+		return defaultConfigs[index].ServerDomain
+	}
+
+	return ""
+}
+
+func getServerIpAddress(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	return defaultConfigs[index].ServerIP 
+}
+
+func GetReleaseType() string {
+	ensureParsed()
+	if currentRelease == "" {
+		return "community" // Fallback safety
+	}
+	return currentRelease
+}
+
+func GetPrimaryUpdateServer() string {
+	ensureParsed()
+	if len(currentServerURLs) > 0 {
+		return strings.TrimRight(currentServerURLs[0], "/")
+	}
+	return ""
+}
+
+func GetAppSecretKeyExported() string {
+	ensureParsed()
+	return currentSecretKey
 }

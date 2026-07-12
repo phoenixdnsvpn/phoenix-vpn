@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"io"
 	"fmt"
 	"math/rand"
 	"net"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -103,10 +105,10 @@ func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int6
 	pathToUse := "/vayws"
 
 	if isDefault {
-		if d := getVlessDomain(configIndex); d != "" {
+		if d := getWsDomain(configIndex); d != "" {
 			domainToUse = d
 		}
-		if p := getVlessPath(configIndex); p != "" {
+		if p := getWsPath(configIndex); p != "" {
 			pathToUse = p
 		}
 	}
@@ -265,5 +267,86 @@ func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int6
 		}
 	}
 
+	return ""
+}
+
+// resolveDomainOverDoH safely queries a list of domains using encrypted HTTPS.
+// It accepts a comma-separated string of domains, testing each one sequentially,
+// and returns the first valid IP address it successfully resolves.
+func resolveDomainOverDoH(rawDomains string, customDohServer string) string {
+	// 1. Format the DoH URL safely (Prepared once for all domains)
+	dohServer := "https://1.1.1.1/dns-query" // Ultimate Fallback
+	if customDohServer != "" {
+		if strings.HasPrefix(customDohServer, "http") {
+			dohServer = customDohServer
+		} else {
+			dohServer = "https://" + customDohServer + "/dns-query"
+		}
+	}
+
+	// 2. Initialize the HTTP client once to reuse connections
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// 3. Split the comma-separated domains into a list
+	domainList := strings.Split(rawDomains, ",")
+
+	// 4. Iterate through each domain and attempt to resolve it
+	for _, d := range domainList {
+		domain := strings.TrimSpace(d)
+		if domain == "" {
+			continue // Skip empty entries
+		}
+
+		// If the entry is already a raw IP address, return it instantly
+		if net.ParseIP(domain) != nil {
+			return domain
+		}
+
+		// Prepare the encrypted HTTP Request
+		reqURL := dohServer + "?name=" + domain + "&type=A"
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err != nil {
+			continue // Try the next domain on request build failure
+		}
+		req.Header.Set("Accept", "application/dns-json") // Request JSON format
+
+		// Execute the request
+		resp, err := client.Do(req)
+		if err != nil {
+			continue // Try the next domain if the network fails
+		}
+
+		// Read the response and explicitly close the body inside the loop
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close() 
+		if err != nil {
+			continue
+		}
+
+		// Parse the JSON response
+		var result map[string]interface{}
+		if err := json.Unmarshal(body, &result); err != nil {
+			continue
+		}
+
+		// Extract the IPv4 Address
+		answers, ok := result["Answer"].([]interface{})
+		if !ok || len(answers) == 0 {
+			continue // No DNS answers for this domain, try the next one
+		}
+
+		for _, ans := range answers {
+			ansMap, ok := ans.(map[string]interface{})
+			if ok {
+				if data, exists := ansMap["data"].(string); exists {
+					if net.ParseIP(data) != nil {
+						return data // Found a valid IP! Short-circuit and return immediately.
+					}
+				}
+			}
+		}
+	}
+
+	// 5. If we exhausted all domains in the list and found nothing, return empty
 	return ""
 }

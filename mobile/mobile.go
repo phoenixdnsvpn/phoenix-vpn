@@ -147,6 +147,7 @@ func StartVpn(
 	user string, 
 	pass string,
 	vlessWsIp string,
+	globalDnsServer string,
 	protector SocketProtector,
 ) string {
 	mu.Lock()
@@ -182,18 +183,36 @@ func StartVpn(
 	domainToUse := customDomain
 	pubkeyToUse := customPubkey
 
-	//isDirectMode := (strings.ToLower(configType) == "direct")		
 	configTypeLower := strings.ToLower(configType)
 	activeProto := strings.ToLower(protocol)
 
 	isDirectMode := !strings.Contains(configTypeLower, "vaydns") || 
-					activeProto == "hysteria" || activeProto == "hysteria2" || 
-					activeProto == "reality" || activeProto == "vless" || activeProto == "vless-ws" || 
+					activeProto == "hysteria2" || 
+					activeProto == "reality-tcp" || activeProto == "vless-ws" || 
+					activeProto == "vless-grpc" || activeProto == "vless-httpupgrade" || activeProto == "reality-xhttp" || 
 					configTypeLower == "direct"
-							
+	
 	if isDirectMode {
+		// Force xhttp to Xray because Sing-box doesn't support it natively yet.
+		if activeProto == "reality-xhttp" {
+			engineType = "xray"
+		}
+		
+		// Xray lacks support for Salamander obfuscation, so we force all H2 traffic to Sing-box.
+		if activeProto == "hysteria2" {
+			engineType = "sing-box"
+		}
+				
+	} else {
+		// STRICT GUARDRAIL: 
+		// VayDNS native tunnels require Sing-box to wrap the local proxy.
+		// If the user selected 'Xray' in settings for a VayDNS node, force it back to Sing-box.
 		engineType = "sing-box"
 	}
+								
+/*	if isDirectMode {
+		engineType = "sing-box"
+	}*/
 								
     log.Printf("VAY_DEBUG: protocol: %v", protocol)
     // ==========================================
@@ -380,11 +399,11 @@ func StartVpn(
 	mu.Lock()
 	activeProxyURL = proxyString
 	mu.Unlock()
-				
+								
 	// 5. START TUN ENGINE (HYBRID ARCHITECTURE WITH DYNAMIC AUTH MAPPER)
 	if engineType == "sing-box" {
 		log.Printf("VAY_DEBUG: Booting modern sing-box processing pipeline...")
-		log.Printf("VAY_DEBUG: server IP address is %v ",vlessWsIp)		
+//		log.Printf("VAY_DEBUG: server IP address is %v ",vlessWsIp)
 		singBoxListenPort := 30000 + rand.Intn(20000) 
 		
 		// ADDED: Update activeSocksPort so the Watchdog knows where to ping
@@ -392,7 +411,7 @@ func StartVpn(
 		activeSocksPort = singBoxListenPort
 		mu.Unlock()
 
-		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp)
+		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, globalDnsServer)
 		if err != nil {
 			errMsg := fmt.Sprintf("Error: sing-box layer failure: %v", err)
 			log.Println("VAY_DEBUG: FATAL -> " + errMsg)
@@ -401,7 +420,49 @@ func StartVpn(
 		
 		singBoxProxyString := fmt.Sprintf("socks5://127.0.0.1:%d", singBoxListenPort)
 		startTun2SocksEngine(wg, newFd, singBoxProxyString, finalMtu)
-	} else {
+	} else if engineType == "xray" {
+		log.Printf("VAY_DEBUG: Booting cutting-edge Xray processing pipeline (Native TUN)...")
+		
+		// 1. Generate a random local SOCKS port specifically for the Watchdog
+		activeSocksPort = 30000 + rand.Intn(20000)
+
+		// 2. Tell Xray exactly where the Android OS VPN interface is located
+		os.Setenv("XRAY_TUN_FD", strconv.Itoa(int(fd)))
+
+		// 3. Pass both the Watchdog port (for the SOCKS inbound) and MTU (for the TUN inbound)
+		err := StartXrayEngine(configIndex, globalDnsServer, false, activeSocksPort, int(finalMtu), protocol)
+		if err != nil {
+			cancel()
+			return fmt.Sprintf("Error starting Xray Engine: %v", err)
+		}
+
+		// 4. Dummy waitgroup to keep the foreground thread alive
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-activeCtx.Done()
+		}()
+
+	} else {		
+/*	} else if engineType == "xray" {
+		log.Printf("VAY_DEBUG: Booting cutting-edge Xray processing pipeline...")
+		xrayListenPort := 30000 + rand.Intn(20000) 
+		
+		mu.Lock()
+		activeSocksPort = xrayListenPort
+		mu.Unlock()
+
+		err := StartXrayEngine(xrayListenPort, configIndex, globalDnsServer)
+		if err != nil {
+			errMsg := fmt.Sprintf("Error: Xray layer failure: %v", err)
+			log.Println("VAY_DEBUG: FATAL -> " + errMsg)
+			return errMsg
+		}
+		
+		// Bind Tun2Socks to the newly created Xray SOCKS port
+		xrayProxyString := fmt.Sprintf("socks5://127.0.0.1:%d", xrayListenPort)
+		startTun2SocksEngine(wg, newFd, xrayProxyString, finalMtu)		
+	} else {*/
 		// ADDED: Ensure watchdog knows the final local proxy port if wrapped by SSH/SS
 		if u, err := url.Parse(proxyString); err == nil {
 			if portStr := u.Port(); portStr != "" {
@@ -442,7 +503,7 @@ func StartProxy(
 	engineType string, isDefault bool, configIndex int64, configType string, useMultiDomains bool, domainIndex int64, udp string, tcp string, doh string, dot string, baseDohUrl string,
 	customDomain string, customPubkey string, recordType string, idleTimeout string,
 	KeepAlive string, clientIDSize int, mtu int, compatDnstt bool, useAuth bool,
-	protocol string, ssMethod string, user string, pass string, customPort int, vlessWsIp string,
+	protocol string, ssMethod string, user string, pass string, customPort int, vlessWsIp string, globalDnsServer string,
 ) string {
 	mu.Lock()
 
@@ -505,15 +566,29 @@ func StartProxy(
 	activeProto := strings.ToLower(protocol)
 
 	isDirectMode := !strings.Contains(configTypeLower, "vaydns") || 
-					activeProto == "hysteria" || activeProto == "hysteria2" || 
-					activeProto == "reality" || activeProto == "vless" || activeProto == "vless-ws" || 
+					activeProto == "hysteria2" || 
+					activeProto == "reality-tcp" || activeProto == "vless-ws" || 
+					activeProto == "vless-grpc" || activeProto == "vless-httpupgrade" || activeProto == "reality-xhttp" ||
 					configTypeLower == "direct"
 					
-	// SILENT ENGINE FALLBACK
 	if isDirectMode {
+		// Force xhttp to Xray because Sing-box doesn't support it natively yet.
+		// For all other protocols, respect the user's 'engineType' choice from Kotlin!
+		if activeProto == "reality-xhttp" {
+			engineType = "xray"
+		}
+		
+		// Xray lacks support for Salamander obfuscation, so we force all H2 traffic to Sing-box.
+		if activeProto == "hysteria2" {
+			engineType = "sing-box"
+		}
+				
+	} else {
+		// VayDNS tunnels MUST use Sing-box.
+		// If the user selected Xray in the UI for a DNS node, override it here.
 		engineType = "sing-box"
 	}
-						
+		
 	if isDirectMode {
 		// PATH A: DIRECT PROTOCOLS (Sing-box)
 		if engineType == "sing-box" {
@@ -521,11 +596,23 @@ func StartProxy(
 			
 			// We pass 'customPort' directly to Sing-box so it creates a SOCKS5 server on that exact port.
 			// No tun2socks is needed!
-			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp)
+			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, globalDnsServer)
 			
 			if err != nil {
 				return fmt.Sprintf("Error|sing-box proxy failure: %v", err)
 			}
+		} else if engineType == "xray" {
+
+			log.Printf("VAY_DEBUG: Booting cutting-edge Xray in PROXY MODE on port %d", customPort)
+
+			err := StartXrayEngine(configIndex, globalDnsServer, true, customPort, 0, protocol)
+//			err := StartXrayEngine_socks(customPort, configIndex, globalDnsServer)
+			if err != nil {
+				errMsg := fmt.Sprintf("Error: Xray layer failure: %v", err)
+				log.Println("VAY_DEBUG: FATAL -> " + errMsg)
+				return errMsg
+			}
+					
 		} else {
 			return "Error|Only sing-box is supported for direct proxy mode"
 		}
@@ -571,14 +658,11 @@ func StopVpn() string {
 		return "Not running"
 	}
 
+	// 1. Cancel the main context to signal all goroutines to stop
 	activeCancel() 
 	
-	if activeTunFd != 0 {
-		_ = syscall.Close(activeTunFd)
-		activeTunFd = 0
-	}
-
-	engine.Stop()
+	// 2. Stop all proxy engines FIRST so they release their locks and gracefully close their interfaces
+	engine.Stop() // Safely stops tun2socks (does nothing if it wasn't running)
 	
 	if activeSingBox != nil {
 		activeSingBox.Close()
@@ -589,12 +673,21 @@ func StopVpn() string {
 		activeSingBoxCancel = nil
 	}
 		
+	StopXrayEngine() // Safely stops Xray (and allows it to release the TUN FD)
+	
+	// 3. NOW it is safe to close the TUN FD if the OS or engines haven't already
+	if activeTunFd != 0 {
+		_ = syscall.Close(activeTunFd)
+		activeTunFd = 0
+	}
+
 	tempWg := activeWg
 	activeCancel = nil 
 	activeWg = nil    
 	isRunning = false
 	mu.Unlock()
 
+	// 4. Wait for network connections to flush gracefully
 	if tempWg != nil {
 		done := make(chan struct{})
 		go func() {
@@ -1023,7 +1116,7 @@ waitLoop:
 	return finalLatency
 }
 
-func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string) error {
+func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, globalDnsServer string) error {
 
 	var outboundMap map[string]interface{}
 	var upstreamScheme string
@@ -1036,36 +1129,50 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 	activeProto := strings.ToLower(protocol)
 
 	isDirectMode := !strings.Contains(configTypeLower, "vaydns") || 
-					activeProto == "hysteria" || activeProto == "hysteria2" || 
-					activeProto == "reality" || activeProto == "vless" || activeProto == "vless-ws" || 
-					configTypeLower == "direct"
+					activeProto == "hysteria2" || 
+					activeProto == "reality-tcp" || activeProto == "vless-ws" || 
+					activeProto == "vless-grpc" || activeProto == "vless-httpupgrade" || configTypeLower == "direct"
 					
 	if isDirectMode {
 		// SUB-FORK: Determine which direct protocol to build strictly from the protocol string
 		activeProto := strings.ToLower(protocol)
 		
-		if activeProto == "hysteria" || activeProto == "hysteria2" {
+		if activeProto == "hysteria2" {
 			upstreamScheme = "hysteria2"
 			if configIndex >= 0 {
-				outboundMap = buildHysteriaOutbound(configIndex)
+				outboundMap = buildHysteriaOutbound(configIndex, globalDnsServer)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}
 			
-		} else if activeProto == "reality" || activeProto == "vless" {
+		} else if activeProto == "reality-tcp" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildRealityOutbound(configIndex)
+				outboundMap = buildRealityOutbound(configIndex, globalDnsServer)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
-			}
+			}			
 		} else if activeProto == "vless-ws" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
 				outboundMap = buildVlessWsOutbound(configIndex, vlessWsIp)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
-			}			
+			}
+		} else if activeProto == "vless-grpc" {
+			upstreamScheme = "vless"
+			if configIndex >= 0 {
+				outboundMap = buildVlessGrpcOutbound(configIndex, vlessWsIp)
+			} else {
+				return fmt.Errorf("invalid config index for direct protocol")
+			}
+		} else if activeProto == "vless-httpupgrade" {
+			upstreamScheme = "vless"
+			if configIndex >= 0 {
+				outboundMap = buildVlessHttpUpgradeOutbound(configIndex, vlessWsIp)
+			} else {
+				return fmt.Errorf("invalid config index for direct protocol")
+			}									
 		} else {
 			return fmt.Errorf("unknown direct protocol selected: %s", protocol)
 		}
@@ -1305,3 +1412,4 @@ func startTun2SocksEngine(wg *sync.WaitGroup, fd int, proxyString string, finalM
 		engine.Start()
 	}()
 }
+
