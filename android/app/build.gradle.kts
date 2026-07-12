@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.net2share.vaydns"
+    namespace = "net.vaydns.phoenix"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -14,11 +14,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.net2share.vaydns"
+        applicationId = "net.vaydns.phoenix"
         minSdk = 24
         targetSdk = 36
-        versionCode = 39
-        versionName = "2.1.2"
+        versionCode = 40
+        versionName = "2.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
