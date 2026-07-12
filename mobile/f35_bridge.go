@@ -13,7 +13,7 @@ import (
 	"runtime/debug"
 	"log"
 	
-	"github.com/Starling226/vaydns-vpn/f35"
+	"github.com/Starling226/phoenix-vpn/f35"
 )
 
 var (	
