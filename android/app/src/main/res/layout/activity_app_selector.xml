@@ -58,6 +58,17 @@
             android:textColor="?attr/colorOnSurface"/>
     </com.google.android.material.textfield.TextInputLayout>
 
+    <Button
+        android:id="@+id/btn_toggle_all_apps"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="8dp"
+        android:text="Allow All Applications"
+        app:layout_constraintTop_toBottomOf="@id/search_layout"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/app_recycler_view"
         android:layout_width="0dp"
@@ -68,6 +79,6 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/search_layout" />
+        app:layout_constraintTop_toBottomOf="@id/btn_toggle_all_apps" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

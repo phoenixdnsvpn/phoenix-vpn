@@ -28,33 +28,33 @@
         android:theme="@style/Theme.Vaydns">
 
         <activity
-            android:name=".ConfigEditorActivity"
+            android:name="net.vaydns.phoenix.ConfigEditorActivity"
             android:exported="false"
-            android:parentActivityName=".MainActivity"
+            android:parentActivityName="net.vaydns.phoenix.MainActivity"
             android:label="Config parameters">
             <meta-data
                 android:name="android.support.PARENT_ACTIVITY"
-                android:value=".MainActivity" />
+                android:value="net.vaydns.phoenix.MainActivity" />
         </activity>
 
         <activity
-            android:name=".DnsScannerActivity"
+            android:name="net.vaydns.phoenix.DnsScannerActivity"
             android:label="Scanner parameters"
-            android:parentActivityName=".MainActivity">
+            android:parentActivityName="net.vaydns.phoenix.MainActivity">
             <meta-data
                 android:name="android.support.PARENT_ACTIVITY"
-                android:value=".MainActivity" />
+                android:value="net.vaydns.phoenix.MainActivity" />
         </activity>
 
-        <activity android:name=".TunnelSettingsActivity"/>
-        <activity android:name=".GlobalSettingsActivity"/>
+        <activity android:name="net.vaydns.phoenix.TunnelSettingsActivity"/>
+        <activity android:name="net.vaydns.phoenix.GlobalSettingsActivity"/>
 
         <activity
-            android:name=".AppSelectorActivity"
+            android:name="net.vaydns.phoenix.AppSelectorActivity"
             android:exported="false" />
 
         <activity
-            android:name=".MainActivity"
+            android:name="net.vaydns.phoenix.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -63,26 +63,26 @@
         </activity>
 
         <activity
-            android:name=".PasteResolversActivity"
+            android:name="net.vaydns.phoenix.PasteResolversActivity"
             android:exported="false"
             android:theme="@style/Theme.Vaydns" />
 
         <activity
-            android:name=".MultipathResolverActivity"
+            android:name="net.vaydns.phoenix.MultipathResolverActivity"
             android:exported="false"
             android:theme="@style/Theme.Vaydns" />
 
         <activity
-            android:name=".DnsScannerResultActivity"
+            android:name="net.vaydns.phoenix.DnsScannerResultActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
         <activity
-            android:name=".ResolverTransferActivity"
+            android:name="net.vaydns.phoenix.ResolverTransferActivity"
             android:exported="false" />
 
         <service
-            android:name=".VayVpnService"
+            android:name="net.vaydns.phoenix.VayVpnService"
             android:exported="false"
             android:foregroundServiceType="specialUse"
             android:process=":vpn"
@@ -97,28 +97,28 @@
         </service>
 
         <service
-            android:name=".VayProxyService"
+            android:name="net.vaydns.phoenix.VayProxyService"
             android:process=":proxy"  android:foregroundServiceType="specialUse"
             android:exported="false" />
 
         <service
-            android:name=".VayPingService"
+            android:name="net.vaydns.phoenix.VayPingService"
             android:exported="false"
             android:process=":ping" />
 
         <service
-            android:name=".VayRowPingService"
+            android:name="net.vaydns.phoenix.VayRowPingService"
             android:exported="false"
             android:process=":rowping" />
 
         <service
-            android:name=".VayDomainService"
+            android:name="net.vaydns.phoenix.VayDomainService"
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:process=":domain_scanner" />
 
         <service
-            android:name=".VayScannerService"
+            android:name="net.vaydns.phoenix.VayScannerService"
             android:process=":scanner"
             android:exported="false"
             android:foregroundServiceType="dataSync">
@@ -128,17 +128,22 @@
         </service>
 
         <service
-            android:name=".CFScannerService"
+            android:name="net.vaydns.phoenix.CFScannerService"
             android:exported="false" />
 
         <activity
-            android:name=".CloudflareScannerActivity"
+            android:name="net.vaydns.phoenix.CloudflareScannerActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
 
         <activity
-            android:name=".CfIpManagerActivity"
+            android:name="net.vaydns.phoenix.CfIpManagerActivity"
             android:windowSoftInputMode="adjustResize"
+            android:exported="false" />
+
+        <activity
+            android:name="net.vaydns.phoenix.GlobalDnsScannerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
 
     </application>

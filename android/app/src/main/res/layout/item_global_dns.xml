@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="12dp"
+    android:layout_marginVertical="3dp"
+    app:cardCornerRadius="10dp"
+    app:cardElevation="1dp"
+    app:cardMaxElevation="1dp"
+    app:cardBackgroundColor="?attr/colorSurface">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingVertical="8dp"
+        android:paddingHorizontal="14dp"
+        android:background="?attr/selectableItemBackground">
+
+        <TextView
+            android:id="@+id/tv_dns_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:layout_marginEnd="8dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/tv_latency"
+            android:text="Cloudflare" />
+
+        <TextView
+            android:id="@+id/tv_ip_address"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textSize="14sp"
+            android:textColor="?android:attr/textColorSecondary"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:layout_marginEnd="12dp"
+            app:layout_constraintTop_toBottomOf="@+id/tv_dns_name"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/btn_set_dns"
+            android:text="1.1.1.1" />
+
+        <TextView
+            android:id="@+id/tv_latency"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            android:text="45 ms" />
+
+        <ImageView
+            android:id="@+id/btn_set_dns"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:padding="5dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_check_modern"
+            app:tint="?attr/colorPrimary"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/tv_latency" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</androidx.cardview.widget.CardView>

@@ -61,11 +61,11 @@
                     android:buttonTint="?attr/colorPrimary" />
 
                 <RadioButton
-                    android:id="@+id/rb_engine_tun2socks"
+                    android:id="@+id/rb_engine_xray"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Tun2Socks"
+                    android:text="Xray"
                     android:textColor="?attr/colorOnSurface"
                     android:buttonTint="?attr/colorPrimary" />
             </RadioGroup>
@@ -167,6 +167,36 @@
                     android:src="@android:drawable/ic_menu_recent_history"
                     app:tint="?attr/colorPrimary" />
 
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="24dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Global DNS Server"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp"/>
+
+                <EditText
+                    android:id="@+id/et_global_dns_server"
+                    android:layout_width="160dp"
+                    android:layout_height="wrap_content"
+                    android:hint="Set via Scanner"
+                    android:inputType="none"
+                    android:focusable="false"
+                    android:focusableInTouchMode="false"
+                    android:cursorVisible="false"
+                    android:longClickable="true"
+                    android:maxLines="1"
+                    android:gravity="center"
+                    android:textColor="?attr/colorOnSurface"/>
             </LinearLayout>
 
             <View
@@ -287,7 +317,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="VayDNS Settings"
+                android:text="Phoenix Settings"
                 android:textColor="?attr/colorPrimary"
                 android:textStyle="bold"
                 android:layout_marginBottom="16dp"/>

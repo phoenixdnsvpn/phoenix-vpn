@@ -70,7 +70,7 @@
                 android:id="@+id/tv_vless_ip_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Cloudflare IP (VLESS-WS):"
+                android:text="Cloudflare IP (VLESS):"
                 android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold"

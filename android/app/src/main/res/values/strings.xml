@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">vaydns</string>
+    <string name="app_name">Phoenix vpn</string>
 
     <string name="status_connected">Status: Connected</string>
     <string name="status_disconnected">Status: Disconnected</string>

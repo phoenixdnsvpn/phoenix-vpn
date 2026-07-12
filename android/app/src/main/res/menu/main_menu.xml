@@ -58,6 +58,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_global_dns_scanner"
+        android:title="Global DNS Scanner"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_my_dns"
         android:title="My DNS Server"
         app:showAsAction="never" />

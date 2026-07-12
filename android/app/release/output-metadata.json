@@ -4,15 +4,15 @@
     "type": "APK",
     "kind": "Directory"
   },
-  "applicationId": "com.net2share.vaydns",
+  "applicationId": "net.vaydns.phoenix",
   "variantName": "release",
   "elements": [
     {
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 37,
-      "versionName": "2.1.0",
+      "versionCode": 40,
+      "versionName": "2.2.0",
       "outputFile": "app-release.apk"
     }
   ],
