@@ -4,7 +4,7 @@
 # 1. Exit immediately if a command fails
 set -e
 
-# 2. Navigate to the mobile directory (assumes script is in vaydns-vpn/scripts)
+# 2. Navigate to the mobile directory (assumes script is in phoenix-vpn/scripts)
 # Adjust this based on where you store this .sh file
 cd "$(dirname "$0")/../mobile" 
 
