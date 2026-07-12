@@ -1,21 +1,35 @@
-# VayDNS VPN Android Client
+# Announcement
+We are excited to announce that our Android client, formerly known as VayDNS, has officially been rebranded as Phoenix VPN. This name change reflects our recent architectural expansion and our deep respect for the original developers. The "VayDNS" brand and technology are the proprietary creation of the net2share group (https://github.com/net2share/vaydns). Because our client has evolved to include extensive support for high-speed direct protocols—which fall outside the scope of the core VayDNS technology—we felt it was necessary to adopt a new identity. By transitioning to Phoenix VPN, we ensure that all credit and branding for VayDNS remain rightfully reserved for the net2share group. Moving forward, the highly resilient VayDNS protocol will proudly remain the backbone of Phoenix VPN, while we continue to improve our support for advanced direct protocols alongside it.
+
+# Phoenix VPN Android Client
 
 [English] | [**فارسی**](README.fa.md)
 
-Copyright © 2026 The VayDNS VPN Project. Licensed under the **VayDNS VPN Source-Available License**.
+Copyright © 2026 The Phoenix (formerly VayDNS) VPN Project. Licensed under the **Phoenix VPN Source-Available License**.
 
-VayDNS VPN is a high-performance DNS-based tunneling solution. Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates three powerful Go-based technologies to provide a full-device VPN experience even in highly restrictive network environments.
+Phoenix VPN is a high-performance hybrid DNS-based & direct protocol tunneling solution. VayDNS Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates five powerful Go-based technologies to provide a full-device VPN experience even in highly restrictive network environments.
 
-- **vaydns**: The "Tunnel" layer. It encapsulates data into DNS queries (DoH, DoT, or UDP) to bypass firewalls and deep packet inspection (DPI).
-- **Tun2Socks**: The "VPN" layer. It captures all IP traffic from the Android TUN interface and transparently forwards it through the VayDNS tunnel.
-- **sing-box**: The "Protocol Core" layer. We rely on sing-box for its unmatched ability to manage advanced censorship-resistant protocols (like Hysteria2, Reality, and VLESS-WS) and perform intelligent traffic routing. Because sing-box excels at complex proxy logic, we pair it with tun2socks—using tun2socks as a high-performance bridge to capture raw IP traffic from the Android TUN interface and seamlessly feed it into the sing-box engine.
-- **f35**: The E2E resolver scanner. To probe and rapidly measuring the latency and reliability of DNS resolvers across a network.
+- **vaydns**: The "DNS Tunnel" backbone. Serving as the foundational technology for extreme censorship evasion, it encapsulates data into DNS queries (DoH, DoT, TCP, or UDP) to seamlessly bypass strict firewalls and deep packet inspection (DPI) when standard internet access is entirely blocked.
+- **Xray-core**: The "Native Direct" engine. Integrated for bleeding-edge protocol support, Xray handles our high-speed direct connections natively. By pulling raw IP traffic directly from the Android TUN interface, it powers next-generation connections like REALITY-TCP (with xtls-rprx-vision flow control) and XHTTP with zero fragmentation and maximum throughput.
+- **sing-box**: The "Universal Protocol" engine. Acting as our highly versatile secondary core, sing-box provides unmatched routing logic and supports advanced censorship-resistant protocols like Hysteria2, Reality-tcp, VLESS-WS, and VLESS-HTTPUpgrade.
+- **Tun2Socks**: The "Network Bridge" layer. Because vaydns and sing-box excel at complex proxy logic rather than raw device routing, Tun2Socks acts as a high-performance bridge. It captures all full-device IP traffic from the Android TUN interface and transparently feeds it into those engines.
+- **f35**: The "E2E Scanner" layer. A highly concurrent network probing tool embedded directly in the client. It is used to rapidly measure the latency, TLS handshake validity, and true reliability of global DNS resolvers and direct edge nodes across a restricted network.
 
 ### Transparency & Purpose
-VayDNS VPN is a transparent, source-available project dedicated to promoting digital freedom and providing secure internet access for users in countries facing heavy internet censorship. The primary objective of this software is to facilitate open communication and information access through DNS tunneling technology. This project is strictly educational and humanitarian in nature; it does not target, exploit, or attack any systems, networks, or infrastructure. The source code is made available for public audit to ensure transparency and trust within the community of users who rely on these tools for safe and restricted-free connectivity.
+Phoenix VPN is a transparent, source-available project dedicated to promoting digital freedom and providing secure internet access for users in countries facing heavy internet censorship. The primary objective of this software is to facilitate open communication and information access through DNS tunneling technology. This project is strictly educational and humanitarian in nature; it does not target, exploit, or attack any systems, networks, or infrastructure. The source code is made available for public audit to ensure transparency and trust within the community of users who rely on these tools for safe and restricted-free connectivity.
 
 ## Key Features
 - **Dedicated Proxy Mode:** Features a built-in local SOCKS5 proxy, allowing users to tunnel specific applications (like Telegram) without routing their entire device through the Android VpnService. Includes accurate, application-isolated traffic monitoring.
+
+- **REALITY-TCP (with Vision):** Integrated native Xray support for the REALITY protocol over TCP, utilizing flagship xtls-rprx-vision flow control. This perfectly masks your traffic as standard TLS handshakes, rendering it virtually indistinguishable to Deep Packet Inspection (DPI) firewalls.
+
+- **XHTTP Multiplexing:** Unlocked bleeding-edge XHTTP protocol support through our native Xray pipeline. By multiplexing streams, it eliminates head-of-line blocking on high-latency routes, unleashing massive throughput on the most restricted networks.
+
+- **Hysteria2 (QUIC/HTTP3):** ntroduced full support for Hysteria2. Powered by custom UDP/QUIC transport layers with "Salamander" obfuscation and precise bandwidth flow controls, it effortlessly punches through aggressively throttled networks for brute-force speed.
+
+- **VLESS over WebSockets (WS):** Added seamless support for VLESS-WS, allowing traffic to be routed and hidden behind massive, trusted Edge networks and CDNs (like Cloudflare) to keep connections alive even when direct server IPs are heavily blacklisted.
+
+- **VLESS HTTPUpgrade Transport:** Implemented the heavily optimized HTTPUpgrade transport for VLESS. This provides a revolutionary, low-latency alternative to standard WebSockets for CDN routing, explicitly pinning ALPN to HTTP/1.1 to bypass unnecessary handshake delays at the edge.
 
 - **Standardized DNST URL Support:**  Now fully compliant with the DNST URL Scheme, enabling seamless configuration sharing across compatible applications.
 
@@ -30,6 +44,8 @@ VayDNS VPN is a transparent, source-available project dedicated to promoting dig
 - **Quick DNS Scanner:** Built-in DNS scanner to scan thousands of IP addresses to identify local DNS resolvers as a pre selection IP's to scan with E2E scanner.
 
 - **Cloudflare Scanner:** Integrated a native Application-Layer (Layer 7) IP Scanner to automatically discover and map "clean" Cloudflare front-end IPs. This is to ensure VLESS-WS connections remain completely stable even when server IPs are blocked by aggressive DPI.
+
+- **Global DNS Scanner:** Integrated a native Application-Layer (Layer 7) DoH Scanner to automatically discover and route through "clean" raw IP DNS resolvers. This completely strips the domain name from the TLS SNI, ensuring the initial connection bootstrap remains completely invisible to Deep Packet Inspection (DPI) and national firewalls.
 
 - **Multi-Worker Ping:** Implemented parallel worker processing for ping tests. This significantly increases scanning speed when testing multiple resolvers across various configurations.
 
@@ -46,18 +62,18 @@ VayDNS VPN is a transparent, source-available project dedicated to promoting dig
 
 
 ## 🔒 App Verification
-Official builds of VayDNS VPN can be verified using the in-app verification tool. 
+Official builds of Phoenix VPN can be verified using the in-app verification tool. 
 **Official Public Key:** `4ce41a228fd340bdee5aa6bbd453ebd1b407a36349019a1d4e62fc33364aa534`
 
 
-### Screenshot of the VayDNS VPN 
+### Screenshot of the Phoenix VPN 
 Here are the main window, main window with default configs, config manager, scanner resolver, and scanner resolver results windows:
 
 <p align="center">
   <img src="screenshots/vaydns.webp" alt="Main Window">
 </p>
 
-**Screenshot showing VayDNS VPN features**
+**Screenshot showing Phoenix VPN features**
 
 ## Prerequisites
 
@@ -148,6 +164,16 @@ go install golang.org/x/mobile/cmd/gobind@latest
 # Initialize the cross-compilation environment 
 gomobile init
 ```
+### direct protocols (Xray and Sing-Box)
+If you are planning to add Xray core to your project, follow the go.mod in mobile directory. Due to Google library gvisor version dependency issues in Xray and tune2socks, make sure to run these sequence of commands in mobile directory:
+
+```
+go get github.com/xtls/xray-core
+go get github.com/xjasonlyu/tun2socks/v2@latest
+go get github.com/xjasonlyu/tun2socks/v2@main
+go mod tidy
+```
+
 ## 4. Building the Project
 ### Generate the Android Library (.aar)
 ```
@@ -177,7 +203,7 @@ cd android
 * Missing Bind Package: If you get an error saying golang.org/x/mobile/bind is not found, ensure you have run go mod tidy inside the mobile/ folder after creating tools.go.
 * NDK Not Found: Ensure ANDROID_NDK_HOME points to the specific version folder (e.g., ndk/android-ndk-r27d) rather than just the root ndk folder.
 
-## How to Use VayDNS VPN
+## How to Use Phoenix VPN
 
 Follow these steps to set up and start your secure tunnel:
 
@@ -221,15 +247,17 @@ This project would not be possible without the incredible work of the following 
 
 -   **[REALITY](https://github.com/XTLS/REALITY)**: For the innovative stealth protocol that flawlessly masks proxy traffic without requiring a dedicated domain or standard TLS certificate.
 
--   **[VLESS-WS](https://github.com/XTLS/Xray-coreXray-core)**: For pioneering the VLESS protocol and laying the foundational architecture for modern anti-censorship technologies.
+-   **[VLESS-WS & VLESS-HTTPUpgrad](https://github.com/XTLS/Xray-core)**: For pioneering the lightweight VLESS protocol and engineering advanced CDN-compatible transports like HTTPUpgrade to drastically reduce overhead and latency.
+
+-   **[DNS XS](https://github.com/code3-dev/DNS-XS)**: For the comprehensive list of the public DNS servers in json format.
 
 ## License & Disclaimer
 
 ### License
-This project is licensed under the **VayDNS VPN Source-Available License**. 
+This project is licensed under the **Phoenix VPN Source-Available License**. 
 
 Please see the [LICENSE](LICENSE) file for the full legal text. For third-party components and their respective licenses, see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
 
 ### Disclaimer
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. Use of VayDNS VPN is at your own risk. The maintainers are not responsible for any misuse, data loss, or legal consequences. Users are solely responsible for complying with their local laws and regulations regarding the use of VPN and tunneling technologies.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. Use of Phoenix VPN is at your own risk. The maintainers are not responsible for any misuse, data loss, or legal consequences. Users are solely responsible for complying with their local laws and regulations regarding the use of VPN and tunneling technologies.
 
