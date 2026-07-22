@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="screenshots/logo.png" alt="Phoenix VPN Logo">
+</p>
+
 <div dir="rtl">
 
 # اطلاعیه
@@ -88,7 +92,7 @@
 ## تصاویر محیط برنامه VayDNS VPN
 در اینجا تصاویر مربوط به پنجره اصلی، پنجره اصلی با کانفیگ‌های پیش‌فرض، مدیریت کانفیگ‌ها، اسکنر ریزالور و نتایج اسکنر ریزالور را مشاهده می‌کنید:
 <p align="center">
-  <img src="screenshots/vaydns.webp" alt="پنجره اصلی برنامه">
+  <img src="screenshots/phoenixvpn.webp" alt="پنجره اصلی برنامه">
 </p>
 
 **تصویری از ویژگی‌ها و قابلیت‌های VayDNS VPN**
