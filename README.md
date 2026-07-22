@@ -3,7 +3,6 @@
 </p>
 
 # Announcement
-# Announcement
 We are excited to announce that our Android client, formerly known as VayDNS, has officially been rebranded as Phoenix VPN. This name change reflects our recent architectural expansion and our deep respect for the original developers. The "VayDNS" brand and technology are the proprietary creation of the net2share group (https://github.com/net2share/vaydns). Because our client has evolved to include extensive support for high-speed direct protocols—which fall outside the scope of the core VayDNS technology—we felt it was necessary to adopt a new identity. By transitioning to Phoenix VPN, we ensure that all credit and branding for VayDNS remain rightfully reserved for the net2share group. Moving forward, the highly resilient VayDNS protocol will proudly remain the backbone of Phoenix VPN, while we continue to improve our support for advanced direct protocols alongside it.
 
 # Phoenix VPN Android Client
