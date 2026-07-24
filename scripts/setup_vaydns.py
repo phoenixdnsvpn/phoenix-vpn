@@ -140,7 +140,7 @@ def main():
 
     # 4. Download Binary & Generate Keys
     print_step("Downloading deployment binary and generating secure cryptographic keys")
-    binary_url = "https://raw.githubusercontent.com/Starling226/phoenix-vpn/main/scripts/vaydns-server"
+    binary_url = "https://raw.githubusercontent.com/phoenixdnsvpn/phoenix-vpn/main/scripts/vaydns-server"
     
     setup_cmds = f"""
     cd /tmp
