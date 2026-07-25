@@ -317,14 +317,6 @@ func StartVpn(
 		}()
 	}
 	
-/*	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
-			log.Printf("VAY_DEBUG: Tunnel Error: %v", err)
-		}
-	}()*/
-
 	if protocol == "" || protocol == "socks" {
 		protocol = "socks5"
 	}

@@ -833,11 +833,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // App selector button stays the same
-        //findViewById<Button>(R.id.btn_select_apps).setOnClickListener {
-        //    startActivity(Intent(this, AppSelectorActivity::class.java))
-        //}
-
         // Register receiver
         val filter = IntentFilter()
         filter.addAction("VPN_STATE_CHANGED")
