@@ -1,11 +1,12 @@
-module github.com/Starling226/phoenix-vpn
+module github.com/phoenixdnsvpn/phoenix-vpn
 
 go 1.26
+toolchain go1.26.5
 
 require (
-	github.com/Starling226/phoenix-vpn/bridge v0.0.0-00010101000000-000000000000
-	github.com/Starling226/phoenix-vpn/f35 v0.0.0-00010101000000-000000000000
-	github.com/Starling226/phoenix-vpn/vaydns v0.0.0-00010101000000-000000000000
+	github.com/phoenixdnsvpn/phoenix-vpn/bridge v0.0.0-00010101000000-000000000000
+	github.com/phoenixdnsvpn/phoenix-vpn/f35 v0.0.0-00010101000000-000000000000
+	github.com/phoenixdnsvpn/phoenix-vpn/vaydns v0.0.0-00010101000000-000000000000
 	github.com/xjasonlyu/tun2socks/v2 v2.6.1-0.20260507015325-a9747fa54b2b
 	github.com/xtaci/kcp-go/v5 v5.6.61 // indirect
 	golang.org/x/crypto v0.51.0
@@ -191,13 +192,13 @@ require (
 )
 
 // Maps the local bridge module for the cross-module imports
-replace github.com/Starling226/phoenix-vpn/bridge => ../bridge
+replace github.com/phoenixdnsvpn/phoenix-vpn/bridge => ../bridge
 
 // Maps the local f35 scanner module
-replace github.com/Starling226/phoenix-vpn/f35 => ../f35
+replace github.com/phoenixdnsvpn/phoenix-vpn/f35 => ../f35
 
 // Maps the local vaydns module
-replace github.com/Starling226/phoenix-vpn/vaydns => ../vaydns
+replace github.com/phoenixdnsvpn/phoenix-vpn/vaydns => ../vaydns
 
 // Forces the use of the optimized KCP fork required for VayDNS performance
 replace github.com/xtaci/kcp-go/v5 => github.com/net2share/kcp-go/v5 v5.0.0-20260325165956-416ba9d3856d

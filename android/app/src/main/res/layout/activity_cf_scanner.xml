@@ -18,7 +18,7 @@
             android:id="@+id/toolbar_cf"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Cloudflare Scanner"
+            app:title="CDN IP Scanner"
             app:titleTextColor="?attr/colorOnSurface"
             app:navigationIcon="@drawable/ic_arrow_back_modern"
             app:navigationIconTint="?attr/colorOnSurface">
@@ -75,17 +75,27 @@
                 android:text="512" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <TextView
-            android:id="@+id/tv_cf_status"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Ready"
-            android:textSize="16sp"
-            android:textColor="?attr/colorPrimary"
-            android:textStyle="bold"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:layout_marginTop="8dp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Target CDN:"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface" />
+
+            <Spinner
+                android:id="@+id/spinner_scanner_cdn"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:backgroundTint="?attr/colorOnSurface" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -135,6 +145,17 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_marginTop="4dp" />
+
+        <TextView
+            android:id="@+id/tv_cf_passed"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="0 found"
+            android:textColor="#00C853"
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
     </LinearLayout>
 </LinearLayout>

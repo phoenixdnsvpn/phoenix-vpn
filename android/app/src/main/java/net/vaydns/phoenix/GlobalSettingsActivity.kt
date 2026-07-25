@@ -26,13 +26,18 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var cbUploadResolvers: SwitchCompat
     private lateinit var cbImportResolvers: SwitchCompat
     private lateinit var cbExportResolvers: SwitchCompat
+    private lateinit var cbShowShareLogs: SwitchCompat
+    private lateinit var cbShowDebugLogging: SwitchCompat
 
     // Global VLESS Fallback IP (Still relevant for scanner)
     private lateinit var btnCfHistory: android.widget.ImageButton
     private lateinit var rgEngineMode: android.widget.RadioGroup
     private lateinit var cbGlobalProtocolOverride: SwitchCompat
     private lateinit var spinnerGlobalProtocol: android.widget.Spinner
-    private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade")
+    private lateinit var layoutCdn: View
+    private lateinit var spinnerCdn: android.widget.Spinner
+    private lateinit var cbDebugLogs: SwitchCompat
+    private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc")
     // Notification Management
     private lateinit var etUnlockedDelay: EditText
     private lateinit var etLockedDelay: EditText
@@ -42,8 +47,16 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var divProtocolModeDivider: View
     private lateinit var tvStartupBehaviorHeader: TextView
     private lateinit var divStartupModeDivider: View
+    private lateinit var cbUseFragmentation: SwitchCompat
+    private lateinit var cbBlockQuic: SwitchCompat
     // private lateinit var tvProtocolModeLabel: TextView
     private lateinit var etGlobalDnsServer: EditText
+    private lateinit var rgTunnelApps: android.widget.RadioGroup
+    private lateinit var tvAllAppsWarning: TextView
+    private lateinit var cbTunnelAndroidServices: SwitchCompat
+    private lateinit var cbImportApps: SwitchCompat
+    private lateinit var cbExportApps: SwitchCompat
+    private lateinit var cbShowBackupRestore: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,19 +87,52 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbUploadResolvers = findViewById(R.id.cb_show_upload_resolvers)
         cbImportResolvers = findViewById(R.id.cb_show_import_resolvers)
         cbExportResolvers = findViewById(R.id.cb_show_export_resolvers)
+        cbShowShareLogs = findViewById(R.id.cb_show_share_logs)
+        cbShowDebugLogging = findViewById(R.id.cb_show_debug_logging)
 
         btnCfHistory = findViewById(R.id.btn_cf_history)
         rgEngineMode = findViewById(R.id.rg_engine_mode)
+        cbUseFragmentation = findViewById(R.id.cb_use_fragmentation)
+        cbBlockQuic = findViewById(R.id.cb_block_quic)
+
+        cbImportApps = findViewById(R.id.cb_show_import_apps)
+        cbExportApps = findViewById(R.id.cb_show_export_apps)
+        cbShowBackupRestore = findViewById(R.id.cb_show_backup_restore)
 
         // Bind Override UI
         cbGlobalProtocolOverride = findViewById(R.id.cb_global_protocol_override)
         btnCfHistory.setOnClickListener {
-            val intent = Intent(this, CfIpManagerActivity::class.java)
+            // 1. Grab the currently selected CDN on the screen
+            val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
+
+            // 2. Save it immediately so it doesn't get lost if the system kills the activity
+            getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                .edit().putString("selected_cdn", selectedCdn).apply()
+
+            // 3. Launch the Manager and tell it which CDN to display
+            val intent = Intent(this, CfIpManagerActivity::class.java).apply {
+                putExtra("TARGET_CDN", selectedCdn)
+            }
             startActivity(intent)
+        }
+
+        rgTunnelApps = findViewById(R.id.rg_tunnel_apps)
+        tvAllAppsWarning = findViewById(R.id.tv_all_apps_warning)
+        cbTunnelAndroidServices = findViewById(R.id.cb_tunnel_android_services)
+
+        rgTunnelApps.setOnCheckedChangeListener { _, checkedId ->
+            if (checkedId == R.id.rb_apps_all) {
+                tvAllAppsWarning.visibility = View.VISIBLE
+            } else {
+                tvAllAppsWarning.visibility = View.GONE
+            }
         }
 
         spinnerGlobalProtocol = findViewById(R.id.spinner_global_protocol)
         etGlobalDnsServer = findViewById(R.id.et_global_dns_server)
+
+        layoutCdn = findViewById(R.id.layout_cdn)
+        spinnerCdn = findViewById(R.id.spinner_cdn)
 // 1. Show an educational warning if they try to tap/type in the box
         etGlobalDnsServer.setOnClickListener {
             Toast.makeText(this, "Manual entry disabled to prevent DNS leaks. Please use the Global DNS Scanner to assign a secure DoH server.", Toast.LENGTH_LONG).show()
@@ -130,13 +176,47 @@ class GlobalSettingsActivity : AppCompatActivity() {
         divStartupModeDivider = findViewById(R.id.div_startup_mode_divider)
         // tvProtocolModeLabel = findViewById(R.id.tv_protocol_mode_label)
 
+        // 1. Link the UI element
+        cbDebugLogs = findViewById(R.id.cb_debug_logs)
+
+        // 2. Load the saved preference
+        val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+        cbDebugLogs.isChecked = sharedPrefs.getBoolean("debug_logs_enabled", false)
+
+        // 3. Save when toggled
+        cbDebugLogs.setOnCheckedChangeListener { _, isChecked ->
+            sharedPrefs.edit().putBoolean("debug_logs_enabled", isChecked).apply()
+        }
+
+        // Populate CDN Spinner dynamically from Go Native Vault
+        val cdnList = mutableListOf<String>()
+        val cdnCount = Mobile.getCdnCount()
+        for (i in 0 until cdnCount) {
+            val name = Mobile.getCdnName(i)
+            if (name.isNotEmpty()) {
+                cdnList.add(name)
+            }
+        }
+        // Fallback options if JSON hasn't loaded yet
+        if (cdnList.isEmpty()) {
+            cdnList.add("Cloudflare")
+            cdnList.add("Amazon")
+        }
+
+        val cdnAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
+        cdnAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerCdn.adapter = cdnAdapter
+
         loadSettings()
     }
 
     private fun loadSettings() {
-        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+
+        cbImportApps.isChecked = menuPrefs.getBoolean("show_import_apps", false)
+        cbExportApps.isChecked = menuPrefs.getBoolean("show_export_apps", false)
 
         etUnlockedDelay.setText(appPrefs.getLong("unlocked_delay_ms", 2000L).toString())
         etLockedDelay.setText(appPrefs.getLong("locked_delay_ms", 5000L).toString())
@@ -153,6 +233,16 @@ class GlobalSettingsActivity : AppCompatActivity() {
             rgTunnelMode.check(R.id.rb_mode_proxy)
         }
 
+        val tunnelAllApps = appPrefs.getBoolean("tunnel_all_apps", false)
+        if (tunnelAllApps) {
+            rgTunnelApps.check(R.id.rb_apps_all)
+            tvAllAppsWarning.visibility = View.VISIBLE
+        } else {
+            rgTunnelApps.check(R.id.rb_apps_selected)
+            tvAllAppsWarning.visibility = View.GONE
+        }
+
+        cbTunnelAndroidServices.isChecked = appPrefs.getBoolean("tunnel_android_services", false)
         // Load Menu Toggles
         cbUseLayer7Ping.isChecked = tunnelPrefs.getBoolean("use_layer7_ping", true)
         cbUpdateConfigs.isChecked = menuPrefs.getBoolean("show_update_configs", false)
@@ -161,6 +251,11 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbUploadResolvers.isChecked = menuPrefs.getBoolean("show_upload_resolvers", false)
         cbImportResolvers.isChecked = menuPrefs.getBoolean("show_import_resolvers", false)
         cbExportResolvers.isChecked = menuPrefs.getBoolean("show_export_resolvers", false)
+        cbShowBackupRestore.isChecked = menuPrefs.getBoolean("show_backup_restore", false)
+        cbShowShareLogs.isChecked = menuPrefs.getBoolean("show_share_logs", false)
+        cbShowDebugLogging.isChecked = menuPrefs.getBoolean("show_debug_logging", false)
+        cbUseFragmentation.isChecked = tunnelPrefs.getBoolean("use_fragmentation", false)
+        cbBlockQuic.isChecked = tunnelPrefs.getBoolean("block_quic", true)
 
         // Load VLESS IP Fallback
         //etVlessWsIp.setText(tunnelPrefs.getString("vless_ws_ip", ""))
@@ -171,7 +266,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             rgEngineMode.check(R.id.rb_engine_singbox)
         }
 
-// Load Global Protocol Override
+        // Load Global Protocol Override
         val isOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
         val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
         cbGlobalProtocolOverride.isChecked = isOverride
@@ -179,7 +274,16 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val pIndex = supportedProtocols.indexOf(globalProtocol)
         if (pIndex >= 0) spinnerGlobalProtocol.setSelection(pIndex)
 
-// --- DYNAMIC UI VISIBILITY (Community vs Official Builds) ---
+        // Load saved CDN Selection
+        val savedCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+        for (i in 0 until spinnerCdn.adapter.count) {
+            if (spinnerCdn.adapter.getItem(i).toString() == savedCdn) {
+                spinnerCdn.setSelection(i)
+                break
+            }
+        }
+
+        // --- DYNAMIC UI VISIBILITY (Community vs Official Builds) ---
         val isOfficialBuild = Mobile.isOfficialBuild()
         val configCount = Mobile.getDefaultConfigCount()
 
@@ -201,6 +305,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             cbUploadConfigs.visibility = View.GONE
             cbUploadResolvers.visibility = View.GONE
 
+            layoutCdn.visibility = View.GONE
             // 4. Remove Cloudflare IP Address Section
             // tvProtocolModeLabel.visibility = View.GONE
             // etVlessWsIp.visibility = View.GONE
@@ -215,8 +320,9 @@ class GlobalSettingsActivity : AppCompatActivity() {
 
     private fun checkIpAndExit() {
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
+        val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
 
         val selectedEngine = if (rgEngineMode.checkedRadioButtonId == R.id.rb_engine_xray) {
             "xray"
@@ -235,7 +341,10 @@ class GlobalSettingsActivity : AppCompatActivity() {
             putBoolean("global_protocol_override", overrideChecked)
             putString("global_protocol_selected", selectedGlobalProto)
             putBoolean("use_layer7_ping", cbUseLayer7Ping.isChecked)
+            putBoolean("use_fragmentation", cbUseFragmentation.isChecked)
+            putBoolean("block_quic", cbBlockQuic.isChecked)
             putString("global_dns_server", globalDns)
+            putString("selected_cdn", selectedCdn)
         }.apply()
 
         var unlockedDelay = etUnlockedDelay.text.toString().toLongOrNull() ?: 2000L
@@ -261,6 +370,9 @@ class GlobalSettingsActivity : AppCompatActivity() {
             putLong("unlocked_delay_ms", unlockedDelay)
             putLong("locked_delay_ms", lockedDelay)
             putLong("notif_update_ms", notifUpdate)
+            val isAllApps = rgTunnelApps.checkedRadioButtonId == R.id.rb_apps_all
+            putBoolean("tunnel_all_apps", isAllApps)
+            putBoolean("tunnel_android_services", cbTunnelAndroidServices.isChecked)
         }.apply()
 
         // 3. Save Menu Preferences
@@ -268,6 +380,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val configCount = Mobile.getDefaultConfigCount()
 
         menuPrefs.edit().apply {
+            putBoolean("show_share_logs", cbShowShareLogs.isChecked)
+            putBoolean("show_debug_logging", cbShowDebugLogging.isChecked)
             if (configCount > 0L) {
                 putBoolean("show_update_configs", cbUpdateConfigs.isChecked)
                 putBoolean("show_update_resolvers", cbUpdateResolvers.isChecked)
@@ -275,6 +389,9 @@ class GlobalSettingsActivity : AppCompatActivity() {
                 putBoolean("show_upload_resolvers", cbUploadResolvers.isChecked)
                 putBoolean("show_import_resolvers", cbImportResolvers.isChecked)
                 putBoolean("show_export_resolvers", cbExportResolvers.isChecked)
+                putBoolean("show_import_apps", cbImportApps.isChecked)
+                putBoolean("show_export_apps", cbExportApps.isChecked)
+                putBoolean("show_backup_restore", cbShowBackupRestore.isChecked)
             }
             // if (isOfficialBuild) {
             //    putBoolean("show_check_app_update", cbUpdateApp.isChecked)

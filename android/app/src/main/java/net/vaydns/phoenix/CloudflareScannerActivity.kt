@@ -22,13 +22,13 @@ class CloudflareScannerActivity : AppCompatActivity() {
 
     private lateinit var tvProgress: TextView
     private lateinit var tvPassed: TextView
-    private lateinit var tvStatus: TextView
+//    private lateinit var tvStatus: TextView
     private lateinit var btnStartStop: Button
     private lateinit var btnSet: ImageButton
     private lateinit var btnShare: ImageButton
     private lateinit var recycler: RecyclerView
     private lateinit var adapter: ResolverAdapter
-
+    private lateinit var spinnerCdn: android.widget.Spinner
     private var isScanning = false
     private var isDefaultConfig = false
     private var configIndex = -1L
@@ -48,6 +48,7 @@ class CloudflareScannerActivity : AppCompatActivity() {
                     btnStartStop.text = "START SCAN"
                     btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
                     etScanCount.isEnabled = true // Unlocks the input field universally
+                    spinnerCdn.isEnabled = true
                 }
 
                 val rawResult = intent.getStringExtra("RAW_RESULT") ?: ""
@@ -63,9 +64,9 @@ class CloudflareScannerActivity : AppCompatActivity() {
 
                     // Apply dynamic target count
                     if (isFinished) {
-                        tvStatus.text = "Done"
+//                        tvStatus.text = "Done"
                     } else {
-                        tvStatus.text = "Scanning..."
+//                        tvStatus.text = "Scanning..."
                     }
                     tvProgress.text = "$scannedCount / $targetCount" // Back to just numbers!
                     tvPassed.text = "$foundCount found"
@@ -89,7 +90,7 @@ class CloudflareScannerActivity : AppCompatActivity() {
 
                 } else {
                     // Apply dynamic target count here as well
-                    tvStatus.text = "Stopped"
+//                    tvStatus.text = "Stopped"
                     tvProgress.text = "0 / $targetCount" // Back to just numbers!
                     tvPassed.text = "0 found"
                     cfResults.clear()
@@ -119,17 +120,38 @@ class CloudflareScannerActivity : AppCompatActivity() {
         etScanCount = findViewById(R.id.et_cf_scan_count)
         tvProgress = findViewById(R.id.tv_cf_progress)
         tvPassed = findViewById(R.id.tv_cf_passed)
-        tvStatus = findViewById(R.id.tv_cf_status)
+//        tvStatus = findViewById(R.id.tv_cf_status)
         btnStartStop = findViewById(R.id.btn_cf_start_stop)
         btnSet = findViewById(R.id.btn_cf_set)
         btnShare = findViewById(R.id.btn_cf_share)
-
+        spinnerCdn = findViewById(R.id.spinner_scanner_cdn)
         recycler = findViewById(R.id.recycler_cf_results)
         recycler.layoutManager = LinearLayoutManager(this)
         recycler.addItemDecoration(androidx.recyclerview.widget.DividerItemDecoration(this, LinearLayoutManager.VERTICAL))
 
         adapter = ResolverAdapter(cfResults, false)
         recycler.adapter = adapter
+
+    // Populate CDN Spinner dynamically from Go Native Vault
+        val cdnList = mutableListOf<String>()
+        val cdnCount = mobile.Mobile.getCdnCount()
+
+        for (i in 0 until cdnCount) {
+            val name = mobile.Mobile.getCdnName(i)
+            if (name.isNotEmpty()) {
+                cdnList.add(name)
+            }
+        }
+
+        // Fallback options if the JSON hasn't been downloaded or loaded yet
+        if (cdnList.isEmpty()) {
+            cdnList.add("Cloudflare")
+            cdnList.add("Amazon")
+        }
+
+        val spinnerAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
+        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerCdn.adapter = spinnerAdapter
 
         val filter = IntentFilter("CF_SCANNER_RESULT")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -147,9 +169,10 @@ class CloudflareScannerActivity : AppCompatActivity() {
                 // Grab the user's requested count
                 val countStr = etScanCount.text.toString()
                 val scanCount = countStr.toIntOrNull() ?: 512
+                val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
 
                 // Clean UI text as requested
-                tvStatus.text = "Scanning..."
+//                tvStatus.text = "Scanning..."
                 tvProgress.text = "0 / $scanCount"
                 tvPassed.text = "0 found"
 
@@ -159,11 +182,14 @@ class CloudflareScannerActivity : AppCompatActivity() {
                 cfResults.clear()
                 adapter.notifyDataSetChanged()
 
+                spinnerCdn.isEnabled = false // (Locks dropdown during scan)
+
                 val serviceIntent = Intent(this, CFScannerService::class.java).apply {
                     action = "ACTION_START_SCAN"
                     putExtra("IS_DEFAULT", isDefaultConfig)
                     putExtra("CONFIG_INDEX", configIndex)
                     putExtra("SCAN_COUNT", scanCount)
+                    putExtra("TARGET_CDN", selectedCdn)
                 }
                 startService(serviceIntent)
             } else {
@@ -171,6 +197,7 @@ class CloudflareScannerActivity : AppCompatActivity() {
                 btnStartStop.text = "START SCAN"
                 btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
                 etScanCount.isEnabled = true
+                spinnerCdn.isEnabled = true
                 startService(Intent(this, CFScannerService::class.java).apply { action = "ACTION_STOP_SCAN" })
             }
         }
@@ -180,6 +207,9 @@ class CloudflareScannerActivity : AppCompatActivity() {
                 Toast.makeText(this, "No valid IPs found yet.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+
+            // Capture the currently selected CDN from the spinner
+            val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
 
             // 1. Create the custom layout for the Dialog
             val container = android.widget.LinearLayout(this).apply {
@@ -215,76 +245,97 @@ class CloudflareScannerActivity : AppCompatActivity() {
                 .setView(container)
                 .setPositiveButton("Save") { _, _ ->
 
-                    // Grab the new IPs from the scan results
                     val scannedIps = cfResults.map { it.ip }
-                    val finalIpsToSave = mutableListOf<String>()
-
-                    // Open the Vault
                     val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
-                    val existingIpsString = vaultPrefs.getString("saved_ips", "") ?: ""
+                    val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
 
-                    val existingLatencies = vaultPrefs.getString("ip_latencies", "{}") ?: "{}"
-                    val latObj = try { org.json.JSONObject(existingLatencies) } catch (e: Exception) { org.json.JSONObject() }
+                    val finalJsonArray = org.json.JSONArray()
+                    val existingTargetCdnIps = mutableListOf<String>()
+                    val existingLatencies = mutableMapOf<String, Int>()
 
-                    // Add new IPs and speeds to the JSON object
-                    for (res in cfResults) {
-                        latObj.put(res.ip, res.latencyMs)
-                    }
+                    // 3. Separate other CDNs from the Target CDN
+                    try {
+                        val jsonArray = org.json.JSONArray(jsonString)
+                        for (i in 0 until jsonArray.length()) {
+                            val obj = jsonArray.getJSONObject(i)
+                            val ipCdn = obj.optString("cdn", "Cloudflare")
+                            val ip = obj.optString("ip", "")
+                            val lat = obj.optInt("latency", -1)
 
-                    // 3. Process based on User Choice
+                            if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
+                                if (ip.isNotEmpty()) {
+                                    existingTargetCdnIps.add(ip)
+                                    existingLatencies[ip] = lat
+                                }
+                            } else {
+                                // Keep other CDN data completely untouched!
+                                finalJsonArray.put(obj)
+                            }
+                        }
+                    } catch (e: Exception) { e.printStackTrace() }
+
+                    // 4. Process Merge or Overwrite exclusively for the Target CDN
+                    val finalTargetIpsToSave = mutableListOf<String>()
                     if (rbMerge.isChecked) {
-                        // Parse existing IPs, add them first
-                        val existing = existingIpsString.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                        finalIpsToSave.addAll(existing)
-
-                        // Add new IPs, avoiding duplicates
+                        finalTargetIpsToSave.addAll(existingTargetCdnIps)
                         for (ip in scannedIps) {
-                            if (!finalIpsToSave.contains(ip)) {
-                                finalIpsToSave.add(ip)
+                            if (!finalTargetIpsToSave.contains(ip)) {
+                                finalTargetIpsToSave.add(ip)
                             }
                         }
                     } else {
-                        // Overwrite: Just use the newly scanned IPs
-                        finalIpsToSave.addAll(scannedIps)
+                        finalTargetIpsToSave.addAll(scannedIps)
                     }
 
-                    // 4. Save to the Global Vault as a JSON Array!
-                    val jsonArray = org.json.JSONArray()
-
-                    for ((index, ip) in finalIpsToSave.withIndex()) {
+                    // 5. Build and append the updated Target CDN IPs
+                    for ((index, ip) in finalTargetIpsToSave.withIndex()) {
                         val obj = org.json.JSONObject()
                         obj.put("ip", ip)
-                        // ONLY check the absolute fastest IP (the first one)
-                        obj.put("isChecked", index == 0)
+                        obj.put("isChecked", index == 0) // Check the fastest IP for this specific CDN
 
-                        // Grab latency if we have it from the scan
                         val matchedResult = cfResults.find { it.ip == ip }
-                        obj.put("latency", matchedResult?.latencyMs ?: -1)
+                        val latency = matchedResult?.latencyMs ?: existingLatencies[ip] ?: -1
 
-                        jsonArray.put(obj)
+                        obj.put("latency", latency)
+                        obj.put("cdn", selectedCdn)
+
+                        finalJsonArray.put(obj)
                     }
 
-                    vaultPrefs.edit().putString("vault_ips_json", jsonArray.toString()).apply()
+                    vaultPrefs.edit().putString("vault_ips_json", finalJsonArray.toString()).apply()
 
-                    // 5. Also apply the absolute fastest IP to the current config being edited
+                    // 6. Apply fastest IP to the current config ONLY if the CDN matches
                     val fastestIp = scannedIps.firstOrNull() ?: ""
                     if (fastestIp.isNotEmpty() && configId.isNotEmpty()) {
-                        if (isDefaultConfig) {
+
+                        // Fetch the currently assigned CDN for this specific config
+                        val configCdn = if (isDefaultConfig) {
                             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                                .edit()
-                                .putString("${configId}_vlessIp", fastestIp)
-                                .apply()
+                                .getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
                         } else {
-                            val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this).toMutableList()
-                            val cIndex = currentConfigs.indexOfFirst { it.id == configId }
-                            if (cIndex != -1) {
-                                currentConfigs[cIndex] = currentConfigs[cIndex].copy(vlessIp = fastestIp)
-                                net.vaydns.phoenix.ConfigEditorActivity.saveAllConfigs(this, currentConfigs)
+                            getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                                .getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
+                        }
+
+                        // Protect against CDN cross-contamination
+                        if (configCdn.equals(selectedCdn, ignoreCase = true)) {
+                            if (isDefaultConfig) {
+                                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putString("${configId}_vlessIp", fastestIp)
+                                    .apply()
+                            } else {
+                                val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this@CloudflareScannerActivity).toMutableList()
+                                val cIndex = currentConfigs.indexOfFirst { it.id == configId }
+                                if (cIndex != -1) {
+                                    currentConfigs[cIndex] = currentConfigs[cIndex].copy(vlessIp = fastestIp)
+                                    net.vaydns.phoenix.ConfigEditorActivity.saveAllConfigs(this@CloudflareScannerActivity, currentConfigs)
+                                }
                             }
                         }
                     }
 
-                    Toast.makeText(this, "Saved ${scannedIps.size} IPs to Global Vault!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Saved ${scannedIps.size} IPs for $selectedCdn!", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -296,13 +347,13 @@ class CloudflareScannerActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            val shareText = "Cloudflare Scanner Results:\n" + cfResults.joinToString("\n") {
+            val shareText = "CDN Scanner Results:\n" + cfResults.joinToString("\n") {
                 "${it.ip} (${it.latencyMs} ms)"
             }
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "Cloudflare Scanner Results")
+                putExtra(Intent.EXTRA_SUBJECT, "CDN Scanner Results")
                 putExtra(Intent.EXTRA_TEXT, shareText)
             }
             startActivity(Intent.createChooser(shareIntent, "Share IPs via"))

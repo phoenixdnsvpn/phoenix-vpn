@@ -1,5 +1,6 @@
 package net.vaydns.phoenix
 
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -41,6 +42,13 @@ import net.vaydns.phoenix.ConfigEditorActivity.Companion.loadAllConfigs
 import net.vaydns.phoenix.ConfigEditorActivity.Companion.saveAllConfigs
 import kotlinx.coroutines.*
 import kotlin.coroutines.resume
+import androidx.core.content.FileProvider
+import java.io.File
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.FileOutputStream
+import java.io.InputStream
+import android.os.Environment
 
 private lateinit var rgMode: RadioGroup   // kept only for editor (we don't use it here anymore)
 private lateinit var tvStatus: TextView
@@ -68,10 +76,16 @@ private var liveDailyRx = -1L
 private var liveDailyTx = -1L
 private var liveTrackingDate = ""
 private lateinit var tvProxyIpLabel: TextView
-
 private var liveDailyOsRx = -1L
 private var liveDailyOsTx = -1L
 private var activeLocalProxyPort: Int = 1080
+private var isLoggingActive = false
+private var logcatProcess: Process? = null
+private var isUpdateAvailable = false
+private var latestApkUrl = ""
+private var latestApkVersion = ""
+private var latestReleaseType = ""
+private var hasCheckedForUpdateThisSession = false // Prevents spamming the API
 
 class MainActivity : AppCompatActivity() {
     private lateinit var drawerLayout: androidx.drawerlayout.widget.DrawerLayout
@@ -122,7 +136,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 "ERROR" -> {
                     // 1. Wipe the active ID memory
-                    getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE).edit().remove("connected_config_id").apply()
+                    getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).edit().remove("connected_config_id").apply()
 
                     // 2. TELL SERVICES TO INITIATE GRACEFUL SELF-DESTRUCT
                     startService(Intent(this@MainActivity, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
@@ -141,7 +155,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 "DISCONNECTED", "STOPPED" -> {
                     // 1. Wipe the active ID memory
-                    getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE).edit().remove("connected_config_id").apply()
+                    getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).edit().remove("connected_config_id").apply()
 
                     // 2. TELL SERVICES TO INITIATE GRACEFUL SELF-DESTRUCT
                     startService(Intent(this@MainActivity, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
@@ -207,7 +221,7 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             if (connected) {
 // Read the actual connected config, fallback to selected if missing
-                val prefs = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+                val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                 val connectedId = prefs.getString("connected_config_id", selectedConfigId)
 
                 // FIND THE ACTIVE CONFIGURATION NAME FROM THE CACHED LIST
@@ -225,6 +239,12 @@ class MainActivity : AppCompatActivity() {
                 // Sleek Red for Stop state
                 btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#4F7F84"))
                 layoutNetworkStats.visibility = android.view.View.VISIBLE
+
+                if (!hasCheckedForUpdateThisSession) {
+                    hasCheckedForUpdateThisSession = true
+                    silentCheckForAppUpdate()
+                }
+
             } else {
                 // RESTORE DEFAULT APP HEADER WHEN DISCONNECTED
                 supportActionBar?.title = "Phoenix VPN"
@@ -238,6 +258,10 @@ class MainActivity : AppCompatActivity() {
                 layoutNetworkStats.visibility = android.view.View.GONE
                 tvSpeed.text = "▼ 0 B/s  ▲ 0 B/s"
                 tvTotal.text = "Total: 0 B ↓  0 B ↑"
+
+                hasCheckedForUpdateThisSession = false
+                isUpdateAvailable = false
+                invalidateOptionsMenu() // Hides the sync icon if the tunnel drops
             }
             btnToggle.isEnabled = true
         }
@@ -263,7 +287,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 2. EXPLICIT UI TOGGLE DEFAULTS
-        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         if (!appPrefs.contains("default_configs_at_start")) {
             appPrefs.edit().apply {
                 // TRUE: Show official configs by default on startup
@@ -288,7 +312,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateModeUI() {
-        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val startInVpnMode = appPrefs.getBoolean("default_to_vpn_mode", true)
 
         if (isVpnConnected) {
@@ -316,14 +340,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadSelectedApps() {
-        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         selectedApps = (sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()).toMutableSet()
         runOnUiThread {
             if (::tvSelectedAppsInfo.isInitialized) {
-                tvSelectedAppsInfo.text = "Selected apps to use the DNS tunnel: ${selectedApps.size}"
+                tvSelectedAppsInfo.text = "Selected apps to use the tunnel: ${selectedApps.size}"
             }
         }
     }
+
+    // Launcher for the native "Save JSON Backup to File" dialog
+    private val createBackupFileLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                try {
+                    contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        outputStream.write(pendingExportJsonText.toByteArray())
+                        outputStream.flush()
+                        Toast.makeText(this, "Backup saved successfully as JSON!", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Failed to write JSON file: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+    private var pendingExportJsonText = ""
+
     private val configFilePickerLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -367,7 +410,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun askForNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val prefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             val hasAsked = prefs.getBoolean("has_asked_notification", false)
 
             if (!hasAsked && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -389,7 +432,7 @@ class MainActivity : AppCompatActivity() {
             val isIgnoringOptimizations = powerManager.isIgnoringBatteryOptimizations(packageName)
 
             if (!isIgnoringOptimizations) {
-                val prefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+                val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                 val hasAskedBattery = prefs.getBoolean("has_asked_battery", false)
 
                 // Only show this dialog exactly once
@@ -435,6 +478,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        checkUpdateAndWarn()
+
         initDefaultSettings()
 
         loadSelectedApps()
@@ -460,6 +505,59 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_main)
 
+        // ==========================================
+        // 1. INITIALIZE LOGCAT STREAMER (ROBUST JNI FIX)
+        // ==========================================
+        val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+        if (sharedPrefs.getBoolean("debug_logs_enabled", false)) {
+            try {
+                // val logFile = File(applicationContext.getExternalFilesDir(null), "phoenix_engine_logs.txt")
+                val logFile = File(applicationContext.filesDir, "phoenix_engine_logs.txt")
+
+                if (logFile.exists()) {
+                    logFile.writeText("--- NEW SESSION LOG INITIATED ---\n")
+                } else {
+                    // If it's the very first time the app is ever run
+                    logFile.writeText("--- SYSTEM LOG INITIATED ---\n")
+                }
+
+                try {
+                    logFile.appendText("Heartbeat at ${System.currentTimeMillis()}\n")
+                    Log.i("PhoenixVPN", "Successfully wrote to: ${logFile.absolutePath}")
+                } catch (e: Exception) {
+                    Log.e("PhoenixVPN", "CRITICAL: Cannot write to file: ${e.message}")
+                }
+
+                // Notice we removed '-f' and '--pid'.
+                // Android's security sandbox automatically limits this to our app's UID!
+                val myUid = android.os.Process.myUid()
+                val command = "logcat -v threadtime --uid=$myUid"
+                val process = Runtime.getRuntime().exec(command)
+
+                // Read the logcat stream in a background thread and write it to our file
+                Thread {
+                    try {
+                        process.inputStream.bufferedReader().use { reader ->
+                            logFile.printWriter().use { out ->
+                                var line: String?
+                                while (reader.readLine().also { line = it } != null) {
+                                    out.println(line)
+                                    out.flush() // Force write immediately so logs aren't lost if the app crashes
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }.start()
+
+                Log.i("PhoenixVPN", "Native Logcat streaming initialized to: ${logFile.absolutePath}")
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // ==========================================
         drawerLayout = findViewById(R.id.drawer_layout)
         val surfaceColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface, Color.WHITE)
         drawerLayout.setStatusBarBackgroundColor(surfaceColor)
@@ -517,25 +615,30 @@ class MainActivity : AppCompatActivity() {
                         "1.0"
                     }
 
+                    // Dynamically check the release type to determine if we show the Telegram link
+
+                    val releaseType = try {
+                        mobile.Mobile.getReleaseType().lowercase()
+                    } catch (e: Exception) {
+                        "community"
+                    }
+                    val telegramLink = if (releaseType == "private") "\n    t.me/phoenixvpn" else ""
+
                     // Use MaterialAlertDialogBuilder to respect your Day/Night themes
                     MaterialAlertDialogBuilder(this)
                         .setTitle("Phoenix VPN")
                         .setMessage("""
-            Version: $version
+    Version: $version
 
-            DNS Tunneling app designed for heavily censored environments.
+    DNS Tunneling app designed for heavily censored environments.
 
-            Made with ❤️
-            x.com/Starling226
-            t.me/Starling226
-            https://github.com/Starling226/phoenix-vpn
-        """.trimIndent())
+    Made with ❤️
+    x.com/phoenixdnsvpn            
+    https://github.com/phoenixdnsvpn/phoenix-vpn$telegramLink
+""".trimIndent())
                         .setPositiveButton("Close", null)
                         .setIcon(R.mipmap.ic_launcher_round)
-                        .show() // .show() handles create and show automatically
-
-                    // DELETE the manual setTextColor line.
-                    // The theme overlay we created earlier handles this now.
+                        .show()
                     true
                 }
             }
@@ -571,7 +674,7 @@ class MainActivity : AppCompatActivity() {
         val configCount = mobile.Mobile.getDefaultConfigCount()
         val buildStatus = mobile.Mobile.getBuildStatus()
         //val isOfficialBuild = buildStatus == "Official Release" || configCount > 0
-        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val savedPort = sharedPref.getString("proxy_port", "1080")
         etProxyPort.setText(savedPort)
 
@@ -590,7 +693,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(preferenceChangeListener)
 
         updateModeUI()
@@ -607,7 +710,7 @@ class MainActivity : AppCompatActivity() {
         loadSelectedConfig()
 
         switchDefault.setOnCheckedChangeListener { _, isChecked ->
-            getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE).edit()
+            getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).edit()
                 .putBoolean("default_configs_at_start", isChecked)
                 .apply()
 
@@ -692,17 +795,6 @@ class MainActivity : AppCompatActivity() {
                         return@setOnClickListener // Instantly abort the connection attempt
                     }
 
-                    val isDirectMode = activeProtocol.lowercase() != "vaydns"
-
-                    if (isDirectMode && isProxyMode) {
-                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
-                            .setTitle("Proxy Mode Unavailable")
-                            .setMessage("Direct protocols (like Hysteria2, Reality, and Vless-WS) currently require VPN Mode to function properly.\n\nPlease switch to VPN Mode to use this server.\n\n---\n\nپروتکل‌های مستقیم (مانند Hysteria2، Reality و Vless-WS) در حال حاضر فقط در حالت VPN کار می‌کنند.\n\nلطفاً برای استفاده از این سرور به حالت VPN تغییر وضعیت دهید.")
-                            .setPositiveButton("OK", null)
-                            .show()
-                        return@setOnClickListener // Block connection
-                    }
-
                     // GUARDRAIL 2: Block HTTP in VPN Mode
                     if (config.protocol.lowercase() == "http" && !isProxyMode) {
                         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
@@ -713,7 +805,12 @@ class MainActivity : AppCompatActivity() {
                         return@setOnClickListener // Block connection
                     }
                 }
-                if (!isProxyMode) {
+                // Fetch the preference locally so the if-statement can read it ---
+                val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                val tunnelAllApps = appPrefs.getBoolean("tunnel_all_apps", false)
+                // val tunnelAndroidServices = appPrefs.getBoolean("tunnel_android_services", false)
+
+                if (!isProxyMode && !tunnelAllApps) {
                     // Safety check: Prevent starting VPN with no apps selected
                     if (selectedApps.isEmpty()) {
                         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
@@ -773,6 +870,42 @@ class MainActivity : AppCompatActivity() {
         })
 
         askForNotificationPermission()
+    }
+
+    private fun checkUpdateAndWarn() {
+        val updatePrefs = getSharedPreferences("AppUpdateTracker", Context.MODE_PRIVATE)
+
+        val currentVersionCode = try {
+            val pInfo = packageManager.getPackageInfo(packageName, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pInfo.longVersionCode
+            } else {
+                pInfo.versionCode.toLong()
+            }
+        } catch (e: Exception) {
+            -1L
+        }
+
+        val savedVersionCode = updatePrefs.getLong("last_version_code", -1L)
+
+        // If it is NOT a fresh install AND the current version is higher
+        if (savedVersionCode != -1L && currentVersionCode > savedVersionCode) {
+
+            // Show a dismissible warning dialog
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Warning / هشدار")
+                .setMessage("Please note if you have updated the App instead of a fresh installation, close the app, force stop, clear the data and do a fresh installation.\n\n" +
+                        "لطفاً توجه داشته باشید که اگر به جای نصب مجدد (Fresh Install) برنامه را آپدیت کرده‌اید، برنامه را ببندید، توقف اجباری (Force Stop) و پاک‌سازی داده‌ها (Clear Data) را انجام داده و مجدداً نصب کنید.")
+                .setPositiveButton("OK / تأیید", null) // Just closes the dialog
+                .show()
+
+            // Save the new version code so they can proceed and use the app without being nagged again
+            updatePrefs.edit().putLong("last_version_code", currentVersionCode).apply()
+
+        } else if (savedVersionCode == -1L) {
+            // Fresh Install: just save the version code normally
+            updatePrefs.edit().putLong("last_version_code", currentVersionCode).apply()
+        }
     }
 
     private fun applyCurrentSort() {
@@ -1123,7 +1256,7 @@ class MainActivity : AppCompatActivity() {
         Log.i("VAY_DEBUG", "Massive Multi-Config Parallel Engine Run Launched...")
         val safeConfigs = configs.toList()
 
-        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
 
         for (index in safeConfigs.indices) {
             val holder = recyclerConfigs.findViewHolderForAdapterPosition(index)
@@ -1219,7 +1352,8 @@ class MainActivity : AppCompatActivity() {
             val cleanProtocol = if (isDirectMode) activeProtocol else finalConfig.protocol
             var serverIp = ""
             if (isDirectMode) {
-                if (cleanProtocol.lowercase() == "vless-ws" || cleanProtocol.lowercase() == "vless-httpupgrade") {
+                if (cleanProtocol.lowercase() == "vless-ws" || cleanProtocol.lowercase() == "vless-httpupgrade"
+                    || cleanProtocol.lowercase() == "vless-grpc") {
                     // Priority 1: Config's specific VLESS IP (Custom or Default Override)
                     // Priority 2: Global Vault VLESS IP fallback
                     serverIp = if (configVlessIp.isNotEmpty()) configVlessIp else firstGlobalVlessIp
@@ -1282,12 +1416,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadSelectedConfig() {
-        val prefs = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
+        val prefs = getSharedPreferences("PhoenixVpnPrefs", MODE_PRIVATE)
         selectedConfigId = prefs.getString("selected_config_id", null)
     }
 
     private fun saveSelectedConfigId(id: String?) {
-        val prefs = getSharedPreferences("VayDNS_Settings", MODE_PRIVATE)
+        val prefs = getSharedPreferences("PhoenixVpnPrefs", MODE_PRIVATE)
         prefs.edit().putString("selected_config_id", id).apply()
         selectedConfigId = id
     }
@@ -1296,7 +1430,7 @@ class MainActivity : AppCompatActivity() {
         configList.clear()
         val userConfigs = loadAllConfigs(this)
 
-        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val displayVaydnsConfigs = appPrefs.getBoolean("display_vaydns_configs", false)
 
         val defaultConfigs = if (switchDefault.isChecked) {
@@ -1466,7 +1600,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val builder = AlertDialog.Builder(this)
+        // Use MaterialAlertDialogBuilder to respect Day/Night themes automatically
+        MaterialAlertDialogBuilder(this)
             .setTitle("Delete Config")
             .setMessage("Delete \"${config.name}\"?")
             .setPositiveButton("Delete") { _, _ ->
@@ -1481,17 +1616,7 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Config deleted", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
-
-        // 1. Create the dialog object
-        val dialog = builder.create()
-
-        // 2. Display it
-        dialog.show()
-
-        // 3. Set the button colors to #2F4A6F
-        val brandColor = 0xFF2F4A6F.toInt()
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(brandColor)
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(brandColor)
+            .show()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -1665,6 +1790,8 @@ class MainActivity : AppCompatActivity() {
 
         // Read user preferences (Default is false/invisible)
         val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
+        val showShareLogs = menuPrefs.getBoolean("show_share_logs", false)
+        val showDebugLogging = menuPrefs.getBoolean("show_debug_logging", false)
         // val showAppUpdate = menuPrefs.getBoolean("show_check_app_update", true)
         val showUpdateConfigs = menuPrefs.getBoolean("show_update_configs", false)
         val showUpdateResolvers = menuPrefs.getBoolean("show_update_resolvers", false)
@@ -1674,6 +1801,18 @@ class MainActivity : AppCompatActivity() {
         val showImport = menuPrefs.getBoolean("show_import_resolvers", false)
         val showExport = menuPrefs.getBoolean("show_export_resolvers", false)
 
+        val showImportApps = menuPrefs.getBoolean("show_import_apps", false)
+        val showExportApps = menuPrefs.getBoolean("show_export_apps", false)
+        val showBackupRestore = menuPrefs.getBoolean("show_backup_restore", false)
+
+        val itemImportApps = menu.findItem(R.id.action_import_apps)
+        val itemExportApps = menu.findItem(R.id.action_export_apps)
+        val itemBackupRestore = menu.findItem(R.id.action_backup_restore)
+
+        if (itemImportApps != null) itemImportApps.isVisible = showImportApps
+        if (itemExportApps != null) itemExportApps.isVisible = showExportApps
+        if (itemBackupRestore != null) itemBackupRestore.isVisible = showBackupRestore
+
         //menu.findItem(R.id.action_import_resolvers)?.isVisible = showImport
         //menu.findItem(R.id.action_export_resolvers)?.isVisible = showExport
 
@@ -1682,6 +1821,20 @@ class MainActivity : AppCompatActivity() {
 
         if (itemImport != null) itemImport.isVisible = showImport
         if (itemExport != null) itemExport.isVisible = showExport
+
+        menu.findItem(R.id.action_share_logs)?.isVisible = showShareLogs
+
+        val logItem = menu.findItem(R.id.action_toggle_logging)
+        if (logItem != null) {
+            logItem.isVisible = showDebugLogging // Hide or show based on settings
+
+            // Dynamic text swap (from our previous step)
+            if (isLoggingActive) {
+                logItem.title = "Stop Debug Log"
+            } else {
+                logItem.title = "Start Debug Log"
+            }
+        }
 
         if (!isOfficialBuild) {
             // Hide all private infrastructure options for completely public community builds
@@ -1735,7 +1888,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-//        return true
+
+        val updateItem = menu.findItem(R.id.action_app_update)
+        if (updateItem != null) {
+            // Only show if an update exists AND the tunnel is active
+            updateItem.isVisible = (isUpdateAvailable && isVpnConnected)
+        }
+
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -1813,23 +1972,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         val twitterLink = TextView(this).apply {
-            text = "x.com/Starling226"
+            text = "x.com/phoenixdnsvpn"
             textSize = 13f
             setTextColor(primaryColor) // Dynamic: Uses your Brand Blue (Lighter in Night)
             setPadding(0, 10, 0, 5)
             setOnClickListener {
-                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://x.com/Starling226"))
+                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://x.com/phoenixdnsvpn"))
                 startActivity(intent)
             }
         }
 
         val githubLink = TextView(this).apply {
-            text = "github.com/Starling226/phoenix-vpn"
+            text = "github.com/phoenixdnsvpn/phoenix-vpn"
             textSize = 13f
             setTextColor(primaryColor) // Dynamic: Uses your Brand Blue
             setPadding(0, 5, 0, 0)
             setOnClickListener {
-                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Starling226/phoenix-vpn"))
+                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/phoenixdnsvpn/phoenix-vpn"))
                 startActivity(intent)
             }
         }
@@ -1907,45 +2066,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showVerificationResult2(isVerified: Boolean) {
-        val resultContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(0, 50, 0, 50)
-        }
-
-        val statusIcon = TextView(this).apply {
-            text = if (isVerified) "✅" else "❌"
-            textSize = 48f
-            gravity = Gravity.CENTER
-        }
-
-        val statusText = TextView(this).apply {
-            text = if (isVerified) "Verified Official Build" else "NOT VERIFIED\n(Modified or Unofficial)"
-            textSize = 18f
-            setTextColor(if (isVerified) Color.parseColor("#006400") else Color.RED)
-            gravity = Gravity.CENTER
-            setPadding(0, 20, 0, 0)
-            setTypeface(null, android.graphics.Typeface.BOLD)
-        }
-
-        resultContainer.addView(statusIcon)
-        resultContainer.addView(statusText)
-
-        val resultDialog = AlertDialog.Builder(this)
-            .setView(resultContainer)
-            .setPositiveButton("OK", null)
-            .create()
-
-        resultDialog.show()
-
-        // Style OK button
-        resultDialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
-            setTextColor(Color.parseColor("#2F4A6F"))
-            text = "OK"
-        }
-    }
-
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
 
         if (::toggle.isInitialized && toggle.onOptionsItemSelected(item)) {
@@ -1953,6 +2073,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         return when (item.itemId) {
+
+            R.id.action_app_update -> {
+                if (latestApkVersion.isNotEmpty()) {
+                    // This triggers your robust, existing downloader system!
+                    showUpdateDialog(latestApkVersion, latestReleaseType)
+                }
+                true
+            }
+
+            R.id.action_toggle_logging -> {
+                if (isLoggingActive) {
+                    stopDebugLogging()
+                } else {
+                    startDebugLogging()
+                }
+                true
+            }
 
             R.id.action_quick_scanner -> {
                 // 1. Safety Check: Stop VPN before scanning
@@ -2085,6 +2222,7 @@ class MainActivity : AppCompatActivity() {
 
                 val configTypeLower = (if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else config.mode ?: "").lowercase()
                 val supportsVless = configTypeLower.contains("vless-ws") || configTypeLower.contains("vless-httpupgrade")
+                        || configTypeLower.contains("vless-grpc")
 
                 if (!supportsVless) {
                     Toast.makeText(this, "Cloudflare Scanner requires a VLESS-WS or VLESS-HTTPUpgrade configuration. This config does not support it.", Toast.LENGTH_LONG).show()
@@ -2160,7 +2298,282 @@ class MainActivity : AppCompatActivity() {
                 true
             }
 
+            R.id.action_import_apps -> {
+                showImportAppsDialog()
+                true
+            }
+
+            R.id.action_export_apps -> {
+                exportAppsList()
+                true
+            }
+
+            R.id.action_backup_restore -> {
+                handleBackupRestoreFlow()
+                true
+            }
+
+            R.id.action_share_logs -> {
+                shareLogFile()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun exportAppsList() {
+        val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+        val appsSet = sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
+
+        if (appsSet.isEmpty()) {
+            Toast.makeText(this, "No apps selected to export.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Format as clean JSON array
+        val jsonArray = org.json.JSONArray()
+        for (pkg in appsSet) {
+            jsonArray.put(pkg)
+        }
+
+        val jsonObj = org.json.JSONObject().apply {
+            put("type", "phoenix_app_list")
+            put("apps", jsonArray)
+        }
+
+        val exportText = jsonObj.toString(2)
+
+        // Launch native Android Share Sheet (Telegram, WhatsApp, Clipboard, etc.)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Phoenix VPN - App List")
+            putExtra(Intent.EXTRA_TEXT, exportText)
+        }
+        startActivity(Intent.createChooser(shareIntent, "Share App List via"))
+    }
+
+    private fun showImportAppsDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padding = (24 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, 0)
+        }
+
+        val label = TextView(this).apply {
+            text = "Paste App List JSON below:"
+            textSize = 16f
+            val dynamicColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK)
+            setTextColor(dynamicColor)
+            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).toInt())
+        }
+
+        val etInput = EditText(this).apply {
+            hint = "{\n  \"type\": \"phoenix_app_list\",\n  \"apps\": [ ... ]\n}"
+            minLines = 4
+            gravity = Gravity.TOP
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        layout.addView(label)
+        layout.addView(etInput)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Import App List")
+            .setView(layout)
+            .setPositiveButton("Import") { _, _ ->
+                val input = etInput.text.toString().trim()
+                if (input.isNotEmpty()) {
+                    processAppsImport(input)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun processAppsImport(inputStr: String) {
+        try {
+            val pkgList = mutableListOf<String>()
+
+            // Support JSON Object format, raw JSON Array, or line-by-line package names
+            if (inputStr.startsWith("{")) {
+                val obj = org.json.JSONObject(inputStr)
+                val arr = obj.optJSONArray("apps") ?: org.json.JSONArray()
+                for (i in 0 until arr.length()) {
+                    pkgList.add(arr.getString(i))
+                }
+            } else if (inputStr.startsWith("[")) {
+                val arr = org.json.JSONArray(inputStr)
+                for (i in 0 until arr.length()) {
+                    pkgList.add(arr.getString(i))
+                }
+            } else {
+                inputStr.lines().forEach { line ->
+                    val clean = line.trim()
+                    if (clean.isNotEmpty()) pkgList.add(clean)
+                }
+            }
+
+            if (pkgList.isEmpty()) {
+                Toast.makeText(this, "No apps found in input.", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val validPkgs = mutableSetOf<String>()
+
+            for (pkg in pkgList) {
+                // Silently skip uninstalled/removed apps on this device
+                val isInstalled = try {
+                    packageManager.getPackageInfo(pkg, 0)
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+
+                if (isInstalled && pkg != packageName) {
+                    validPkgs.add(pkg)
+                }
+            }
+
+            if (validPkgs.isEmpty()) {
+                Toast.makeText(this, "None of the imported apps are currently installed on this device.", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            // Save imported selection to memory & SharedPreferences
+            val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+            sharedPref.edit().putStringSet("allowed_apps", validPkgs).apply()
+
+            // Instantly update active state in MainActivity
+            loadSelectedApps()
+
+            Toast.makeText(this, "Successfully imported ${validPkgs.size} apps.", Toast.LENGTH_LONG).show()
+
+        } catch (e: Exception) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Import Error")
+                .setMessage("Failed to parse App List: ${e.message}")
+                .setPositiveButton("OK", null)
+                .show()
+        }
+    }
+
+    private fun startDebugLogging() {
+        try {
+            val logFile = File(applicationContext.filesDir, "phoenix_engine_logs.txt")
+
+            // Gently truncate if it exists, or create new
+            if (logFile.exists()) {
+                logFile.writeText("--- NEW MANUAL LOG SESSION INITIATED ---\n")
+            } else {
+                logFile.writeText("--- SYSTEM LOG INITIATED ---\n")
+            }
+
+            // Only capture our app's UID sandbox (Captures Go Backend + UI)
+            val myUid = android.os.Process.myUid()
+            val command = "logcat -v threadtime --uid=$myUid"
+
+            // Save the process reference so we can kill it later!
+            logcatProcess = Runtime.getRuntime().exec(command)
+
+            Thread {
+                try {
+                    logcatProcess?.inputStream?.bufferedReader()?.use { reader ->
+                        logFile.printWriter().use { out ->
+                            var line: String?
+                            while (reader.readLine().also { line = it } != null) {
+                                out.println(line)
+                                out.flush()
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }.start()
+
+            isLoggingActive = true
+            invalidateOptionsMenu() // This forces the menu to redraw and update its text
+            Toast.makeText(this, "Debug logging started...", Toast.LENGTH_SHORT).show()
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Failed to start logging.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun stopDebugLogging() {
+        try {
+            // Kill the background terminal process
+            logcatProcess?.destroy()
+            logcatProcess = null
+
+            // Cap off the text file so the developer knows where it ended
+            val logFile = File(applicationContext.filesDir, "phoenix_engine_logs.txt")
+            if (logFile.exists()) {
+                logFile.appendText("--- LOG SESSION STOPPED BY USER ---\n")
+            }
+
+            isLoggingActive = false
+            invalidateOptionsMenu() // Force the menu to redraw
+            Toast.makeText(this, "Debug logging stopped.", Toast.LENGTH_SHORT).show()
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun shareLogFile() {
+        try {
+            // Locate the original file
+            val logFile = File(applicationContext.filesDir, "phoenix_engine_logs.txt")
+
+            if (!logFile.exists() || logFile.length() == 0L) {
+                Toast.makeText(this, "No debug logs found. Make sure debug toggle is ON and you connected once.", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            // =====================================================================
+            // STRIP NULL BYTES (<0X00>) BEFORE SHARING
+            // Create the temporary file exactly next to the original file
+            // =====================================================================
+            val cleanLogFile = File(logFile.parentFile, "phoenix_engine_logs_clean.txt")
+
+            // 1. Read as raw bytes to prevent String encoding crashes
+            val rawBytes = logFile.readBytes()
+
+            // 2. Filter out all null bytes (byte value 0) instantly
+            val cleanBytes = rawBytes.filter { it != 0.toByte() }.toByteArray()
+
+            // 3. Write the sanitized bytes to the clean file
+            cleanLogFile.writeBytes(cleanBytes)
+            // =====================================================================
+
+            // Feed the CLEAN file to the FileProvider, not the original corrupted one
+            val fileUri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.fileprovider",
+                cleanLogFile
+            )
+
+            // Setup the share sheet intent
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, fileUri)
+                putExtra(Intent.EXTRA_SUBJECT, "Phoenix VPN Debug Logs")
+                putExtra(Intent.EXTRA_TEXT, "Here are my Phoenix VPN connection logs for troubleshooting.")
+                clipData = android.content.ClipData.newRawUri("", fileUri)
+                // Grant temporary read permissions to the receiving app (WhatsApp, Telegram, etc.)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            // Open the native share sheet drawer
+            startActivity(Intent.createChooser(shareIntent, "Share Log with Developer via:"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Failed to prepare log file.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2795,6 +3208,149 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    private fun silentCheckForAppUpdate() {
+        val currentVersion = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
+        } catch (e: Exception) {
+            "1.0.0"
+        }
+
+        Thread {
+            try {
+                val releaseType = mobile.Mobile.getReleaseType()
+                if (releaseType.lowercase() == "private") {
+                    // Check Custom Server
+                    val result = mobile.Mobile.checkForAppUpdate(currentVersion)
+                    if (result.startsWith("UPDATE_AVAILABLE|")) {
+                        latestApkVersion = result.substringAfter("|")
+                        latestReleaseType = releaseType
+                        isUpdateAvailable = true
+                        runOnUiThread { invalidateOptionsMenu() } // Reveal the icon
+                    }
+                } else {
+                    // Check GitHub
+                    val url = java.net.URL("https://api.github.com/repos/phoenixdnsvpn/phoenix-vpn/releases/latest")
+                    val connection = url.openConnection() as java.net.HttpURLConnection
+                    connection.apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        setRequestProperty("Accept", "application/vnd.github.v3+json")
+                        setRequestProperty("User-Agent", "Phoenix-App-Updater")
+                    }
+
+                    if (connection.responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                        val jsonResponse = connection.inputStream.bufferedReader().use { it.readText() }
+                        val jsonObject = org.json.JSONObject(jsonResponse)
+
+                        val fetchedVersionRaw = jsonObject.getString("tag_name").trim()
+                        val fetchedVersion = if (fetchedVersionRaw.startsWith("v", ignoreCase = true)) fetchedVersionRaw.substring(1) else fetchedVersionRaw
+                        val cleanCurrent = if (currentVersion.startsWith("v", ignoreCase = true)) currentVersion.substring(1) else currentVersion
+
+                        if (isNewerAppVersionLocal(cleanCurrent, fetchedVersion)) {
+                            latestApkVersion = fetchedVersion
+                            latestReleaseType = releaseType
+                            isUpdateAvailable = true
+                            runOnUiThread { invalidateOptionsMenu() } // Reveal the icon
+                        }
+                    }
+                    connection.disconnect()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    private fun downloadUpdateInternal(downloadUrl: String, fileName: String, versionStr: String) {
+        Toast.makeText(this, "Starting secure update download inside tunnel...", Toast.LENGTH_SHORT).show()
+
+        // 1. Launch a background thread using your existing Coroutine system
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Build the OkHttp request manually so it executes inside our active VPN process
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                val request = Request.Builder()
+                    .url(downloadUrl)
+                    // Securely pass the required authentication header to Nginx
+                    .addHeader("X-Phoenix-Token", mobile.Mobile.getAppSecretKeyExported())
+                    .build()
+
+                val response = client.newCall(request).execute()
+
+                if (!response.isSuccessful) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Server rejected download: Code ${response.code}", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+
+                val body = response.body
+                if (body == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Failed to download: Empty server response.", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                // Target the public Downloads directory on the device storage
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val outputFile = File(downloadsDir, fileName)
+
+                // Stream data block-by-block from the network to disk memory
+                val inputStream: InputStream = body.byteStream()
+                val outputStream = FileOutputStream(outputFile)
+                val buffer = ByteArray(4096)
+                var bytesRead: Int
+
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    outputStream.write(buffer, 0, bytesRead)
+                }
+
+                outputStream.flush()
+                outputStream.close()
+                inputStream.close()
+
+                android.media.MediaScannerConnection.scanFile(
+                    this@MainActivity,
+                    arrayOf(outputFile.absolutePath),
+                    arrayOf("application/vnd.android.package-archive") // APK MIME type
+                ) { path, uri ->
+                    android.util.Log.i("Phoenix", "Update APK scanned into MediaStore: $uri")
+                }
+
+                // 2. Return to the main UI thread to notify the user
+
+                withContext(Dispatchers.Main) {
+
+                    // Format the message using HTML tags for bolding and color
+                    val dialogMessage = "The update file '$fileName' has been safely downloaded into your local Downloads directory.<br><br>" +
+                            "Please open your file manager to install it manually.<br><br>" +
+                            "<b><font color='#F9A825'>Please note you must uninstall the current version before installing the downloaded version.</font></b><br><br>" +
+                            "فایل آپدیت با موفقیت در پوشه Downloads ذخیره شد. لطفاً برای نصب دستی آن، فایل منیجر گوشی خود را باز کنید.<br><br>" +
+                            "<b><font color='#F9A825'>توجه داشته باشید که قبل از نصب نسخه جدید، باید نسخه فعلی را حذف (Uninstall) کنید.</font></b>"
+
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("Download Complete / دانلود کامل شد")
+                        // Convert the HTML string into a formatted CharSequence that Android can render
+                        .setMessage(androidx.core.text.HtmlCompat.fromHtml(dialogMessage, androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY))
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Download failed inside tunnel: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     private fun checkForAppUpdate() {
         val currentVersion = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
@@ -2830,7 +3386,7 @@ class MainActivity : AppCompatActivity() {
                     // ==========================================
                     // COMMUNITY RELEASE (Check GitHub)
                     // ==========================================
-                    val url = java.net.URL("https://api.github.com/repos/Starling226/phoenix-vpn/releases/latest")
+                    val url = java.net.URL("https://api.github.com/repos/phoenixdnsvpn/phoenix-vpn/releases/latest")
                     val connection = url.openConnection() as java.net.HttpURLConnection
                     connection.apply {
                         requestMethod = "GET"
@@ -2876,68 +3432,6 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    /**private fun checkForAppUpdate() {
-        val currentVersion = try {
-            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
-        } catch (e: Exception) {
-            "1.0.0"
-        }
-
-        runOnUiThread { Toast.makeText(this, "Checking for app updates...", Toast.LENGTH_SHORT).show() }
-
-        Thread {
-            try {
-                // Connect directly to your public GitHub repository's latest release endpoint
-                val url = URL("https://api.github.com/repos/Starling226/phoenix-vpn/releases/latest")
-                val connection = url.openConnection() as java.net.HttpURLConnection
-                connection.apply {
-                    requestMethod = "GET"
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                    setRequestProperty("Accept", "application/vnd.github.v3+json")
-                    // GitHub API requires a User-Agent string to prevent automated request blocking
-                    setRequestProperty("User-Agent", "Phoenix-App-Updater")
-                }
-
-                if (connection.responseCode == java.net.HttpURLConnection.HTTP_OK) {
-                    val jsonResponse = connection.inputStream.bufferedReader().use { it.readText() }
-                    val jsonObject = org.json.JSONObject(jsonResponse)
-
-                    // Extract the release tag name (e.g., "v1.11.0" or "1.11.0")
-                    val fetchedVersionRaw = jsonObject.getString("tag_name").trim()
-
-                    // Strip the 'v' prefix if present for clean calculation comparison blocks
-                    val fetchedVersion = if (fetchedVersionRaw.startsWith("v", ignoreCase = true)) {
-                        fetchedVersionRaw.substring(1)
-                    } else {
-                        fetchedVersionRaw
-                    }
-
-                    // Normalize current version string to remove any unexpected character decorations
-                    val cleanCurrent = if (currentVersion.startsWith("v", ignoreCase = true)) currentVersion.substring(1) else currentVersion
-
-                    runOnUiThread {
-                        if (isNewerAppVersionLocal(cleanCurrent, fetchedVersion)) {
-                            showUpdateDialog(fetchedVersion)
-                        } else {
-                            Toast.makeText(this@MainActivity, "You are using the latest version ($currentVersion).", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                } else {
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, "Update check failed: Server returned ${connection.responseCode}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                connection.disconnect()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Failed to connect to GitHub update server.", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }.start()
-    }*/
-
     // Native version comparison logic that mirrors your original Go parsing algorithm
     private fun isNewerAppVersionLocal(current: String, fetched: String): Boolean {
         val cleanCurrent = current.filter { it.isDigit() || it == '.' }.split(".")
@@ -2954,43 +3448,6 @@ class MainActivity : AppCompatActivity() {
         }
         return false
     }
-
-    /**private fun showUpdateDialog(newVersion: String) {
-        runOnUiThread {
-            // 1. Detect Android Architecture
-            var arch = "arm64-v8a" // Fallback to 64-bit standard
-            for (abi in Build.SUPPORTED_ABIS) {
-                if (abi.contains("arm64-v8a")) {
-                    arch = "arm64-v8a"
-                    break
-                } else if (abi.contains("armeabi-v7a")) {
-                    arch = "armeabi-v7a"
-                    break
-                }
-            }
-
-            // 2. Format Version String (Ensure it starts with 'v' for the URL)
-            val versionStr = if (newVersion.startsWith("v")) newVersion else "v$newVersion"
-
-            // 3. Construct the GitHub Release URL
-            val downloadUrl = "https://github.com/Starling226/phoenix-vpn/releases/download/$versionStr/VaydnsVpn-$versionStr-$arch.apk"
-
-            // 4. Show the Dialog
-            MaterialAlertDialogBuilder(this)
-                .setTitle("App Update Available")
-                .setMessage("A new version of Phoenix ($versionStr) is available.\n\n" +
-//                        "Your device uses the $arch architecture.\n\n" +
-                        "Note: Your browser may say 'File might be harmful' because this is a direct APK download. It is safe to tap 'Download anyway'. If file download progress was not displayed, please check your Downloads directory.\n\n" +
-                        "توجه: از آنجا که این فایل مستقیماً دانلود می‌شود، ممکن است مرورگر هشدار «File might be harmful» را نمایش دهد. این فایل کاملاً امن است؛ با خیال راحت روی «Download anyway» تپ کنید. اگر پیشرفت دانلود نمایش داده نشد، لطفاً پوشه دانلودهای خود را بررسی کنید.")
-                .setPositiveButton("Download") { _, _ ->
-                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl))
-                    startActivity(intent)
-                }
-                .setNegativeButton("Later", null)
-                .setIcon(R.mipmap.ic_launcher_round)
-                .show()
-        }
-    }*/
 
 // Changed signature to accept the releaseType
     private fun showUpdateDialog(newVersion: String, releaseType: String = "community") {
@@ -3009,14 +3466,15 @@ class MainActivity : AppCompatActivity() {
 
             // 2. Format Version String and Filename target
             val versionStr = if (newVersion.startsWith("v")) newVersion else "v$newVersion"
-            val fileName = "VaydnsVpn-$versionStr-$arch.apk"
+            val fileName = "PhoenixVpn-$versionStr-$arch.apk"
 
             // 3. Construct the Download URL based on Release Type
             val downloadUrl = if (releaseType.lowercase() == "private") {
                 val serverBase = mobile.Mobile.getPrimaryUpdateServer()
                 "$serverBase/assets/$fileName"
+
             } else {
-                "https://github.com/Starling226/phoenix-vpn/releases/download/$versionStr/$fileName"
+                "https://github.com/phoenixdnsvpn/phoenix-vpn/releases/download/$versionStr/$fileName"
             }
 
             // 4. Show the Dialog
@@ -3031,25 +3489,7 @@ class MainActivity : AppCompatActivity() {
                         // =========================================================
                         // SECURE PRIVATE DOWNLOAD (Background DownloadManager)
                         // =========================================================
-                        try {
-                            val request = android.app.DownloadManager.Request(android.net.Uri.parse(downloadUrl)).apply {
-                                setTitle("Phoenix VPN Update ($versionStr)")
-                                setDescription("Downloading $fileName...")
-
-                                // NATIVE VAULT: Inject the secret token for Nginx authentication
-                                addRequestHeader("X-Phoenix-Token", mobile.Mobile.getAppSecretKeyExported())
-
-                                setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
-                            }
-
-                            val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                            downloadManager.enqueue(request)
-
-                            Toast.makeText(this@MainActivity, "Downloading update in background. Check your notification panel.", Toast.LENGTH_LONG).show()
-                        } catch (e: Exception) {
-                            Toast.makeText(this@MainActivity, "Download failed to start: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
+                        downloadUpdateInternal(downloadUrl, fileName, versionStr)
 
                     } else {
                         // =========================================================
@@ -3083,13 +3523,13 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             .edit()
             .putString("connected_config_id", config.id)
             .apply()
 
         val currentPort = etProxyPort.text.toString().trim()
-        getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             .edit()
             .putString("proxy_port", currentPort)
             .apply()
@@ -3156,7 +3596,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (checkWarning && activeProtocol.lowercase() == "vaydns" && selectedApps.size > 5) {
-            val prefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("hide_vaydns_app_warning", false)) {
 
                 // Restore button state before showing dialog (since we disabled it at the top of this function)
@@ -3202,6 +3642,25 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { e.printStackTrace() }
 
         val isDirectMode = activeProtocol.lowercase() != "vaydns"
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+        val tunnelAllApps = appPrefs.getBoolean("tunnel_all_apps", false)
+        val tunnelAndroidServices = appPrefs.getBoolean("tunnel_android_services", false)
+
+        // --- NEW: Fetch the Tunnel Apps preference for the intents ---
+
+        if (tunnelAllApps && !isDirectMode) {
+            // Restore the start button since we are aborting the connection
+            btnToggle.isEnabled = true
+            btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
+
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle("Configuration Conflict")
+                .setMessage("You have set Tunnel Applications to 'All Apps' in Global Settings, but this is not applicable to the VayDNS protocol.\n\nPlease change the setting to 'Selected Apps' or use a Direct Protocol.\n\n---\n\nشما در تنظیمات کلی، برنامه‌های تونل را روی «همه برنامه‌ها» (All Apps) تنظیم کرده‌اید، اما این گزینه برای پروتکل VayDNS قابل استفاده نیست.\n\nلطفاً این تنظیم را به «برنامه‌های انتخابی» (Selected Apps) تغییر دهید یا از یک پروتکل مستقیم استفاده کنید.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
         // =================================================================
         // ARCHITECTURAL FORK: DIRECT PROTOCOL (HYSTERIA)
         // =================================================================
@@ -3222,7 +3681,7 @@ class MainActivity : AppCompatActivity() {
 
             // 1. Fetch the engine type first
 //            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-            var engineType = tunnelPrefs.getString("tun_engine", "sing-box")
+            var engineType = tunnelPrefs.getString("tun_engine", "xray")
 
             // 2. Silent Engine Guardrail: Direct protocols require either Sing-box or Xray
             if (engineType != "sing-box" && engineType != "xray") {
@@ -3234,9 +3693,25 @@ class MainActivity : AppCompatActivity() {
             tvStatus.setTextColor(Color.parseColor("#008080")) // Teal for Direct Connection
             btnToggle.text = "CONNECTING..."
 
+            val useFragmentation = tunnelPrefs.getBoolean("use_fragmentation", false)
+            val blockQuic = tunnelPrefs.getBoolean("block_quic", true)
+
+            val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+            val targetCdn = if (globalOverride) {
+                globalCdn
+            } else if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+            } else {
+                getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                    .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+            }
+
             val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
                 action = "ACTION_START_VPN"
                 putStringArrayListExtra("ALLOWED_APPS_LIST", ArrayList(selectedApps))
+                putExtra("TUNNEL_ALL_APPS", tunnelAllApps)
+                putExtra("TUNNEL_ANDROID_SERVICES", tunnelAndroidServices)
                 putExtra("IS_DEFAULT_CONFIG", config.isDefault)
                 putExtra("CONFIG_ID", config.id)
                 putExtra("CONFIG_INDEX", nativeIndex)
@@ -3244,6 +3719,9 @@ class MainActivity : AppCompatActivity() {
                 putExtra("PROTOCOL", finalProtocol)
                 putExtra("ENGINE_TYPE", engineType)
                 putExtra("VLESS_WS_IP", firstGlobalVlessIp)
+                putExtra("TARGET_CDN", targetCdn)
+                putExtra("USE_FRAGMENTATION", useFragmentation)
+                putExtra("BLOCK_QUIC", blockQuic)
             }
 
             if (isProxyMode) {
@@ -3398,11 +3876,17 @@ class MainActivity : AppCompatActivity() {
 
                     tvStatus.text = "Status: Connecting..."
 
+                    val useFragmentation = tunnelPrefs.getBoolean("use_fragmentation", false)
+                    val blockQuic = tunnelPrefs.getBoolean("block_quic", true)
+                    val targetCdn = tunnelPrefs.getString("target_cdn", "Cloudflare") ?: "Cloudflare"
+
                     val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
                         action = "ACTION_START_VPN"
                         putStringArrayListExtra("ALLOWED_APPS_LIST", ArrayList(selectedApps))
+                        putExtra("TUNNEL_ALL_APPS", tunnelAllApps)
+                        putExtra("TUNNEL_ANDROID_SERVICES", tunnelAndroidServices)
 
-                        val engineType = tunnelPrefs.getString("tun_engine", "sing-box")
+                        val engineType = tunnelPrefs.getString("tun_engine", "xray")
                         putExtra("ENGINE_TYPE", engineType)
 
                         putExtra("IS_DEFAULT_CONFIG", config.isDefault)
@@ -3441,6 +3925,9 @@ class MainActivity : AppCompatActivity() {
 
                         putExtra("USER", finalUserVal)
                         putExtra("PASS", finalPassVal)
+                        putExtra("TARGET_CDN", targetCdn)
+                        putExtra("USE_FRAGMENTATION", useFragmentation)
+                        putExtra("BLOCK_QUIC", blockQuic)
                     }
 
                     if (isProxyMode) {
@@ -3512,7 +3999,7 @@ class MainActivity : AppCompatActivity() {
             .setView(container)
             .setPositiveButton("Continue") { _, _ ->
                 if (cbDontShowAgain.isChecked) {
-                    getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+                    getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                         .edit()
                         .putBoolean("hide_vaydns_app_warning", true)
                         .apply()
@@ -3524,7 +4011,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopVpnService() {
-        getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             .edit()
             .remove("connected_config_id")
             .apply()
@@ -3569,8 +4056,18 @@ class MainActivity : AppCompatActivity() {
         checkAppVerificationState()
 
         val manager = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        val prefs = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val connectedId = prefs.getString("connected_config_id", null)
+
+        val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+        if (sharedPrefs.getBoolean("debug_logs_enabled", false)) {
+            val logFile = File(applicationContext.filesDir, "phoenix_engine_logs.txt")
+            // Just touch the file to ensure it exists
+            if (!logFile.exists()) {
+                logFile.writeText("--- LOG STREAM STARTED ---\n")
+            }
+            // If your logcat process is already running, this will just append to the existing file
+        }
 
         if (!isProxyMode) {
             // Check if VayVpnService is actively running in the background
@@ -3633,7 +4130,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // INSTANT SYNC: Check the startup behavior settings every time we return to this screen
-        val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val defaultConfigsEnabled = appPrefs.getBoolean("default_configs_at_start", true)
 
         // Fetch the Vault JSON
@@ -3664,7 +4161,7 @@ class MainActivity : AppCompatActivity() {
         switchDefault.setOnCheckedChangeListener(null)
         switchDefault.isChecked = defaultConfigsEnabled
         switchDefault.setOnCheckedChangeListener { _, isChecked ->
-            getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE).edit()
+            getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).edit()
                 .putBoolean("default_configs_at_start", isChecked)
                 .apply()
             refreshConfigList()
@@ -3687,7 +4184,7 @@ class MainActivity : AppCompatActivity() {
             // Optional: Catch potential errors if the receiver was never registered
             Log.e("VAY_DEBUG", "Error unregistering receivers: ${e.message}")
         }
-        getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+        getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(preferenceChangeListener)
     }
 
@@ -3724,4 +4221,118 @@ class MainActivity : AppCompatActivity() {
             e.printStackTrace()
         }
     }
+
+    // =====================================================================
+    // BACKUP & RESTORE ENGINE
+    // =====================================================================
+    private fun handleBackupRestoreFlow() {
+        val options = arrayOf("Backup (Export Data) / بکاپ‌گیری", "Restore (Import Data) / بازگردانی")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Backup & Restore")
+            .setItems(options) { _, which ->
+                if (which == 0) {
+                    exportFullBackup()
+                } else {
+                    // Launch the new Dedicated Restore Activity!
+                    startActivity(Intent(this, RestoreBackupActivity::class.java))
+                }
+            }
+            .show()
+    }
+
+    private fun exportFullBackup() {
+        try {
+            val megaBackup = org.json.JSONObject()
+            megaBackup.put("backup_version", 1)
+
+            // 1. App List
+            val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+            val allowedApps = appPrefs.getStringSet("allowed_apps", emptySet()) ?: emptySet()
+            megaBackup.put("allowed_apps", org.json.JSONArray(allowedApps))
+
+            // 2. Custom Configs
+            val customConfigsStr = appPrefs.getString("configs", "[]") ?: "[]"
+            megaBackup.put("custom_configs", org.json.JSONArray(customConfigsStr))
+
+            // 3. CDN IPs (Cloudflare/Amazon)
+            val cdnPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
+            val cdnIpsStr = cdnPrefs.getString("vault_ips_json", "[]") ?: "[]"
+            megaBackup.put("cdn_ips", org.json.JSONArray(cdnIpsStr))
+
+            // 4. Traffic Data
+            val trafficPrefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+            val trafficObj = org.json.JSONObject()
+            trafficPrefs.all.forEach { (key, value) ->
+                if (value is Long) trafficObj.put(key, value)
+            }
+            megaBackup.put("traffic_data", trafficObj)
+
+            // 5. Multipath Resolvers
+            val resolversObj = org.json.JSONObject()
+            val allConfigIds = mutableListOf<String>()
+
+            val userConfigs = ConfigEditorActivity.loadAllConfigs(this)
+            allConfigIds.addAll(userConfigs.map { it.id })
+
+            val defaultCount = mobile.Mobile.getDefaultConfigCount()
+            for (i in 0 until defaultCount) {
+                allConfigIds.add("default_$i")
+            }
+
+            allConfigIds.forEach { id ->
+                val configResolvers = org.json.JSONObject()
+
+                val selectedFile = java.io.File(filesDir, "selected_multipath_$id.txt")
+                if (selectedFile.exists()) {
+                    configResolvers.put("selected", org.json.JSONArray(selectedFile.readLines().filter { it.isNotBlank() }))
+                }
+
+                val scannedFile = java.io.File(filesDir, "resolvers_$id.txt")
+                if (scannedFile.exists()) {
+                    configResolvers.put("scanned", org.json.JSONArray(scannedFile.readLines().filter { it.isNotBlank() }))
+                }
+
+                val manualFile = java.io.File(filesDir, "manual_resolvers_$id.txt")
+                if (manualFile.exists()) {
+                    configResolvers.put("manual", org.json.JSONArray(manualFile.readLines()))
+                }
+
+                if (configResolvers.length() > 0) {
+                    resolversObj.put(id, configResolvers)
+                }
+            }
+            megaBackup.put("multipath_resolvers", resolversObj)
+
+            pendingExportJsonText = megaBackup.toString(2)
+
+            // Present choice to user: Share text or Save as .json file
+            val options = arrayOf("Share via... / اشتراک‌گذاری", "Save as JSON file / ذخیره به صورت فایل JSON")
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Backup Options")
+                .setItems(options) { _, which ->
+                    if (which == 0) {
+                        // Share via Chooser
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, "Phoenix VPN Backup")
+                            putExtra(Intent.EXTRA_TEXT, pendingExportJsonText)
+                        }
+                        startActivity(Intent.createChooser(shareIntent, "Export Backup via"))
+                    } else {
+                        // Save to File (.json)
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "application/json"
+                            putExtra(Intent.EXTRA_TITLE, "phoenix_vpn_backup.json")
+                        }
+                        createBackupFileLauncher.launch(intent)
+                    }
+                }
+                .show()
+
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to compile backup: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
 }

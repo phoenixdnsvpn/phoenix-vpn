@@ -158,7 +158,7 @@ class VayProxyService : Service() {
                     // ==========================================
                     // 2. UI NOTIFICATION LOGIC (Every ~4 seconds)
                     // ==========================================
-                    val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+                    val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                     val notifUpdateMs = appPrefs.getLong("notif_update_ms", 4000L)
 
                     if (currentTime - lastUiUpdateTime >= notifUpdateMs) {
@@ -217,7 +217,7 @@ class VayProxyService : Service() {
             val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
             val isScreenOn = powerManager.isInteractive
 
-            val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+            val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             val unlockedDelayMs = appPrefs.getLong("unlocked_delay_ms", 2000L)
             val lockedDelayMs = appPrefs.getLong("locked_delay_ms", 5000L)
 
@@ -340,15 +340,49 @@ class VayProxyService : Service() {
 
                 Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
 
+                val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                val isDebugEnabled = sharedPrefs.getBoolean("debug_logs_enabled", false)
+
                 val engineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
                 val configType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
-                val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: "" 
+                val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
+                val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
+                val fragment = intent?.getBooleanExtra("USE_FRAGMENTATION", false) ?: false
+                val blockQuic = intent?.getBooleanExtra("BLOCK_QUIC", true) ?: true
 
                 // RESTORED: Exact, working parameter list matching your native Go layout
                 val result = Mobile.startProxy(
-                    engineType, isDefaultConfig, configIndex, configType, useMultiDomains, domainIndex.toLong(), finalUdp, finalTcp, finalDoh, finalDot, baseDohUrl, domain, pubkey,
-                    recordType, idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible,
-                    useAuth, protocol, ssMethod, user, pass, proxyPort.toLong(), vlessWsIp, globalDnsServer
+                    engineType,
+                    isDefaultConfig,
+                    configIndex,
+                    configType,
+                    useMultiDomains,
+                    domainIndex.toLong(),
+                    finalUdp,
+                    finalTcp,
+                    finalDoh,
+                    finalDot,
+                    baseDohUrl,
+                    domain,
+                    pubkey,
+                    recordType,
+                    idleTimeout,
+                    keepAlive,
+                    clientIdSize,
+                    mtu,
+                    dnsttCompatible,
+                    useAuth,
+                    protocol,
+                    ssMethod,
+                    user,
+                    pass,
+                    proxyPort.toLong(),
+                    vlessWsIp,
+                    targetCdn,
+                    globalDnsServer,
+                    isDebugEnabled,
+                    fragment,
+                    blockQuic
                 )
 
                 if (result.startsWith("Success")) {

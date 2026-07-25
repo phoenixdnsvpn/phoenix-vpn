@@ -66,6 +66,7 @@ type ConfigWrapper struct {
 	ServerURLs   []string        `json:"serverURLs"`
 	AppSecretKey string          `json:"appSecretKey"`
 	VlessWsIP    string          `json:"vless_ws_ip"`
+	CDN          []string        `json:"cdn"`
 	Configs      []DefaultConfig `json:"configs"`
 }
 
@@ -75,6 +76,7 @@ var (
 	currentRelease    string
 	currentServerURLs []string
 	currentSecretKey  string
+	currentCDN        []string
 	configMu          sync.Mutex
 
 	defaultDisplayResolvers map[string]string
@@ -179,6 +181,7 @@ func parseConfigData(data []byte) {
 		currentServerURLs = wrapper.ServerURLs
 		currentSecretKey = wrapper.AppSecretKey		
 		SetRootVlessWsIP(wrapper.VlessWsIP)
+		currentCDN = wrapper.CDN
 
 	} else {
 		// Fallback for older JSON formats
@@ -675,4 +678,17 @@ func GetPrimaryUpdateServer() string {
 func GetAppSecretKeyExported() string {
 	ensureParsed()
 	return currentSecretKey
+}
+
+func GetCdnCount() int64 {
+	ensureParsed()
+	return int64(len(currentCDN))
+}
+
+func GetCdnName(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(currentCDN)) {
+		return ""
+	}
+	return currentCDN[index]
 }

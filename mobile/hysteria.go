@@ -149,7 +149,7 @@ func getHysteriaDomain(index int64) string {
 
 // buildHysteriaOutbound securely constructs the sing-box Hysteria2 JSON object.
 func buildHysteriaOutbound(configIndex int64, globalDnsServer string) map[string]interface{} {
-	serverIP := getHysteriaServerIP(configIndex, globalDnsServer)	
+	serverIP := getServerIP(configIndex, globalDnsServer)	
 	rawPort := getHysteriaServerPortRaw(configIndex)
 	network := getHysteriaNetwork(configIndex)
 	upMbps := getHysteriaUpMbps(configIndex)

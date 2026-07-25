@@ -111,6 +111,72 @@
             </RadioGroup>
 
             <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reality Settings"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_use_fragmentation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use Fragmentation"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="16dp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_block_quic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Block QUIC"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="0dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Block UDP:443 to stream youtube etc."
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="14sp"
+                android:layout_marginBottom="24dp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Layer 7 Ping (TLS Handshake)"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_use_layer7_ping"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use Layer 7 Ping"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="24dp" />
+
+            <View
                 android:id="@+id/div_protocol_mode_divider"
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
@@ -144,6 +210,45 @@
                 android:backgroundTint="?attr/colorOnSurface"
                 android:visibility="gone" />
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:id="@+id/tv_global_cdn_header"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CDN Management"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <LinearLayout
+                android:id="@+id/layout_cdn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:id="@+id/tv_cdn_label"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="CDN"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+
+                <Spinner
+                    android:id="@+id/spinner_cdn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="?attr/colorOnSurface" />
+            </LinearLayout>
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -155,7 +260,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Global VLESS/Cloudflare IPs"
+                    android:text="CDN IP Management"
                     android:textSize="16sp"
                     android:textColor="?attr/colorOnSurface" />
 
@@ -198,6 +303,68 @@
                     android:gravity="center"
                     android:textColor="?attr/colorOnSurface"/>
             </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+            
+            <TextView
+                android:id="@+id/tv_tunnel_apps_header"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tunnel Applications"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <RadioGroup
+                android:id="@+id/rg_tunnel_apps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+                <RadioButton
+                    android:id="@+id/rb_apps_all"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="All Apps"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_apps_selected"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Selected Apps"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary"
+                    android:checked="true" />
+            </RadioGroup>
+
+            <TextView
+                android:id="@+id/tv_all_apps_warning"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Not applicable to vaydns protocol."
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="14sp"
+                android:layout_marginBottom="24dp"
+                android:visibility="gone" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_tunnel_android_services"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Tunnel Android Services"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="16dp" />
 
             <View
                 android:id="@+id/div_startup_mode_divider"
@@ -317,7 +484,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Phoenix Settings"
+                android:text="VayDNS Settings"
                 android:textColor="?attr/colorPrimary"
                 android:textStyle="bold"
                 android:layout_marginBottom="16dp"/>
@@ -356,20 +523,124 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Ping Layer (Reality)"
+                android:text="Log Settings"
                 android:textColor="?attr/colorPrimary"
                 android:textStyle="bold"
                 android:layout_marginBottom="16dp"/>
 
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_use_layer7_ping"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Use Layer 7"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface"
-                app:thumbTint="?attr/colorPrimary"
-                android:layout_marginBottom="24dp" />
+                android:orientation="horizontal"
+                android:paddingVertical="12dp"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Enable Debug Logs"
+                        android:textColor="?android:attr/textColorPrimary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Write logs to a file for troubleshooting."
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_debug_logs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:thumbTint="?attr/colorPrimary" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingVertical="12dp"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Show Share Logs Menu"
+                        android:textColor="?android:attr/textColorPrimary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Display 'Share Log' option in the main menu."
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_show_share_logs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:thumbTint="?attr/colorPrimary" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingVertical="12dp"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Show Debug Logging Menu"
+                        android:textColor="?android:attr/textColorPrimary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Display 'Start/Stop Debug Log' option in the main menu."
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_show_debug_logging"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:thumbTint="?attr/colorPrimary" />
+            </LinearLayout>
 
             <View
                 android:layout_width="match_parent"
@@ -440,6 +711,36 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Export Resolvers"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="24dp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_show_import_apps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Import App List"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="16dp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_show_export_apps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Export App List"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="16dp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cb_show_backup_restore"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Backup &amp; Restore"
                 android:textSize="16sp"
                 android:textColor="?attr/colorOnSurface"
                 app:thumbTint="?attr/colorPrimary"

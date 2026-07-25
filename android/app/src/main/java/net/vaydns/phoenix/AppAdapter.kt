@@ -19,7 +19,7 @@ class AppAdapter(
 ) : RecyclerView.Adapter<AppAdapter.ViewHolder>() {
 
     // Load the already saved apps once when the adapter starts
-    private val savedApps = context.getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+    private val savedApps = context.getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         .getStringSet("allowed_apps", emptySet())?.toMutableSet() ?: mutableSetOf()
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -41,6 +41,12 @@ class AppAdapter(
         // Set the checkbox state based on saved data
         holder.checkbox.setOnCheckedChangeListener(null) // Prevent recursive trigger
         holder.checkbox.isChecked = savedApps.contains(app.packageName)
+
+        // Make the entire row clickable! ---
+        holder.itemView.setOnClickListener {
+            // This instantly toggles the UI checkbox
+            holder.checkbox.isChecked = !holder.checkbox.isChecked
+        }
 
         // THIS IS THE TRIGGER:
         holder.checkbox.setOnCheckedChangeListener { _, isChecked ->

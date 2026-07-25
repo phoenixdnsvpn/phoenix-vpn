@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"strings"
+//	"log"
 )
 
 // Global memory state storage for custom user inputs and remote server files
@@ -21,9 +22,14 @@ type VlessWsConfig struct {
 	WsDomain string `json:"ws_domain"` 
 	WsPath   string `json:"ws_path"`
 	HttpupgradePath   string `json:"httpupgrade_path"`
+	XhttpPath   string `json:"xhttp_path"`
 	ServiceName   string `json:"service_name"`
 	ServerName   string `json:"server_name"`
-	HttpUpgradeDomain   string `json:"httpupgrade_domain"`	
+	HttpUpgradeDomain   string `json:"httpupgrade_domain"`
+	GrpcDomain   string `json:"grpc_domain"`
+	AwsCdnDomain   string `json:"aws_cdn_domain"`
+	AwsDomain   string `json:"aws_domain"`
+	
 }
 
 // =====================================================================
@@ -48,9 +54,8 @@ func getCloudflareIP(index int64) string {
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
 	}
-
-	// Priority 3: Ultimate fallback to profile configuration host domain
-	return defaultConfigs[index].WsDomain
+	
+	return "0.0.0.0"
 }
 
 // GetActiveVlessWsIP is an exported JNI function for Android's VpnBuilder
@@ -60,8 +65,11 @@ func GetActiveVlessWsIP(index int64) string {
 }
 
 func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer string) string {
-	if activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade"{
-		return getCloudflareIP(configIndex)
+	if activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade" || activeProtocol == "vless-grpc"{
+		CloudflareIP := getCloudflareIP(configIndex)
+		if CloudflareIP != "" && CloudflareIP != "0.0.0.0" {
+			return CloudflareIP
+		}
 	}
 	// 1. Get the domain name of actual server		
 	serverDomain := getServerDomain(configIndex)
@@ -113,6 +121,30 @@ func getWsPath(index int64) string {
 	return "/vayws"
 }
 
+func getAwsDomain(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	if defaultConfigs[index].AwsDomain != "" {
+		return defaultConfigs[index].AwsDomain
+	}
+// to be fixed	
+	return defaultConfigs[index].Domain
+}
+
+func getAwsCdnDomain(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	if defaultConfigs[index].AwsCdnDomain != "" {
+		return defaultConfigs[index].AwsCdnDomain
+	}
+// to be fixed	
+	return defaultConfigs[index].AwsDomain
+}
+
 func getHttpupgradeServerName(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
@@ -133,6 +165,28 @@ func getHttpupgradeDomain(index int64) string {
 		return defaultConfigs[index].HttpUpgradeDomain
 	}
 	return defaultConfigs[index].HttpUpgradeDomain
+}
+
+func getGrpcDomain(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	if defaultConfigs[index].GrpcDomain != "" {
+		return defaultConfigs[index].GrpcDomain
+	}
+	return defaultConfigs[index].GrpcDomain
+}
+
+func getXhttpPath(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return "/vayxhttp"
+	}
+	if defaultConfigs[index].XhttpPath != "" {
+		return defaultConfigs[index].XhttpPath
+	}
+	return "/vayxhttp"
 }
 
 func getHttpupgradePath(index int64) string {
@@ -161,7 +215,7 @@ func getGrpcServiceName(index int64) string {
 // OUTBOUND BUILDER FOR VLESS WEBSOCKETS (CLOUDFLARE CDN)
 // =====================================================================
 
-func buildVlessWsOutbound(configIndex int64, runtimeVlessWsIp string) map[string]interface{} {
+func buildVlessWsOutbound(configIndex int64, runtimeVlessWsIp string, targetCDN string) map[string]interface{} {
 	CloudflareIP := runtimeVlessWsIp
 	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
 		CloudflareIP = getCloudflareIP(configIndex)
@@ -169,9 +223,17 @@ func buildVlessWsOutbound(configIndex int64, runtimeVlessWsIp string) map[string
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
 	WsDomainName := getWsDomain(configIndex)
+	
+	if strings.ToLower(targetCDN) == "amazon" {
+		WsDomainName = getAwsCdnDomain(configIndex)
+	}
 	wsPath := getWsPath(configIndex)
 
-
+	// Strict Matched-Domain Fallback Logic
+	if CloudflareIP == "" || CloudflareIP == "0.0.0.0"{
+		CloudflareIP = WsDomainName	
+	}
+	
 	tlsObj := map[string]interface{}{
 		"enabled":     true,
 		"insecure":    false,
@@ -217,15 +279,24 @@ func buildVlessWsOutbound(configIndex int64, runtimeVlessWsIp string) map[string
 // OUTBOUND BUILDER FOR VLESS gRPC (CLOUDFLARE CDN MULTIPLEXING)
 // =====================================================================
 
-func buildVlessGrpcOutbound(configIndex int64, runtimeVlessIp string) map[string]interface{} {
+func buildVlessGrpcOutbound(configIndex int64, runtimeVlessIp string, targetCDN string) map[string]interface{} {
 	CloudflareIP := runtimeVlessIp
 	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
 		CloudflareIP = getCloudflareIP(configIndex)
 	}
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
-	WsDomain := getWsDomain(configIndex)
+	GrpcDomain := getGrpcDomain(configIndex)
 
+	if strings.ToLower(targetCDN) == "amazon" {
+		GrpcDomain = getAwsCdnDomain(configIndex)
+	}
+	
+	// Strict Matched-Domain Fallback Logic
+	if CloudflareIP == "" || CloudflareIP == "0.0.0.0"{
+		CloudflareIP = GrpcDomain
+	}
+		
 	// We use the path variable to store the gRPC Service Name (e.g., "vaygrpc")
 	grpcServiceName := getGrpcServiceName(configIndex)
 //	grpcServiceName	:= "vaygrpc"
@@ -237,7 +308,7 @@ func buildVlessGrpcOutbound(configIndex int64, runtimeVlessIp string) map[string
 	tlsObj := map[string]interface{}{
 		"enabled":     true,
 		"insecure":    false,
-		"server_name": WsDomain,
+		"server_name": GrpcDomain,
 		"alpn":        []string{"h2"}, // gRPC requires HTTP/2
 		"utls": map[string]interface{}{
 			"enabled":     true,
@@ -281,8 +352,13 @@ func buildVlessHttpUpgradeOutbound(configIndex int64, runtimeVlessIp string) map
 	HttpupgradeServerName := getHttpupgradeServerName(configIndex)
 	HttpupgradeDomain := getHttpupgradeDomain(configIndex)
 	HttpupgradePath := getHttpupgradePath(configIndex)
-//    vlessPath	:= "/vayupgrade"
+	// vlessPath	:= "/vayupgrade"
 	
+	// Strict Matched-Domain Fallback Logic
+	if CloudflareIP == "" || CloudflareIP == "0.0.0.0"{
+		CloudflareIP = HttpupgradeDomain
+	}
+		
 	tlsObj := map[string]interface{}{
 		"enabled":     true,
 		"insecure":    false,

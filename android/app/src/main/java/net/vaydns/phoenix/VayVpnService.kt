@@ -175,7 +175,7 @@ class VayVpnService : VpnService() {
                     // ==========================================
                     // 2. UI NOTIFICATION LOGIC (Every ~4 seconds)
                     // ==========================================
-                    val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+                    val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                     val notifUpdateMs = appPrefs.getLong("notif_update_ms", 4000L)
 
                     if (currentTime - lastUiUpdateTime >= notifUpdateMs) {
@@ -236,7 +236,7 @@ class VayVpnService : VpnService() {
 
             // 2 seconds if unlocked, 5 seconds if locked/asleep
             // val nextDelay = if (isScreenOn) 2000L else 5000L
-            val appPrefs = getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+            val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             val unlockedDelayMs = appPrefs.getLong("unlocked_delay_ms", 2000L)
             val lockedDelayMs = appPrefs.getLong("locked_delay_ms", 5000L)
 
@@ -372,6 +372,9 @@ class VayVpnService : VpnService() {
                     val engineType = intent?.getStringExtra("ENGINE_TYPE") ?: "sing-box"
                     activeConfigType = intent?.getStringExtra("CONFIG_TYPE") ?: "vaydns"
                     val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
+                    val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
+                    val fragment = intent?.getBooleanExtra("USE_FRAGMENTATION", false) ?: false
+                    val blockQuic = intent?.getBooleanExtra("BLOCK_QUIC", true) ?: true
                     sessionOsRx = 0L
                     sessionOsTx = 0L
 
@@ -380,7 +383,7 @@ class VayVpnService : VpnService() {
 
                     val finalMtu = if (lowerConfig == "direct" ||
                         lowerProto == "hysteria2" || lowerProto == "reality-tcp" || lowerProto == "reality-xhttp" ||
-                        lowerProto == "vless-httpupgrade" || lowerProto == "vless-ws") {
+                        lowerProto == "vless-httpupgrade" || lowerProto == "vless-ws" || lowerProto == "vless-grpc") {
                         1500 // High-speed direct protocols get unfragmented MTU
                     } else {
                         1232 // Legacy Phoenix DNS tunneling keeps the safe, smaller block
@@ -512,22 +515,56 @@ class VayVpnService : VpnService() {
                         }
                     }
 
+                    val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                    val isDebugEnabled = sharedPrefs.getBoolean("debug_logs_enabled", false)
+
                     // App Filtering
                     val selectedApps = intent?.getStringArrayListExtra("ALLOWED_APPS_LIST")?.toSet() ?: emptySet()
+                    val tunnelAllApps = intent?.getBooleanExtra("TUNNEL_ALL_APPS", false) ?: false
+                    val tunnelAndroidServices = intent?.getBooleanExtra("TUNNEL_ANDROID_SERVICES", false) ?: false
 
-                    if (selectedApps.isNotEmpty()) {
-                        for (pkg in selectedApps) {
-                            try {
-                                builder.addAllowedApplication(pkg)
-                            } catch (e: PackageManager.NameNotFoundException) {
-                                Log.e("Phoenix", "App not found (might be uninstalled): $pkg")
-                            } catch (e: Exception) {
-                                Log.e("Phoenix", "Could not tunnel app: $pkg")
+                    // If "All Apps" is checked, we bypass adding specific apps, which tells Android to tunnel everything.
+                    if (!tunnelAllApps) {
+                        val coreGoogleApps = listOf(
+                            "com.android.vending",
+                            "com.google.android.gms",
+                            "com.google.android.gsf"
+                        )
+                        if (selectedApps.isNotEmpty() || tunnelAndroidServices) {
+                            // 1. Add User-Selected Apps
+                            for (pkg in selectedApps) {
+                                try {
+                                    builder.addAllowedApplication(pkg)
+                                } catch (e: PackageManager.NameNotFoundException) {
+                                    Log.e("Phoenix", "App not found (might be uninstalled): $pkg")
+                                } catch (e: Exception) {
+                                    Log.e("Phoenix", "Could not tunnel app: $pkg")
+                                }
                             }
+
+                            // 2. Add Core Android Services if toggled ON
+                            if (tunnelAndroidServices) {
+                                for (pkg in coreGoogleApps) {
+                                    try {
+                                        builder.addAllowedApplication(pkg)
+                                    } catch (e: Exception) {
+                                        Log.e("Phoenix", "Could not tunnel Google service: $pkg")
+                                    }
+                                }
+                            }
+                        } else {
+                            // Default: If nothing is selected, only tunnel Phoenix itself
+                            try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
                         }
                     } else {
-                        // Default: If nothing is selected, only tunnel Phoenix itself
-                        try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
+                        // Prevent Infinite Routing Loop ---
+                        // When tunneling the whole device, we MUST explicitly exclude the VPN app itself.
+                        // Otherwise, the engine's outbound traffic gets trapped in its own tunnel!
+                        try {
+                            builder.addDisallowedApplication(packageName)
+                        } catch (e: Exception) {
+                            Log.e("Phoenix", "Could not disallow app: ${e.message}")
+                        }
                     }
 
                     // 1. RUN THE PRE-SCAN BEFORE ESTABLISHING THE TUNNEL
@@ -622,7 +659,11 @@ class VayVpnService : VpnService() {
                             user,
                             pass,
                             vlessWsIp,
+                            targetCdn,
                             globalDnsServer,
+                            isDebugEnabled,
+                            fragment,
+                            blockQuic,
                             protector
                         )
                         Log.i("Phoenix", "VPN Started with FD: $fd")

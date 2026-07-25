@@ -12,19 +12,25 @@ import com.google.android.material.appbar.MaterialToolbar
 
 class CfIpManagerActivity : AppCompatActivity() {
 
-    data class CfIpEntry(var address: String, var isChecked: Boolean, var latencyMs: Int = -1)
-
+    data class CfIpEntry(var address: String, var isChecked: Boolean, var latencyMs: Int = -1, var cdn: String = "Cloudflare")
     private val ipEntries = mutableListOf<CfIpEntry>()
     private lateinit var adapter: CfIpAdapter
     private var isCheckAllActive = true
+    private var targetCdn = "Cloudflare"
+    private val hiddenOtherCdnIps = mutableListOf<org.json.JSONObject>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_cf_manager)
 
+        // Grab the target CDN from Global Settings
+        targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
+
         val toolbar = findViewById<MaterialToolbar>(R.id.toolbar_cf_manager)
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        // Dynamically update the title so the user knows which CDN they are editing
+        supportActionBar?.title = "$targetCdn IP Manager"
         toolbar.setNavigationOnClickListener { finish() }
 
         loadSavedIps()
@@ -81,22 +87,7 @@ class CfIpManagerActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btn_import_cf).setOnClickListener {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            val text = clipboard.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-            if (text.isNotEmpty()) {
-                val lines = text.split(Regex("[\\n\\r,;]+")).map { it.trim() }.filter { it.isNotEmpty() }
-                if (ipEntries.size == 1 && ipEntries[0].address.isBlank()) ipEntries.clear()
-
-                var imported = 0
-                for (line in lines) {
-                    if (ipEntries.none { it.address == line }) {
-                        ipEntries.add(CfIpEntry(line, true))
-                        imported++
-                    }
-                }
-                adapter.notifyDataSetChanged()
-                Toast.makeText(this, "Imported $imported IPs", Toast.LENGTH_SHORT).show()
-            }
+            showImportDialog()
         }
 
         findViewById<Button>(R.id.btn_export_cf).setOnClickListener {
@@ -132,9 +123,16 @@ class CfIpManagerActivity : AppCompatActivity() {
                 val ip = obj.getString("ip")
                 val isChecked = obj.getBoolean("isChecked")
                 val latency = obj.optInt("latency", -1)
+                val cdn = obj.optString("cdn", "Cloudflare")
 
-                if (ip.isNotBlank()) {
-                    ipEntries.add(CfIpEntry(ip, isChecked, latency))
+                // Partition the data
+                if (cdn.equals(targetCdn, ignoreCase = true)) {
+                    if (ip.isNotBlank()) {
+                        ipEntries.add(CfIpEntry(ip, isChecked, latency, cdn))
+                    }
+                } else {
+                    // Safely store away IPs belonging to other CDNs
+                    hiddenOtherCdnIps.add(obj)
                 }
             }
         } catch (e: Exception) {
@@ -148,7 +146,7 @@ class CfIpManagerActivity : AppCompatActivity() {
 
         // Start with a blank row if empty
         if (ipEntries.isEmpty()) {
-            ipEntries.add(CfIpEntry("", true))
+            ipEntries.add(CfIpEntry("", true, -1, targetCdn))
         }
     }
 
@@ -162,11 +160,74 @@ class CfIpManagerActivity : AppCompatActivity() {
                 obj.put("ip", entry.address)
                 obj.put("isChecked", entry.isChecked)
                 obj.put("latency", entry.latencyMs)
+                obj.put("cdn", targetCdn) // Enforce the target CDN
                 jsonArray.put(obj)
             }
         }
 
         prefs.edit().putString("vault_ips_json", jsonArray.toString()).apply()
+    }
+
+    private fun showImportDialog() {
+        val input = android.widget.EditText(this).apply {
+            hint = "Paste IPs (comma, space, or newline separated)...\nآی‌پی‌ها را اینجا جای‌گذاری کنید..."
+            setLines(5)
+            setPadding(45, 45, 45, 45)
+            gravity = android.view.Gravity.TOP
+        }
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Import $targetCdn IPs")
+            .setView(input)
+            .setPositiveButton("Import") { _, _ ->
+                // 1. Split by spaces, commas, semicolons, or newlines
+                val parsed = input.text.toString()
+                    .split(Regex("[\\s,;]+"))
+                    .map { it.replace("\"", "").trim() }
+                    .filter { it.isNotEmpty() }
+
+                // 2. Sanitize and filter exclusively for valid IPv4 addresses
+                val validIps = parsed.mapNotNull { sanitizeInput(it) }.distinct()
+
+                if (validIps.isNotEmpty()) {
+                    // Clear the empty placeholder row if it exists
+                    if (ipEntries.size == 1 && ipEntries[0].address.isBlank()) ipEntries.clear()
+
+                    var imported = 0
+                    for (ip in validIps) {
+                        if (ipEntries.none { it.address == ip }) {
+                            // Add as UNCHECKED so the user doesn't hit the "Multiple IPs Selected" error on save
+                            ipEntries.add(CfIpEntry(ip, false, -1, targetCdn))
+                            imported++
+                        }
+                    }
+                    adapter.notifyDataSetChanged()
+                    Toast.makeText(this, "Imported $imported valid IPs for $targetCdn", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "No valid IPv4 addresses found.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun sanitizeInput(token: String): String? {
+        if (!token.startsWith("http://") && !token.startsWith("https://") && isValidIpv4WithOptionalPort(token)) {
+            return token
+        }
+        return null
+    }
+
+    private fun isValidIpv4WithOptionalPort(input: String): Boolean {
+        // Strip the port if one exists
+        val core = if (input.contains(":")) input.split(":").first() else input
+        val parts = core.split(".")
+
+        // Ensure exactly 4 octets
+        if (parts.size != 4) return false
+
+        // Ensure each octet is a valid number between 0 and 255
+        return parts.all { it.toIntOrNull() in 0..255 }
     }
 
 }

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">vaydns</string>
+    <string name="app_name">Phoenix vpn</string>
 
     <string name="status_connected">وضعیت: متصل</string>
     <string name="status_disconnected">وضعیت: قطع شد</string>

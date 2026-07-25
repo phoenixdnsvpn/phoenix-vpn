@@ -19,7 +19,7 @@ func fetchSecure(fullURL string) ([]byte, error) {
 	}
 
 	// NATIVE VAULT: Go securely grabs the token from its own memory!
-	req.Header.Set("X-VayDNS-Token", getAppSecretKey())
+	req.Header.Set("X-Phoenix-Token", getAppSecretKey())
 	req.Header.Set("Accept-Encoding", "identity")
 
 	client := &http.Client{Timeout: 10 * time.Second}

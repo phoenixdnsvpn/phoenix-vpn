@@ -96,11 +96,12 @@ class ConfigAdapter(
 
         // Assign striking Material colors based on the protocol
         val protocolColor = when (activeProtocol.lowercase().trim()) {
-            "hysteria", "hysteria2" -> android.graphics.Color.parseColor("#00897B") // Teal
+            "hysteria2" -> android.graphics.Color.parseColor("#00897B") // Teal
             "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
             "vless-ws"              -> android.graphics.Color.parseColor("#1565C0") // Strong Blue
             "vless-httpupgrade"     -> android.graphics.Color.parseColor("#00B7EB") // Deep Purple 5E35B1
             "reality-xhttp"         -> android.graphics.Color.parseColor("#F9A825") // Golden
+            "vless-grpc"            -> android.graphics.Color.parseColor("#2E7D32") // Green
             else                    -> defaultTextColor // Phoenix (Native Black/White)
         }
 
@@ -197,7 +198,7 @@ class ConfigAdapter(
                 }
             }
 
-            val appPrefs = context.getSharedPreferences("VayDNSPrefs", Context.MODE_PRIVATE)
+            val appPrefs = context.getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             val useAllResolvers = appPrefs.getBoolean("use_all_resolvers_for_ping", false)
             val mainActivity = context as MainActivity
             val finalConfig = if (config.isDefault) DefaultConfigProvider.getActualConfig(mainActivity, config) else config
@@ -221,10 +222,18 @@ class ConfigAdapter(
             var pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
 
             val configVlessIp = if (finalConfig.isDefault) {
-                prefs.getString("${finalConfig.id}_vlessIp", "") ?: ""
+                // FIXED: Read from DefaultOverrides instead of TunnelSettingsPrefs
+                context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${finalConfig.id}_vlessIp", "") ?: ""
             } else {
                 finalConfig.vlessIp
             }
+
+            /**val configVlessIp = if (finalConfig.isDefault) {
+                prefs.getString("${finalConfig.id}_vlessIp", "") ?: ""
+            } else {
+                finalConfig.vlessIp
+            }*/
             val globalVlessIp = context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
                 .getString("vless_ws_ip", "") ?: ""
 

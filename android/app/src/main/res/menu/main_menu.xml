@@ -3,6 +3,14 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/action_app_update"
+        android:icon="@drawable/ic_sync_modern"
+        android:title="Update Available"
+        app:showAsAction="always"
+        app:iconTint="?attr/colorOnSurface"
+        android:visible="false" />
+
+    <item
         android:id="@+id/action_add_config"
         android:title="Add Config"
         app:showAsAction="never" />
@@ -43,18 +51,33 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_import_apps"
+        android:title="Import App List"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_export_apps"
+        android:title="Export App List"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_backup_restore"
+        android:title="Backup &amp; Restore"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_dns_scanner"
         android:title="DNS Scanner"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_quick_scanner"
-        android:title="Quick Scanner"
+        android:title="Quick DNS Scanner"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_cf_scanner"
-        android:title="Cloudflare Scanner"
+        android:title="CDN IP Scanner"
         app:showAsAction="never" />
 
     <item
@@ -65,5 +88,15 @@
     <item
         android:id="@+id/action_my_dns"
         android:title="My DNS Server"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_toggle_logging"
+        android:title="Start Debug Log"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_share_logs"
+        android:title="Share Log with Developer"
         app:showAsAction="never" />
 </menu>

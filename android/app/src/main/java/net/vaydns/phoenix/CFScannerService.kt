@@ -23,10 +23,11 @@ class CFScannerService : Service() {
                 val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
                 val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
                 val scanCount = intent.getIntExtra("SCAN_COUNT", 512)
+                val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
 
                 Thread {
                     // Start the scanner and pass the callback interface for live updates
-                    val finalResult = Mobile.runCloudflareScanner(isDefault, configIndex, scanCount.toLong(), object : CFScannerCallback {
+                    val finalResult = Mobile.runCloudflareScanner(isDefault, configIndex, scanCount.toLong(), targetCdn, object : CFScannerCallback {
                         override fun onUpdate(result: String) {
                             // Send intermediate updates to the UI WITHOUT killing the service
                             broadcastUpdate(result)

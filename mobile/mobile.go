@@ -22,8 +22,8 @@ import (
 	// "os/exec"
 	// "regexp"
 		
-	"github.com/Starling226/phoenix-vpn/bridge"
-	"github.com/Starling226/phoenix-vpn/vaydns/client"
+	"github.com/Starling226/vaydns-vpn/bridge"
+	"github.com/Starling226/vaydns-vpn/vaydns/client"
 	"github.com/xjasonlyu/tun2socks/v2/engine"
 		
 	box "github.com/sagernet/sing-box"
@@ -147,7 +147,11 @@ func StartVpn(
 	user string, 
 	pass string,
 	vlessWsIp string,
+	targetCDN string,
 	globalDnsServer string,
+	debug bool,
+	fragment bool,
+	blockQuic bool,
 	protector SocketProtector,
 ) string {
 	mu.Lock()
@@ -163,7 +167,7 @@ func StartVpn(
 		mu.Unlock()
 		return "Error: Failed to dup FD"
 	}
-
+		
 	activeWg = &sync.WaitGroup{}
 	activeCtx, activeCancel = context.WithCancel(context.Background())
 	isRunning = true
@@ -188,7 +192,7 @@ func StartVpn(
 
 	isDirectMode := !strings.Contains(configTypeLower, "vaydns") || 
 					activeProto == "hysteria2" || 
-					activeProto == "reality-tcp" || activeProto == "vless-ws" || 
+					activeProto == "reality-tcp" || activeProto == "vless-ws" ||
 					activeProto == "vless-grpc" || activeProto == "vless-httpupgrade" || activeProto == "reality-xhttp" || 
 					configTypeLower == "direct"
 	
@@ -411,7 +415,7 @@ func StartVpn(
 		activeSocksPort = singBoxListenPort
 		mu.Unlock()
 
-		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, globalDnsServer)
+		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, fragment)
 		if err != nil {
 			errMsg := fmt.Sprintf("Error: sing-box layer failure: %v", err)
 			log.Println("VAY_DEBUG: FATAL -> " + errMsg)
@@ -430,7 +434,7 @@ func StartVpn(
 		os.Setenv("XRAY_TUN_FD", strconv.Itoa(int(fd)))
 
 		// 3. Pass both the Watchdog port (for the SOCKS inbound) and MTU (for the TUN inbound)
-		err := StartXrayEngine(configIndex, globalDnsServer, false, activeSocksPort, int(finalMtu), protocol)
+		err := StartXrayEngine(configIndex, globalDnsServer, vlessWsIp, targetCDN, false, activeSocksPort, int(finalMtu), protocol, debug, fragment, blockQuic)
 		if err != nil {
 			cancel()
 			return fmt.Sprintf("Error starting Xray Engine: %v", err)
@@ -500,10 +504,37 @@ func StartVpn(
 }
 
 func StartProxy(
-	engineType string, isDefault bool, configIndex int64, configType string, useMultiDomains bool, domainIndex int64, udp string, tcp string, doh string, dot string, baseDohUrl string,
-	customDomain string, customPubkey string, recordType string, idleTimeout string,
-	KeepAlive string, clientIDSize int, mtu int, compatDnstt bool, useAuth bool,
-	protocol string, ssMethod string, user string, pass string, customPort int, vlessWsIp string, globalDnsServer string,
+	engineType string,
+	isDefault bool, 
+	configIndex int64, 
+	configType string, 
+	useMultiDomains bool, 
+	domainIndex int64, 
+	udp string, 
+	tcp string, 
+	doh string, 
+	dot string, 
+	baseDohUrl string,
+	customDomain string, 
+	customPubkey string, 
+	recordType string, 
+	idleTimeout string,
+	KeepAlive string, 
+	clientIDSize int, 
+	mtu int, 
+	compatDnstt bool, 
+	useAuth bool,
+	protocol string, 
+	ssMethod string, 
+	user string, 
+	pass string, 
+	customPort int, 
+	vlessWsIp string,
+	targetCDN string,
+	globalDnsServer string, 
+	debug bool,
+	fragment bool,
+	blockQuic bool,
 ) string {
 	mu.Lock()
 
@@ -567,7 +598,7 @@ func StartProxy(
 
 	isDirectMode := !strings.Contains(configTypeLower, "vaydns") || 
 					activeProto == "hysteria2" || 
-					activeProto == "reality-tcp" || activeProto == "vless-ws" || 
+					activeProto == "reality-tcp" || activeProto == "vless-ws" ||
 					activeProto == "vless-grpc" || activeProto == "vless-httpupgrade" || activeProto == "reality-xhttp" ||
 					configTypeLower == "direct"
 					
@@ -596,7 +627,7 @@ func StartProxy(
 			
 			// We pass 'customPort' directly to Sing-box so it creates a SOCKS5 server on that exact port.
 			// No tun2socks is needed!
-			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, globalDnsServer)
+			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, fragment)
 			
 			if err != nil {
 				return fmt.Sprintf("Error|sing-box proxy failure: %v", err)
@@ -605,7 +636,7 @@ func StartProxy(
 
 			log.Printf("VAY_DEBUG: Booting cutting-edge Xray in PROXY MODE on port %d", customPort)
 
-			err := StartXrayEngine(configIndex, globalDnsServer, true, customPort, 0, protocol)
+			err := StartXrayEngine(configIndex, globalDnsServer, vlessWsIp, targetCDN, true, customPort, 0, protocol, debug, fragment, blockQuic)
 //			err := StartXrayEngine_socks(customPort, configIndex, globalDnsServer)
 			if err != nil {
 				errMsg := fmt.Sprintf("Error: Xray layer failure: %v", err)
@@ -1116,7 +1147,7 @@ waitLoop:
 	return finalLatency
 }
 
-func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, globalDnsServer string) error {
+func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, targetCDN string, globalDnsServer string, fragment bool) error {
 
 	var outboundMap map[string]interface{}
 	var upstreamScheme string
@@ -1148,21 +1179,21 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 		} else if activeProto == "reality-tcp" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildRealityOutbound(configIndex, globalDnsServer)
+				outboundMap = buildRealityOutbound(configIndex, globalDnsServer, fragment)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}			
 		} else if activeProto == "vless-ws" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildVlessWsOutbound(configIndex, vlessWsIp)
+				outboundMap = buildVlessWsOutbound(configIndex, vlessWsIp, targetCDN)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}
 		} else if activeProto == "vless-grpc" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildVlessGrpcOutbound(configIndex, vlessWsIp)
+				outboundMap = buildVlessGrpcOutbound(configIndex, vlessWsIp, targetCDN)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}
@@ -1188,7 +1219,7 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 		upstreamScheme = u.Scheme
 		port, _ := strconv.Atoi(u.Port())
 		host := u.Hostname()
-
+	
 		outboundMap = map[string]interface{}{
 			"tag":         "proxy-out",
 			"server":      host,

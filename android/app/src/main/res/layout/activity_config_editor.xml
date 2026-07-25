@@ -66,11 +66,35 @@
                 android:layout_marginTop="8dp"
                 android:backgroundTint="?attr/colorOnSurface" />
 
+            <LinearLayout
+                android:id="@+id/layout_editor_cdn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="12dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Target CDN:"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold" />
+
+                <Spinner
+                    android:id="@+id/spinner_editor_cdn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="?attr/colorOnSurface" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/tv_vless_ip_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Cloudflare IP (VLESS):"
+                android:text="CDN IP (VLESS):"
                 android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold"

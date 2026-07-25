@@ -158,7 +158,7 @@ class AppSelectorActivity : AppCompatActivity() {
     }
 
     private fun saveSelectedApps(selectedPackages: Set<String>) {
-        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         with(sharedPref.edit()) {
             putStringSet("allowed_apps", selectedPackages)
             apply()
@@ -166,7 +166,7 @@ class AppSelectorActivity : AppCompatActivity() {
     }
 
     private fun getSelectedApps(): Set<String> {
-        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         return sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()
     }
 }

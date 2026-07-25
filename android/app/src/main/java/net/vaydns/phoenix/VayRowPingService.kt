@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import mobile.Mobile
 
 class VayRowPingService : Service() {
@@ -24,7 +25,7 @@ class VayRowPingService : Service() {
 
         // ARCHITECTURAL FORK: Check if it is a direct connection by verifying the active protocol string
         val isDirectMode = !configType.lowercase().contains("vaydns") ||
-                protocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade")
+                protocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc")
 
         // ARCHITECTURAL FORK: Check if it is a direct connection
         //val isDirectMode = configType.lowercase() == "direct"
@@ -37,14 +38,50 @@ class VayRowPingService : Service() {
             val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
             val serverIp = intent.getStringExtra("SERVER_IP") ?: "" // Only used for custom configs
             val protocol = intent.getStringExtra("PROTOCOL") ?: ""
-            val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
+            var vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
             val domain = intent.getStringExtra("DOMAIN") ?: "" // Extract for SNI
 
+            // ==========================================
+            // THE FIX: FETCH THE ASSIGNED CLOUDFLARE IP
+            // ==========================================
+            if (vlessWsIp.isEmpty()) {
+                if (isDefault) {
+                    // Fetch the scanned IP from Default Overrides memory using the correct _vlessIp key
+                    val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    vlessWsIp = defPrefs.getString("${configId}_vlessIp", "") ?: ""
+                } else {
+                    // Fetch the scanned IP from User Custom Configs memory using the vlessIp property
+                    try {
+                        val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this)
+                        val userConfig = currentConfigs.find { it.id == configId }
+                        vlessWsIp = userConfig?.vlessIp ?: ""
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            // ==========================================
+
+            // Log.i("Phoenix", "VLESS_WS_IP : $vlessWsIp")
             val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
             val useLayer7 = tunnelPrefs.getBoolean("use_layer7_ping", true)
             var globalDnsServer = tunnelPrefs.getString("global_dns_server", "")?.trim() ?: ""
             if (globalDnsServer.isEmpty()) {
                 globalDnsServer = "1.1.1.1"
+            }
+
+            val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+            val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+
+            // Fetch the specific CDN saved to this config, unless Global Override is active
+            val targetCdn = if (globalOverride) {
+                globalCdn
+            } else if (isDefault) {
+                val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                defPrefs.getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
+            } else {
+                val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                appPrefs.getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
             }
 
             Thread {
@@ -59,7 +96,8 @@ class VayRowPingService : Service() {
                         protocol.lowercase(),
                         domain, // Passed down as customSni
                         "/",     // Passed down as default customPath for VLESS-WS
-                        globalDnsServer
+                       globalDnsServer,
+                        targetCdn
                     )
                 } else {
                     Mobile.pingDirectServer(
@@ -68,7 +106,8 @@ class VayRowPingService : Service() {
                         serverIp,
                         configType.lowercase(),
                         protocol.lowercase(),
-                        globalDnsServer
+                        globalDnsServer,
+                        targetCdn
                     )
                 }
 

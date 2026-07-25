@@ -158,7 +158,10 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         cbBestCfIp.setOnCheckedChangeListener { buttonView, isChecked ->
             if (isChecked) {
-// Fetch ALL IPs from the JSON Vault for the Layer 7 scanner
+                // Grab the currently selected CDN from the Editor
+                val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "Cloudflare"
+
+                // Fetch ALL IPs from the JSON Vault for the Layer 7 scanner
                 val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
                 val jsonString = prefs.getString("vault_ips_json", "[]") ?: "[]"
                 val allIpsList = mutableListOf<String>()
@@ -166,19 +169,25 @@ class ConfigEditorActivity : AppCompatActivity() {
                 try {
                     val jsonArray = org.json.JSONArray(jsonString)
                     for (i in 0 until jsonArray.length()) {
-                        allIpsList.add(jsonArray.getJSONObject(i).getString("ip"))
+                        val obj = jsonArray.getJSONObject(i)
+                        val ipCdn = obj.optString("cdn", "Cloudflare")
+
+                        // FILTER: Only race IPs that belong to the Target CDN
+                        if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
+                            allIpsList.add(obj.getString("ip"))
+                        }
                     }
                 } catch (e: Exception) { e.printStackTrace() }
 
                 val savedIps = allIpsList.joinToString(",")
 
                 if (savedIps.isBlank()) {
-                    Toast.makeText(this, "No IPs in Global Settings!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "No IPs found for $selectedCdn in Global Settings!", Toast.LENGTH_SHORT).show()
                     buttonView.isChecked = false
                     return@setOnCheckedChangeListener
                 }
 
-                Toast.makeText(this, "Racing Global IPs in background...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Racing $selectedCdn IPs in background...", Toast.LENGTH_SHORT).show()
                 buttonView.isEnabled = false
                 // Layer 7 latency measurement
                 Thread {
@@ -190,7 +199,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     val currentDomain = etDomain?.text?.toString()?.trim() ?: ""
 
                     // Call the NEW Layer 7 Scanner
-                    val result = Mobile.getFastestCloudflareIP(isDefault, cIndex, savedIps, currentDomain)
+                    val result = Mobile.getFastestCloudflareIP(isDefault, cIndex, savedIps, currentDomain, selectedCdn)
 
                     runOnUiThread {
                         buttonView.isEnabled = true
@@ -689,6 +698,88 @@ class ConfigEditorActivity : AppCompatActivity() {
         val tvVlessIpLabel = findViewById<TextView>(R.id.tv_vless_ip_label)
         val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
 
+        // Setup Target CDN Spinner ---
+        val spinnerEditorCdn = findViewById<Spinner>(R.id.spinner_editor_cdn)
+        val layoutEditorCdn = findViewById<LinearLayout>(R.id.layout_editor_cdn)
+
+        val cdnList = mutableListOf<String>()
+        val cdnCount = mobile.Mobile.getCdnCount()
+        for (i in 0 until cdnCount) {
+            val name = mobile.Mobile.getCdnName(i)
+            if (name.isNotEmpty()) cdnList.add(name)
+        }
+        if (cdnList.isEmpty()) {
+            cdnList.add("Cloudflare")
+            cdnList.add("Amazon")
+        }
+        val cdnAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
+        cdnAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerEditorCdn.adapter = cdnAdapter
+
+        // Load Global Override settings
+        val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+        val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+
+        // Load this config's saved CDN (bypass the Config data class to prevent data loss)
+        val currentConfigCdn = if (isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${editingConfigId}_cdn", "Cloudflare") ?: "Cloudflare"
+        } else {
+            getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                .getString("${editingConfigId}_cdn", "Cloudflare") ?: "Cloudflare"
+        }
+
+        // Apply Logic: If Global Override is ON, force it to the Global setting initially
+        val cdnToSelect = if (globalOverride) globalCdn else currentConfigCdn
+        val cdnIndex = cdnList.indexOf(cdnToSelect)
+        if (cdnIndex >= 0) spinnerEditorCdn.setSelection(cdnIndex)
+
+        // Fetch the Top IP from Disk on CDN Change <---
+        var isInitialCdnSetup = true
+
+        spinnerEditorCdn.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>, view: View?, position: Int, id: Long) {
+                // Ignore the very first trigger when Android builds the UI
+                if (isInitialCdnSetup) {
+                    isInitialCdnSetup = false
+                    return
+                }
+
+                // 1. Instantly clear the existing IP to prevent a CDN/IP mismatch
+                etVlessIp.setText("")
+
+                val selectedCdn = parent.getItemAtPosition(position).toString()
+                val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
+                val jsonString = prefs.getString("vault_ips_json", "[]") ?: "[]"
+                var firstIp = ""
+
+                try {
+                    val jsonArray = org.json.JSONArray(jsonString)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val ipCdn = obj.optString("cdn", "Cloudflare")
+
+                        if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
+                            firstIp = obj.getString("ip")
+                            break // Stop at the very first match
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                // 2. Replace with the retrieved IP (if one was found)
+                if (firstIp.isNotEmpty()) {
+                    etVlessIp.setText(firstIp)
+                }
+
+                // Uncheck the scanner toggle so it's ready if they decide to scan later
+                cbBestCfIp.isChecked = false
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
+        }
+
         // 1. Load the currently saved value
         val currentVlessIp = if (isDefault) {
             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -716,15 +807,17 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val visibilityState = if (isVaydns) View.VISIBLE else View.GONE
 
                 // 1. Handle Vless IP visibility universally
-                if (selected == "vless-ws" || selected == "vless-httpupgrade") {
+                if (selected == "vless-ws" || selected == "vless-httpupgrade" || selected == "vless-grpc") {
                     tvVlessIpLabel.visibility = View.VISIBLE
                     etVlessIp.visibility = View.VISIBLE
                     cbBestCfIp.visibility = View.VISIBLE
+                    layoutEditorCdn.visibility = View.VISIBLE
                 } else {
                     tvVlessIpLabel.visibility = View.GONE
                     etVlessIp.visibility = View.GONE
                     cbBestCfIp.visibility = View.GONE
                     cbBestCfIp.isChecked = false
+                    layoutEditorCdn.visibility = View.GONE
                 }
 
                 if (!isDefault) {
@@ -882,6 +975,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             val rt = spRecordType.selectedItem.toString()
             val selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
             val selectedVlessIp = etVlessIp.text.toString().trim()
+            val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "Cloudflare"
 
             val selectedDomainIndex = when (findViewById<RadioGroup>(R.id.rg_domain_selector).checkedRadioButtonId) {
                 R.id.rb_domain_2 -> 1
@@ -948,7 +1042,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 name, domain, pubkey, dns, mode, rt, idle, keep,
                 clientIdSize, mtu,dnstt, useAuth, useSshKey, proxyProtocol,
                 authProtocol, ssMethod, user, pass, useMultiDomains, selectedTunnelProtocol,
-                selectedVlessIp, selectedDomainIndex
+                selectedVlessIp, selectedDomainIndex, selectedCdn
             )
             finish()
 
@@ -1279,7 +1373,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         useMultiDomains: Boolean,
         tunnelProtocol: String,
         selectedVlessIp: String,
-        domainIndex: Int
+        domainIndex: Int,
+        selectedCdn: String
     ) {
         if (editingConfigId?.startsWith("default_") == true) {
             val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -1292,12 +1387,13 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putString("${editingConfigId}_tunnelProtocol", tunnelProtocol)
                 putString("${editingConfigId}_vlessIp", selectedVlessIp)
                 putInt("${editingConfigId}_domainIndex", domainIndex)
+                putString("${editingConfigId}_cdn", selectedCdn)
             }.apply()
             finish()
             return
         }
 
-        val sharedPref = getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+        val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val configsString = sharedPref.getString("configs", "[]") ?: "[]"
         val jsonArray = JSONArray(configsString)
 
@@ -1345,6 +1441,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         sharedPref.edit().putString("configs", jsonArray.toString()).apply()
+        sharedPref.edit().putString("${finalAssignedId}_cdn", selectedCdn).apply()
     }
 
     override fun onResume() {
@@ -1357,7 +1454,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
     companion object {
         fun loadAllConfigs(context: Context): List<Config> {
-            val sharedPref = context.getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+            val sharedPref = context.getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             val jsonStr = sharedPref.getString("configs", "[]") ?: "[]"
             val array = JSONArray(jsonStr)
             val list = mutableListOf<Config>()
@@ -1400,7 +1497,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         fun saveAllConfigs(context: Context, configs: List<Config>) {
-            val sharedPref = context.getSharedPreferences("VayDNS_Settings", Context.MODE_PRIVATE)
+            val sharedPref = context.getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             val array = JSONArray()
 
             configs.forEach { config ->

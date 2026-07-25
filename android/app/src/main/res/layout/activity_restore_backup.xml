@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/windowBackground"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        app:elevation="4dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar_restore"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="Restore Backup"
+            app:titleTextColor="?attr/colorOnSurface"
+            app:navigationIcon="@drawable/ic_arrow_back_modern"
+            app:navigationIconTint="?attr/colorOnSurface" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="WARNING: Restoring will instantly overwrite your current settings, configs, traffic limits, and IPs.\n\nهشدار: بازگردانی بکاپ، بلافاصله تمام تنظیمات، کانفیگ‌ها، محدودیت‌های ترافیک و آی‌پی‌های فعلی شما را پاک و جایگزین خواهد کرد."
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="14sp"
+                android:layout_marginBottom="24dp" />
+
+            <!-- Weight=1 forces this text box to expand and push the buttons down -->
+            <EditText
+                android:id="@+id/et_backup_input"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:hint="Paste your full Backup JSON here... otherwise tap on Import from File\nکانفیگ خود را اینجا جای‌گذاری کنید... در غیر این صورت روی انتخاب فایل تپ کنید"
+                android:gravity="top"
+                android:padding="16dp"
+                android:textColor="?attr/colorOnSurface"
+                android:textColorHint="?attr/colorPrimary"
+                android:layout_marginBottom="24dp" />
+
+            <Button
+                android:id="@+id/btn_import_file"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="IMPORT FROM FILE / انتخاب فایل"
+                android:backgroundTint="?attr/colorPrimary"
+                android:textColor="@android:color/white"
+                android:layout_marginBottom="12dp"/>
+
+            <Button
+                android:id="@+id/btn_restore"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="RESTORE / بازگردانی"
+                android:backgroundTint="#D32F2F"
+                android:textColor="@android:color/white" />
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
