@@ -31,7 +31,7 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 
 - **Hysteria2 (QUIC/HTTP3):** ntroduced full support for Hysteria2. Powered by custom UDP/QUIC transport layers with "Salamander" obfuscation and precise bandwidth flow controls, it effortlessly punches through aggressively throttled networks for brute-force speed.
 
-- **VLESS over WebSockets (WS):** Added seamless support for VLESS-WS, allowing traffic to be routed and hidden behind massive, trusted Edge networks and CDNs (like Cloudflare) to keep connections alive even when direct server IPs are heavily blacklisted.
+- **VLESS over WebSockets (WS) & gRPC:** VLESS over WebSockets (WS) & gRPC: Added seamless support for VLESS-WS and high-speed gRPC (HTTP/2-based transport), allowing traffic to be routed and hidden behind massive, trusted Edge networks and CDNs (like Cloudflare and Amazon CloudFront) to keep connections alive even when direct server IPs are heavily blacklisted.
 
 - **VLESS HTTPUpgrade Transport:** Implemented the heavily optimized HTTPUpgrade transport for VLESS. This provides a revolutionary, low-latency alternative to standard WebSockets for CDN routing, explicitly pinning ALPN to HTTP/1.1 to bypass unnecessary handshake delays at the edge.
 
@@ -47,7 +47,7 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 
 - **Quick DNS Scanner:** Built-in DNS scanner to scan thousands of IP addresses to identify local DNS resolvers as a pre selection IP's to scan with E2E scanner.
 
-- **Cloudflare Scanner:** Integrated a native Application-Layer (Layer 7) IP Scanner to automatically discover and map "clean" Cloudflare front-end IPs. This is to ensure VLESS-WS connections remain completely stable even when server IPs are blocked by aggressive DPI.
+- **Universal CDN Scanner (Cloudflare & Amazon CloudFront):** Integrated a native Application-Layer (Layer 7) IP Scanner to automatically discover and map "clean" front-end IPs for both Cloudflare and Amazon CloudFront. This ensures VLESS-WS connections remain completely stable even when server IPs are blocked by aggressive DPI.
 
 - **Global DNS Scanner:** Integrated a native Application-Layer (Layer 7) DoH Scanner to automatically discover and route through "clean" raw IP DNS resolvers. This completely strips the domain name from the TLS SNI, ensuring the initial connection bootstrap remains completely invisible to Deep Packet Inspection (DPI) and national firewalls.
 
@@ -188,7 +188,7 @@ export PING_DOMAIN="example.com"
 gomobile bind -v \
     -target=android/arm64 \
     -androidapi 24 \
-    -ldflags="-s -w -X 'github.com/Starling226/phoenix-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
+    -ldflags="-s -w -X 'github.com/phoenixdnsvpn/phoenix-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
     -trimpath \
     -o ../vaydns-arm64.aar \
     .
