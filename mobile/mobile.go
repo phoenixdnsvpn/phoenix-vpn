@@ -22,8 +22,8 @@ import (
 	// "os/exec"
 	// "regexp"
 		
-	"github.com/phoenixdnsvpn/vaydns-vpn/bridge"
-	"github.com/phoenixdnsvpn/vaydns-vpn/vaydns/client"
+	"github.com/phoenixdnsvpn/phoenix-vpn/bridge"
+	"github.com/phoenixdnsvpn/phoenix-vpn/vaydns/client"
 	"github.com/xjasonlyu/tun2socks/v2/engine"
 		
 	box "github.com/sagernet/sing-box"
