@@ -15,8 +15,8 @@ Phoenix VPN is a high-performance hybrid DNS-based & direct protocol tunneling s
 
 - **vaydns**: The "DNS Tunnel" backbone. Serving as the foundational technology for extreme censorship evasion, it encapsulates data into DNS queries (DoH, DoT, TCP, or UDP) to seamlessly bypass strict firewalls and deep packet inspection (DPI) when standard internet access is entirely blocked.
 - **Xray-core**: The "Native Direct" engine. Integrated for bleeding-edge protocol support, Xray handles our high-speed direct connections natively. By pulling raw IP traffic directly from the Android TUN interface, it powers next-generation connections like REALITY-TCP (with xtls-rprx-vision flow control) and XHTTP with zero fragmentation and maximum throughput.
-- **sing-box**: The "Universal Protocol" engine. Acting as our highly versatile secondary core, sing-box provides unmatched routing logic and supports advanced censorship-resistant protocols like Hysteria2, Reality-tcp, VLESS-WS, and VLESS-HTTPUpgrade.
-- **Tun2Socks**: The "Network Bridge" layer. Because vaydns and sing-box excel at complex proxy logic rather than raw device routing, Tun2Socks acts as a high-performance bridge. It captures all full-device IP traffic from the Android TUN interface and transparently feeds it into those engines.
+- **sing-box**: The "Universal Protocol" engine. Acting as our highly versatile secondary core, sing-box provides unmatched routing logic and supports advanced censorship-resistant protocols like Hysteria2, Reality-tcp, Reality-Xhttp, VLESS-WS, VLESS-HTTPUpgrade, and vless-gRPC.
+- **hev-socks-tunnel**: The "Network Bridge" layer. Because vaydns and sing-box excel at complex proxy logic rather than raw device routing, hev-socks-tunnel acts as a high-performance, lightweight native C bridge. It captures all full-device IP traffic from the Android TUN interface and transparently feeds it into those engines.
 - **f35**: The "E2E Scanner" layer. A highly concurrent network probing tool embedded directly in the client. It is used to rapidly measure the latency, TLS handshake validity, and true reliability of global DNS resolvers and direct edge nodes across a restricted network.
 
 ### Transparency & Purpose
@@ -173,8 +173,6 @@ If you are planning to add Xray core to your project, follow the go.mod in mobil
 
 ```
 go get github.com/xtls/xray-core
-go get github.com/xjasonlyu/tun2socks/v2@latest
-go get github.com/xjasonlyu/tun2socks/v2@main
 go mod tidy
 ```
 
@@ -239,6 +237,8 @@ This project would not be possible without the incredible work of the following 
 
 -   **[vaydns](https://github.com/net2share/vaydns)**: For the core DNS tunneling engine and sophisticated transport layers.
     
+-   **[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel)**: For the lightweight, high-performance native C implementation of TUN-to-SOCKS5 conversion, enabling fast and efficient system-wide VPN routing.
+
 -   **[tun2socks](https://github.com/xjasonlyu/tun2socks)**: For the high-performance implementation of TUN-to-SOCKS conversion, enabling system-wide VPN functionality.
 
 -   **[sing-box](https://github.com/SagerNet/sing-box)**: For the highly optimized universal proxy core, powering our advanced direct protocol support and intelligent traffic routing.
