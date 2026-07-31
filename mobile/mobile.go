@@ -24,7 +24,7 @@ import (
 		
 	"github.com/phoenixdnsvpn/phoenix-vpn/bridge"
 	"github.com/phoenixdnsvpn/phoenix-vpn/vaydns/client"
-	"github.com/xjasonlyu/tun2socks/v2/engine"
+//	"github.com/xjasonlyu/tun2socks/v2/engine"
 		
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/include"
@@ -152,8 +152,10 @@ func StartVpn(
 	debug bool,
 	fragment bool,
 	blockQuic bool,
+	getServerIpFromDomain bool,
 	protector SocketProtector,
 ) string {
+
 	mu.Lock()
 
 	if activeCancel != nil {
@@ -224,6 +226,7 @@ func StartVpn(
 	// ==========================================
 	var finalMtu int
 	if isDirectMode {
+//		finalMtu = 9000 // High-speed unfragmented pipe for tun2socks -> sing-box
 		finalMtu = 1500 // High-speed unfragmented pipe for tun2socks -> sing-box
 	} else {
 		finalMtu = 1232 // Safe pipe for tun2socks -> VayDNS engine
@@ -317,6 +320,14 @@ func StartVpn(
 		}()
 	}
 	
+/*	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := bridge.RunTunnel(ctx, tCfg); err != nil && err != context.Canceled {
+			log.Printf("VAY_DEBUG: Tunnel Error: %v", err)
+		}
+	}()*/
+
 	if protocol == "" || protocol == "socks" {
 		protocol = "socks5"
 	}
@@ -407,15 +418,15 @@ func StartVpn(
 		activeSocksPort = singBoxListenPort
 		mu.Unlock()
 
-		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, fragment)
+		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment)
 		if err != nil {
 			errMsg := fmt.Sprintf("Error: sing-box layer failure: %v", err)
 			log.Println("VAY_DEBUG: FATAL -> " + errMsg)
 			return errMsg
 		}
 		
-		singBoxProxyString := fmt.Sprintf("socks5://127.0.0.1:%d", singBoxListenPort)
-		startTun2SocksEngine(wg, newFd, singBoxProxyString, finalMtu)
+		// singBoxProxyString := fmt.Sprintf("socks5://127.0.0.1:%d", singBoxListenPort)
+		// startTun2SocksEngine(wg, newFd, singBoxProxyString, finalMtu)
 	} else if engineType == "xray" {
 		log.Printf("VAY_DEBUG: Booting cutting-edge Xray processing pipeline (Native TUN)...")
 		
@@ -423,10 +434,10 @@ func StartVpn(
 		activeSocksPort = 30000 + rand.Intn(20000)
 
 		// 2. Tell Xray exactly where the Android OS VPN interface is located
-		os.Setenv("XRAY_TUN_FD", strconv.Itoa(int(fd)))
+		// os.Setenv("XRAY_TUN_FD", strconv.Itoa(int(fd)))
 
 		// 3. Pass both the Watchdog port (for the SOCKS inbound) and MTU (for the TUN inbound)
-		err := StartXrayEngine(configIndex, globalDnsServer, vlessWsIp, targetCDN, false, activeSocksPort, int(finalMtu), protocol, debug, fragment, blockQuic)
+		err := StartXrayEngine(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN, true, activeSocksPort, int(finalMtu), protocol, debug, fragment, blockQuic)
 		if err != nil {
 			cancel()
 			return fmt.Sprintf("Error starting Xray Engine: %v", err)
@@ -469,7 +480,7 @@ func StartVpn(
 				}
 			}
 		}			
-		startTun2SocksEngine(wg, newFd, proxyString, finalMtu)
+		// startTun2SocksEngine(wg, newFd, proxyString, finalMtu)
 	}
 		
 	// 6. SHUTDOWN WATCHER
@@ -478,7 +489,7 @@ func StartVpn(
 		defer wg.Done()
 		<-ctx.Done()
 		log.Printf("VAY_DEBUG: Shutting down engine watcher...")
-		engine.Stop()
+//		engine.Stop()
 
 		mu.Lock()
 		if activeSSHProxy != nil {
@@ -492,7 +503,8 @@ func StartVpn(
 		}
 	}()
 
-	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
+	return fmt.Sprintf("Success|%d", activeSocksPort)
+//	return fmt.Sprintf("Success: VPN Started on %s", internalSocks)
 }
 
 func StartProxy(
@@ -527,7 +539,9 @@ func StartProxy(
 	debug bool,
 	fragment bool,
 	blockQuic bool,
+	getServerIpFromDomain bool,
 ) string {
+
 	mu.Lock()
 
 	if activeCancel != nil {
@@ -619,7 +633,7 @@ func StartProxy(
 			
 			// We pass 'customPort' directly to Sing-box so it creates a SOCKS5 server on that exact port.
 			// No tun2socks is needed!
-			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, fragment)
+			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment)
 			
 			if err != nil {
 				return fmt.Sprintf("Error|sing-box proxy failure: %v", err)
@@ -628,7 +642,7 @@ func StartProxy(
 
 			log.Printf("VAY_DEBUG: Booting cutting-edge Xray in PROXY MODE on port %d", customPort)
 
-			err := StartXrayEngine(configIndex, globalDnsServer, vlessWsIp, targetCDN, true, customPort, 0, protocol, debug, fragment, blockQuic)
+			err := StartXrayEngine(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN, true, customPort, 0, protocol, debug, fragment, blockQuic)
 //			err := StartXrayEngine_socks(customPort, configIndex, globalDnsServer)
 			if err != nil {
 				errMsg := fmt.Sprintf("Error: Xray layer failure: %v", err)
@@ -685,7 +699,7 @@ func StopVpn() string {
 	activeCancel() 
 	
 	// 2. Stop all proxy engines FIRST so they release their locks and gracefully close their interfaces
-	engine.Stop() // Safely stops tun2socks (does nothing if it wasn't running)
+	// engine.Stop() // Safely stops tun2socks (does nothing if it wasn't running)
 	
 	if activeSingBox != nil {
 		activeSingBox.Close()
@@ -1139,7 +1153,7 @@ waitLoop:
 	return finalLatency
 }
 
-func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, targetCDN string, globalDnsServer string, fragment bool) error {
+func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, targetCDN string, globalDnsServer string, getServerIpFromDomain bool, fragment bool) error {
 
 	var outboundMap map[string]interface{}
 	var upstreamScheme string
@@ -1163,7 +1177,7 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 		if activeProto == "hysteria2" {
 			upstreamScheme = "hysteria2"
 			if configIndex >= 0 {
-				outboundMap = buildHysteriaOutbound(configIndex, globalDnsServer)
+				outboundMap = buildHysteriaOutbound(configIndex, globalDnsServer, getServerIpFromDomain)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}
@@ -1171,28 +1185,28 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 		} else if activeProto == "reality-tcp" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildRealityOutbound(configIndex, globalDnsServer, fragment)
+				outboundMap = buildRealityOutbound(configIndex, globalDnsServer, getServerIpFromDomain, fragment)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}			
 		} else if activeProto == "vless-ws" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildVlessWsOutbound(configIndex, vlessWsIp, targetCDN)
+				outboundMap = buildVlessWsOutbound(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}
 		} else if activeProto == "vless-grpc" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildVlessGrpcOutbound(configIndex, vlessWsIp, targetCDN)
+				outboundMap = buildVlessGrpcOutbound(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}
 		} else if activeProto == "vless-httpupgrade" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildVlessHttpUpgradeOutbound(configIndex, vlessWsIp)
+				outboundMap = buildVlessHttpUpgradeOutbound(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}									
@@ -1407,32 +1421,4 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 	return nil
 }
 
-func startTun2SocksEngine(wg *sync.WaitGroup, fd int, proxyString string, finalMtu int) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		time.Sleep(300 * time.Millisecond)
-
-		key := &engine.Key{
-			Proxy:    proxyString,
-			Device:   fmt.Sprintf("fd://%d", fd),
-			MTU:      finalMtu,
-//			LogLevel: "debug",
-			LogLevel: "warn",
-		}
-		engine.Insert(key)
-	
-		if proxyURL, err := url.Parse(proxyString); err == nil {
-			if proxyURL.User != nil {
-				proxyURL.User = url.UserPassword("MASKED", "MASKED")
-			}
-			log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d with proxy %s", fd, proxyURL.String())
-		} else {
-			log.Printf("VAY_DEBUG: Tun2Socks Engine starting on FD %d", fd)
-		}			
-
-		engine.Start()
-	}()
-}
 

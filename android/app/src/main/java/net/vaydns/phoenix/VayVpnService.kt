@@ -1,18 +1,12 @@
 package net.vaydns.phoenix
 
-import android.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.VpnService
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.Handler
@@ -22,23 +16,20 @@ import androidx.core.app.NotificationCompat
 import mobile.Mobile
 import mobile.SocketProtector
 import java.net.InetAddress
-import android.net.TrafficStats
 import java.util.Locale
-
-// The Protector implementation that Go will call for every UDP/TCP socket
 
 class VayVpnService : VpnService() {
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var tunInterface: ParcelFileDescriptor? = null
     private var isStopping = false
     private var isStarting = false
-    // 1. Move protector to class level
     private var protector: AndroidProtector? = null
     private var builder: Builder = Builder()
-    // The 'Lock' ensures only one thread can talk to Go at a time
+
     companion object {
         private val goLock = Any()
     }
+
     private val statsHandler = Handler(Looper.getMainLooper())
     private var initialRxBytes = 0L
     private var initialTxBytes = 0L
@@ -46,8 +37,6 @@ class VayVpnService : VpnService() {
     private var previousTxBytes = 0L
     private var pendingRxSave = 0L
     private var pendingTxSave = 0L
-    // private var statsTickCount = 0
-    // private var notificationTickCount = 0
     private var absoluteDailyRx = 0L
     private var absoluteDailyTx = 0L
     private var currentTrackingDate = ""
@@ -58,6 +47,8 @@ class VayVpnService : VpnService() {
     private var absoluteDailyOsRx = 0L
     private var absoluteDailyOsTx = 0L
     private var activeConfigType = "vaydns"
+    private var activeEngineType = "sing-box"
+
     private var sessionOsRx = 0L
     private var sessionOsTx = 0L
     private var lastStatsRunTime = 0L
@@ -71,15 +62,11 @@ class VayVpnService : VpnService() {
             val currentTime = System.currentTimeMillis()
             if (lastStatsRunTime == 0L) lastStatsRunTime = currentTime
 
-            // Calculate exactly how much time passed since the last loop
             val elapsedMs = currentTime - lastStatsRunTime
             lastStatsRunTime = currentTime
-
-            // Prevent division by zero; default to 1 sec if called too fast
             val elapsedSec = if (elapsedMs >= 1000) elapsedMs / 1000.0 else 1.0
 
             try {
-                // 1. Fetch exact bytes from the Go Engine
                 val stats = mobile.Mobile.getProxyStats()
                 val parts = stats.split("|")
 
@@ -97,27 +84,21 @@ class VayVpnService : VpnService() {
                         currentTrackingDate = dateStr
                     }
 
-                    // --- GO ENGINE STATS MATH ---
-                    // Calculate RAW volume
                     val diffRx = if (currentRx > previousRxBytes) currentRx - previousRxBytes else 0L
                     val diffTx = if (currentTx > previousTxBytes) currentTx - previousTxBytes else 0L
 
-                    // Calculate TRUE speed (Volume / Time Elapsed)
                     val rxSpeed = (diffRx / elapsedSec).toLong()
                     val txSpeed = (diffTx / elapsedSec).toLong()
 
                     previousRxBytes = currentRx
                     previousTxBytes = currentTx
 
-                    // Add RAW volume to totals
                     absoluteDailyRx += diffRx
                     absoluteDailyTx += diffTx
                     pendingRxSave += diffRx
                     pendingTxSave += diffTx
 
-                    // --- NATIVE ANDROID OS STATS MATH (STRICT TUNNEL ONLY) ---
                     val tunStats = getTunInterfaceStats()
-
                     val currentOsRx = tunStats.first
                     val currentOsTx = tunStats.second
 
@@ -126,8 +107,6 @@ class VayVpnService : VpnService() {
                         previousOsTxBytes = currentOsTx
                     }
 
-                    // Calculate the payload size for this tick.
-                    // (The >= check protects against negative jumps if the tunnel drops and resets to 0)
                     val diffOsRx = if (currentOsRx >= previousOsRxBytes) currentOsRx - previousOsRxBytes else 0L
                     val diffOsTx = if (currentOsTx >= previousOsTxBytes) currentOsTx - previousOsTxBytes else 0L
 
@@ -137,7 +116,6 @@ class VayVpnService : VpnService() {
                     sessionOsRx += diffOsRx
                     sessionOsTx += diffOsTx
 
-                    // OS Speed = Pure TUN Bytes / Time Elapsed
                     val osRxSpeed = (diffOsRx / elapsedSec).toLong()
                     val osTxSpeed = (diffOsTx / elapsedSec).toLong()
 
@@ -146,9 +124,6 @@ class VayVpnService : VpnService() {
                     pendingOsRxSave += diffOsRx
                     pendingOsTxSave += diffOsTx
 
-                    // ==========================================
-                    // 1. DATABASE FLUSH LOGIC (Every ~10 seconds)
-                    // ==========================================
                     if (currentTime - lastDbSaveTime >= 10000L) {
                         if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
                             val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
@@ -172,9 +147,6 @@ class VayVpnService : VpnService() {
                         lastDbSaveTime = currentTime
                     }
 
-                    // ==========================================
-                    // 2. UI NOTIFICATION LOGIC (Every ~4 seconds)
-                    // ==========================================
                     val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                     val notifUpdateMs = appPrefs.getLong("notif_update_ms", 4000L)
 
@@ -199,7 +171,6 @@ class VayVpnService : VpnService() {
                             setPackage(packageName)
                         })
 
-                        // UPDATE THE LOCK SCREEN NOTIFICATION
                         try {
                             val intent = Intent(this@VayVpnService, MainActivity::class.java)
                             val pendingIntent = PendingIntent.getActivity(this@VayVpnService, 0, intent, PendingIntent.FLAG_IMMUTABLE)
@@ -228,20 +199,14 @@ class VayVpnService : VpnService() {
                 android.util.Log.e("VAY_VPN", "Error parsing stats: ${e.message}")
             }
 
-            // ==========================================
-            // 3. DYNAMIC DELAY (SCREEN ON vs SCREEN OFF)
-            // ==========================================
             val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
             val isScreenOn = powerManager.isInteractive
 
-            // 2 seconds if unlocked, 5 seconds if locked/asleep
-            // val nextDelay = if (isScreenOn) 2000L else 5000L
             val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             val unlockedDelayMs = appPrefs.getLong("unlocked_delay_ms", 2000L)
             val lockedDelayMs = appPrefs.getLong("locked_delay_ms", 5000L)
 
             val nextDelay = if (isScreenOn) unlockedDelayMs else lockedDelayMs
-
             statsHandler.postDelayed(this, nextDelay)
         }
     }
@@ -267,14 +232,11 @@ class VayVpnService : VpnService() {
 
         override fun protect(fd: Long): Boolean {
             val s = service
-            // If we are stopping, return TRUE.
-            // This stops Go from retrying the dialer and clears the log flood.
             if (!active || s == null) return true
-
             return try {
                 s.protect(fd.toInt())
             } catch (e: Exception) {
-                true // Return true on error during shutdown
+                true
             }
         }
     }
@@ -298,14 +260,11 @@ class VayVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        // Reset the gatekeeper so the STOP button works for this new session
         isStopping = false
         Log.i("Phoenix", "VpnService Created - isStopping reset to false")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 1. Reset state and handle Stop intent
-
         createNotificationChannel()
 
         if (intent == null) {
@@ -313,16 +272,14 @@ class VayVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        if (intent?.action == "ACTION_STOP_VPN") {
+        if (intent.action == "ACTION_STOP_VPN") {
             cleanupAndStop()
             return START_NOT_STICKY
         }
 
-        // 2. Initial Notification to satisfy Foreground Service requirements
         val notification = Notification.Builder(this, "VAY_CHANNEL_ACTIVE")
             .setContentTitle("Phoenix Tunnel Active")
             .setContentText("Connecting to server...")
-//            .setSmallIcon(R.drawable.ic_dialog_info)
             .setSmallIcon(net.vaydns.phoenix.R.drawable.ic_vpn_key)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -331,62 +288,57 @@ class VayVpnService : VpnService() {
         startForeground(1, notification)
 
         Thread {
-            // CRITICAL: Use the lock to ensure onDestroy and onStart don't fight
             synchronized(goLock) {
                 try {
                     isStopping = false
-                    // 3. SAFE CLEANUP: If there is a "ghost" engine, kill it and wait
                     Log.i("Phoenix", "Checking for existing native instances...")
-
                     updateNotification("Status: Connecting...")
 
                     Mobile.stopVpn()
-                    //tunInterface = null
-                    // Give the Linux kernel 500ms to truly release the UDP ports
                     Thread.sleep(500)
 
-                    // 4. Extract data passed from MainActivity
-                    val isDefaultConfig = intent?.getBooleanExtra("IS_DEFAULT_CONFIG", false) ?: false
-
-                    val configIndex = intent?.getLongExtra("CONFIG_INDEX", 0L) ?: 0L
-                    val configType = intent?.getStringExtra("CONFIG_TYPE") ?: "vaydns"
-                    val domain = intent?.getStringExtra("DOMAIN") ?: ""
-                    val domainIndex = intent?.getIntExtra("DOMAIN_INDEX", 0) ?: 0
-                    val pubkey = (intent?.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
-                    val baseDohUrl = intent?.getStringExtra("BASE_DOH_URL") ?: ""
-                    val dnsAddress = intent?.getStringExtra("UDP") ?: "8.8.8.8:53"
-                    val mode = intent?.getStringExtra("MODE") ?: "udp"
-                    val recordType = intent?.getStringExtra("RECORD_TYPE") ?: "TXT"
-                    val idleTimeout = intent?.getStringExtra("IDLE_TIMEOUT") ?: "10s"
-                    val keepAlive = intent?.getStringExtra("KEEP_ALIVE") ?: "2s"
-                    val clientIdSize = intent?.getLongExtra("CLIENT_ID_SIZE", 2L) ?: 2L
+                    val isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT_CONFIG", false)
+                    val configIndex = intent.getLongExtra("CONFIG_INDEX", 0L)
+                    val configType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
+                    val domain = intent.getStringExtra("DOMAIN") ?: ""
+                    val domainIndex = intent.getIntExtra("DOMAIN_INDEX", 0)
+                    val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
+                    val baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
+                    val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
+                    val mode = intent.getStringExtra("MODE") ?: "udp"
+                    val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
+                    val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
+                    val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
+                    val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
                     val mtu = intent.getLongExtra("MTU", 0L)
-                    val dnsttCompatible = intent?.getBooleanExtra("DNSTT_COMPATIBLE", false) ?: false
-                    val useMultiDomains = intent?.getBooleanExtra("USE_MULTI_DOMAINS", false) ?: false
-                    val useAuth = intent?.getBooleanExtra("USE_AUTH", false) ?: false
-                    val protocol = intent?.getStringExtra("PROTOCOL") ?: "socks5"
-                    val authProtocol = intent?.getStringExtra("AUTH_PROTOCOL") ?: "socks"
-                    val ssMethod = intent?.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
-                    val user = intent?.getStringExtra("USER") ?: ""
-                    val pass = intent?.getStringExtra("PASS") ?: ""
-                    val engineType = intent?.getStringExtra("ENGINE_TYPE") ?: "sing-box"
-                    activeConfigType = intent?.getStringExtra("CONFIG_TYPE") ?: "vaydns"
+                    val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
+                    val useMultiDomains = intent.getBooleanExtra("USE_MULTI_DOMAINS", false)
+                    val useAuth = intent.getBooleanExtra("USE_AUTH", false)
+                    val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
+                    val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
+                    val ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
+                    val user = intent.getStringExtra("USER") ?: ""
+                    val pass = intent.getStringExtra("PASS") ?: ""
+                    val engineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
+                    activeEngineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
+                    activeConfigType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
+
                     val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
                     val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
-                    val fragment = intent?.getBooleanExtra("USE_FRAGMENTATION", false) ?: false
-                    val blockQuic = intent?.getBooleanExtra("BLOCK_QUIC", true) ?: true
+                    val fragment = intent.getBooleanExtra("USE_FRAGMENTATION", false)
+                    val blockQuic = intent.getBooleanExtra("BLOCK_QUIC", true)
+                    val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
                     sessionOsRx = 0L
                     sessionOsTx = 0L
 
-                    val lowerProto = protocol.lowercase()
                     val lowerConfig = configType.lowercase()
 
                     val finalMtu = if (lowerConfig == "direct" ||
-                        lowerProto == "hysteria2" || lowerProto == "reality-tcp" || lowerProto == "reality-xhttp" ||
-                        lowerProto == "vless-httpupgrade" || lowerProto == "vless-ws" || lowerProto == "vless-grpc") {
-                        1500 // High-speed direct protocols get unfragmented MTU
+                        lowerConfig == "hysteria2" || lowerConfig == "reality-tcp" || lowerConfig == "reality-xhttp" ||
+                        lowerConfig == "vless-httpupgrade" || lowerConfig == "vless-ws" || lowerConfig == "vless-grpc") {
+                        1500
                     } else {
-                        1232 // Legacy Phoenix DNS tunneling keeps the safe, smaller block
+                        1232
                     }
 
                     mobile.Mobile.initVault(filesDir.absolutePath)
@@ -402,12 +354,10 @@ class VayVpnService : VpnService() {
                         "dot" -> dot = dnsAddress
                     }
 
-                    // Resolve NS domain
                     val serverIp = try {
                         InetAddress.getByName(domain).hostAddress
                     } catch (e: Exception) { null }
 
-                    // 5. Establish the VPN Interface
                     builder = Builder()
                     builder.setSession("Phoenix Tunnel Active")
                         .addAddress("10.0.0.2", 24)
@@ -416,83 +366,41 @@ class VayVpnService : VpnService() {
                         .addRoute("0.0.0.0", 0)
                         .setBlocking(false)
 
-                    // Setting this to 'null' forces Android to keep the VPN alive
-                    // even if the Wi-Fi or LTE drops temporarily. This allows the
-                    // Go engine to pause and reconnect without dropping the user's connection!
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                         builder.setUnderlyingNetworks(null)
                     }
 
-                    // Bypass routing for the server itself and the resolver
-                    //if (serverIp != null && isValidIp(serverIp)) builder.addRoute(serverIp, 32)
-                    /*if (dnsAddress.contains(":")) {
-                        val resolver = dnsAddress.substringBefore(":")
-                        if (isValidIp(resolver)) builder.addRoute(resolver, 32)
-                    }*/
                     val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
                     val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
 
                     var globalDnsServer = tunnelPrefs.getString("global_dns_server", "")?.trim() ?: ""
                     if (globalDnsServer.isEmpty()) {
-                        globalDnsServer = "1.1.1.1" // Fallback if user hasn't scanned yet
+                        globalDnsServer = "1.1.1.1"
                     }
 
-                    // Bypass routing for the main proxy target
                     var primaryBypassIp = serverIp
                     val isDirectMode = activeProtocol.lowercase() != "vaydns"
-                    // If using Vless-WS or or Vless-HTTPUpgrade fetch the exact Cloudflare IP from Go's memory to prevent infinite routing loops
-                    // if (activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade") {
+
                     if (isDirectMode){
-                        // val vlessTarget = mobile.Mobile.getActiveVlessWsIP(configIndex)
-                        val targetIp = mobile.Mobile.getTargetIP(configIndex, activeProtocol, globalDnsServer)
+                        val targetIp = mobile.Mobile.getTargetIP(configIndex, activeProtocol, globalDnsServer, getServerIpFromDomain, targetCdn, vlessWsIp)
                         try {
-                            // Resolve to IP address safely just in case it is a domain name
                             primaryBypassIp = InetAddress.getByName(targetIp).hostAddress
                         } catch (e: Exception) {
                             primaryBypassIp = targetIp
                         }
                     }
 
-                    // Exclude the target IP from the VPN tunnel interface
-                    /*if (primaryBypassIp != null && isValidIp(primaryBypassIp)) {
-                        Log.i("VAY_DEBUG", "Excluding Proxy IP from VPN Routing Table: $primaryBypassIp")
-                        builder.addRoute(primaryBypassIp, 32)
-                    }
-
-                    // Safely extract the IP for routing bypass (Supports UDP, DoT, and DoH)
-                    var bypassIp = dnsAddress
-                    if (bypassIp.startsWith("http")) {
-                        try {
-                            bypassIp = java.net.URL(bypassIp).host
-                        } catch (e: Exception) {}
-                    } else if (bypassIp.contains(":")) {
-                        bypassIp = bypassIp.substringBefore(":")
-                    }
-
-                    if (isValidIp(bypassIp)) {
-                        builder.addRoute(bypassIp, 32)
-                    }*/
-
-                    // 1. Exclude the main Proxy/Server IP
                     if (primaryBypassIp != null && isValidIp(primaryBypassIp)) {
                         Log.i("VAY_DEBUG", "Excluding Proxy IP from VPN Routing Table: $primaryBypassIp")
-
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             try {
-                                // Convert the String IP to an IpPrefix object
                                 val inetAddress = InetAddress.getByName(primaryBypassIp)
                                 val ipPrefix = android.net.IpPrefix(inetAddress, 32)
                                 builder.excludeRoute(ipPrefix)
-                            } catch (e: Exception) {
-                                Log.e("VAY_DEBUG", "Failed to exclude Proxy IP: ${e.message}")
-                            }
-                        } else {
-                            // Android 12 and below: addRoute() does NOT exclude.
-                            // We do nothing here and rely entirely on VpnService.protect(fd) in Go.
+                            } catch (e: Exception) {}
                         }
                     }
 
-                    // 2. Exclude the DNS/UDP bypass IP
                     var bypassIp = dnsAddress
                     if (bypassIp.startsWith("http")) {
                         try { bypassIp = java.net.URL(bypassIp).host } catch (e: Exception) {}
@@ -502,76 +410,42 @@ class VayVpnService : VpnService() {
 
                     if (isValidIp(bypassIp)) {
                         Log.i("VAY_DEBUG", "Excluding DNS IP from VPN Routing Table: $bypassIp")
-
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             try {
-                                // Convert the String IP to an IpPrefix object
                                 val inetAddress = InetAddress.getByName(bypassIp)
                                 val ipPrefix = android.net.IpPrefix(inetAddress, 32)
                                 builder.excludeRoute(ipPrefix)
-                            } catch (e: Exception) {
-                                Log.e("VAY_DEBUG", "Failed to exclude DNS IP: ${e.message}")
-                            }
+                            } catch (e: Exception) {}
                         }
                     }
 
                     val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                     val isDebugEnabled = sharedPrefs.getBoolean("debug_logs_enabled", false)
 
-                    // App Filtering
-                    val selectedApps = intent?.getStringArrayListExtra("ALLOWED_APPS_LIST")?.toSet() ?: emptySet()
-                    val tunnelAllApps = intent?.getBooleanExtra("TUNNEL_ALL_APPS", false) ?: false
-                    val tunnelAndroidServices = intent?.getBooleanExtra("TUNNEL_ANDROID_SERVICES", false) ?: false
+                    val selectedApps = intent.getStringArrayListExtra("ALLOWED_APPS_LIST")?.toSet() ?: emptySet()
+                    val tunnelAllApps = intent.getBooleanExtra("TUNNEL_ALL_APPS", false)
+                    val tunnelAndroidServices = intent.getBooleanExtra("TUNNEL_ANDROID_SERVICES", false)
 
-                    // If "All Apps" is checked, we bypass adding specific apps, which tells Android to tunnel everything.
                     if (!tunnelAllApps) {
-                        val coreGoogleApps = listOf(
-                            "com.android.vending",
-                            "com.google.android.gms",
-                            "com.google.android.gsf"
-                        )
+                        val coreGoogleApps = listOf("com.android.vending", "com.google.android.gms", "com.google.android.gsf")
                         if (selectedApps.isNotEmpty() || tunnelAndroidServices) {
-                            // 1. Add User-Selected Apps
                             for (pkg in selectedApps) {
-                                try {
-                                    builder.addAllowedApplication(pkg)
-                                } catch (e: PackageManager.NameNotFoundException) {
-                                    Log.e("Phoenix", "App not found (might be uninstalled): $pkg")
-                                } catch (e: Exception) {
-                                    Log.e("Phoenix", "Could not tunnel app: $pkg")
-                                }
+                                try { builder.addAllowedApplication(pkg) } catch (e: Exception) {}
                             }
-
-                            // 2. Add Core Android Services if toggled ON
                             if (tunnelAndroidServices) {
                                 for (pkg in coreGoogleApps) {
-                                    try {
-                                        builder.addAllowedApplication(pkg)
-                                    } catch (e: Exception) {
-                                        Log.e("Phoenix", "Could not tunnel Google service: $pkg")
-                                    }
+                                    try { builder.addAllowedApplication(pkg) } catch (e: Exception) {}
                                 }
                             }
                         } else {
-                            // Default: If nothing is selected, only tunnel Phoenix itself
                             try { builder.addAllowedApplication(packageName) } catch (e: Exception) {}
                         }
                     } else {
-                        // Prevent Infinite Routing Loop ---
-                        // When tunneling the whole device, we MUST explicitly exclude the VPN app itself.
-                        // Otherwise, the engine's outbound traffic gets trapped in its own tunnel!
-                        try {
-                            builder.addDisallowedApplication(packageName)
-                        } catch (e: Exception) {
-                            Log.e("Phoenix", "Could not disallow app: ${e.message}")
-                        }
+                        try { builder.addDisallowedApplication(packageName) } catch (e: Exception) {}
                     }
 
-                    // 1. RUN THE PRE-SCAN BEFORE ESTABLISHING THE TUNNEL
-                    // This uses raw Wi-Fi/Data because the TUN interface doesn't exist yet!
                     Log.i("VAY_DEBUG", "Starting Pre-Scan from Kotlin...")
 
-                    // --- LOAD PRE-SCANNER SETTINGS ---
                     val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
                     val enableScan = prefs.getBoolean("enable_prescan", false)
 
@@ -581,20 +455,15 @@ class VayVpnService : VpnService() {
                     var finalDot = dot
 
                     if (enableScan) {
-                        Log.i("VAY_DEBUG", "Running Custom Pre-Tunnel Scan...")
                         val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
                         val tWait = prefs.getInt("tunnel_wait", 3000).toLong()
                         val pTimeout = prefs.getInt("probe_timeout", 15000).toLong()
                         val uTimeout = prefs.getInt("udp_timeout", 1000).toLong()
-                        //val retries = prefs.getInt("retries", 0).toLong()
-                        //val lightE2E = prefs.getBoolean("light_e2e", false)
-                        //val workers = prefs.getInt("workers", 20).toLong()
 
-                        // --- BACKGROUND OVERRIDES FOR PRE-TUNNEL SCAN ---
-                        val preScanLightE2E = false // Force True E2E
-                        val preScanWorkers = 10L    // Force 10 workers for all modes
+                        val preScanLightE2E = false
+                        val preScanWorkers = 10L
                         val originalRetries = prefs.getInt("retries", 0).toLong()
-                        val preScanRetries = if (originalRetries < 1L) 1L else originalRetries // max(1, currently set)
+                        val preScanRetries = if (originalRetries < 1L) 1L else originalRetries
 
                         finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
                         finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
@@ -603,32 +472,17 @@ class VayVpnService : VpnService() {
                     }
 
                     Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
-                    // Extract the manually set Front IP configuration
-                    //val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-                    // val vlessWsIp = tunnelPrefs.getString("vless_ws_ip", "") ?: ""
 
                     protector = AndroidProtector(this@VayVpnService)
 
                     val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
                     wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Phoenix::VpnKeepAlive")
-                    wakeLock?.acquire(12 * 60 * 60 * 1000L /*12 hours max safety limit*/)
+                    wakeLock?.acquire(12 * 60 * 60 * 1000L)
 
                     tunInterface = builder.establish()
                     if (tunInterface == null) return@synchronized
 
-                    //val fd = tunInterface!!.detachFd()
-                    //tunInterface = null
-
-                    //val dupPfd = tunInterface!!.dup()
-                    //val fd = dupPfd.detachFd()
-                    //val fd = tunInterface?.detachFd() ?: -1
                     val fd = tunInterface?.fd ?: -1
-
-                    //val fd = tunInterface?.detachFd() ?: -1
-                    // 2. Immediately wipe the reference so Java 'forgets' it
-                    //tunInterface = null
-
-                    // 6. Start Native Engine
 
                     if (fd != -1) {
                         val result = Mobile.startVpn(
@@ -664,23 +518,64 @@ class VayVpnService : VpnService() {
                             isDebugEnabled,
                             fragment,
                             blockQuic,
+                            getServerIpFromDomain,
                             protector
                         )
-                        Log.i("Phoenix", "VPN Started with FD: $fd")
+                        Log.i("Phoenix", "VPN Base Engine Started with Result: $result")
 
                         if (result.contains("Success")) {
-                            runVerificationLogic() // Move verification to a helper to keep this clean
+
+                            // ===============================================
+                            // C-TUNNEL INTERCEPTOR HANDOFF
+                            // ===============================================
+
+                            // DYNAMIC PORT HANDOFF
+                            // ===============================================
+                            val portStr = if (result.contains("|")) {
+                                result.split("|").getOrNull(1)?.trim()
+                            } else {
+                                result.substringAfterLast(":").trim()
+                            }
+
+                            val socksPort = portStr?.toIntOrNull() ?: 35795
+                            Log.i("Phoenix", "Handoff to C-Tunnel using verified SOCKS Port $socksPort...")
+
+                            try {
+                                val hevConfig = """
+                                    tunnel:
+                                      name: tun0
+                                      mtu: $finalMtu
+                                      ipv4: '10.0.0.2'
+                                      ipv6: ''
+                                    socks5:
+                                      address: '127.0.0.1'
+                                      port: $socksPort
+                                      udp: 'udp'
+                                    misc:
+                                      task-stack-size: 8192
+                                      connect-timeout: 5000
+                                      read-write-timeout: 60000
+                                """.trimIndent()
+
+                                val configFile = java.io.File(cacheDir, "hev_config.yml")
+                                configFile.writeText(hevConfig)
+
+                                hev.htproxy.TProxyService.TProxyStartService(configFile.absolutePath, fd)
+                                Log.i("Phoenix", "HEV C-Tunnel Started successfully on port $socksPort.")
+                            } catch (e: Exception) {
+                                Log.e("Phoenix", "Failed to start HEV C-Tunnel: ${e.message}")
+                            }
+
+                            runVerificationLogic()
                         } else {
                             updateNotification("Engine Failed to Start")
 
-                            // 1. Broadcast ERROR instead of DISCONNECTED so MainActivity kills it
                             sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
                                 putExtra("status", "ERROR")
                                 putExtra("message", result.replace("Error: ", ""))
                                 setPackage(packageName)
                             })
 
-                            // 2. Safely trigger self-destruct from the Main Thread
                             Handler(Looper.getMainLooper()).post {
                                 cleanupAndStop()
                             }
@@ -694,10 +589,9 @@ class VayVpnService : VpnService() {
                     Log.e("Phoenix", "VPN Start Exception: ${e.message}", e)
                     updateNotification("Error starting tunnel")
                 }
-            } // End of synchronized block
+            }
         }.start()
 
-        // NEW: Tell Android to keep this service sticky!
         return START_STICKY
     }
 
@@ -705,13 +599,9 @@ class VayVpnService : VpnService() {
         updateNotification("Handshaking with server...")
 
         Thread {
-            // 1. Give the Go engine 2 seconds to boot up the SOCKS5 listener
             Thread.sleep(2000)
-
-            // 2. Call our Go-level verification function
             val verifyResult = Mobile.verifyTunnel()
 
-            // 3. Safety Check: If the user clicked STOP while we were waiting, abort!
             if (isStopping) return@Thread
 
             if (verifyResult.contains("Success")) {
@@ -726,7 +616,6 @@ class VayVpnService : VpnService() {
                 statsHandler.post(statsRunnable)
             } else {
                 Log.e("Phoenix", "Go-Level verification failed: $verifyResult")
-
                 sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
                     putExtra("status", "ERROR")
                     putExtra("message", "Verification Failed: Server Unreachable")
@@ -734,7 +623,6 @@ class VayVpnService : VpnService() {
                 })
                 updateNotification("Connection Failed")
 
-                // On failure, trigger the cleanup synchronously
                 Handler(Looper.getMainLooper()).post {
                     cleanupAndStop()
                 }
@@ -750,9 +638,7 @@ class VayVpnService : VpnService() {
                 "VAY_CHANNEL_ACTIVE",
                 "Phoenix Service",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Status of Phoenix Tunnel"
-            }
+            ).apply { description = "Status of Phoenix Tunnel" }
             notificationManager.createNotificationChannel(channel)
         }
 
@@ -764,21 +650,18 @@ class VayVpnService : VpnService() {
 
         val notification = NotificationCompat.Builder(this, "VAY_CHANNEL_ACTIVE")
             .setContentTitle("Phoenix VPN")
-            .setContentText(status) // This is where "Connected" or "Connecting..." goes
+            .setContentText(status)
             .setSmallIcon(net.vaydns.phoenix.R.drawable.ic_vpn_key)
-//            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setOngoing(true) // Prevents the user from swiping it away
+            .setOngoing(true)
             .setContentIntent(pendingIntent)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // CRITICAL: Shows the content on the lock screen
-            .setOnlyAlertOnce(true) // Updates the text silently without beeping/vibrating every second
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT) // Matches channel importance
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
 
-        // ID 1 matches the ID used in startForeground()
         notificationManager.notify(1, notification)
     }
 
-    // Helper function to check if the string is an IP (add this to the class)
     private fun isValidIp(ip: String): Boolean {
         return ip.matches(Regex("""\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"""))
     }
@@ -786,12 +669,10 @@ class VayVpnService : VpnService() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "VAY_CHANNEL_ACTIVE",           // ← make this the single source of truth
+                "VAY_CHANNEL_ACTIVE",
                 "Phoenix VPN Service",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "VPN tunneling status"
-            }
+            ).apply { description = "VPN tunneling status" }
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
         }
@@ -807,39 +688,34 @@ class VayVpnService : VpnService() {
         stopForeground(STOP_FOREGROUND_REMOVE)
 
         Thread {
-            // 1. Instantly kill the Android side of the TUN interface
+            // =========================================
+            // 1. INSTANTLY KILL THE C-TUNNEL FIRST
+            // =========================================
+
+            try { hev.htproxy.TProxyService.TProxyStopService() } catch (e: Exception) {}
+
             try {
                 tunInterface?.close()
                 tunInterface = null
             } catch (e: Exception) {}
 
-            // NEW: Release the WakeLock gracefully before killing the JVM
             try {
                 wakeLock?.let {
                     if (it.isHeld) it.release()
                 }
             } catch (e: Exception) {}
 
-            // 2. Tell Go to stop on an independent thread so a crash/hang cannot block our OS cleanup!
             Thread {
                 try { Mobile.stopVpn() } catch (e: Exception) {}
             }.start()
 
-            // 3. Tell Android OS this service is officially stopping legally (Prevents Auto-Restart)
             stopSelf()
-
-            // 4. Give Android 1.5 seconds to process stopSelf() and deregister the VPN
             Thread.sleep(1500)
-
-            // 5. The Sandbox Flush: Kill the JVM.
-            // This forces the Linux kernel to close Go's duplicated 'syscall.Dup' FDs,
-            // which guarantees the Blue Key vanishes forever!
             System.exit(0)
         }.start()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // NEW: Do NOT call cleanupAndStop() here! Let the VPN run in the background.
         Log.i("Phoenix", "App swiped away from recent tasks. Keeping VPN alive in background...")
         super.onTaskRemoved(rootIntent)
     }
@@ -849,45 +725,36 @@ class VayVpnService : VpnService() {
         super.onDestroy()
     }
 
-    // =================================================================
-    // STRICT TUNNEL READER: Never reads whole-device background traffic
-    // =================================================================
     private fun getTunInterfaceStats(): Pair<Long, Long> {
-        // Method 1: procfs (Most reliable for direct interface stats)
-        try {
-            val file = java.io.File("/proc/net/dev")
-            if (file.exists()) {
-                val lines = file.readLines()
-                for (line in lines) {
-                    if (line.contains("tun") || line.contains("vpn")) {
-                        val dataStr = line.substringAfter(":")
-                        val parts = dataStr.trim().split(Regex("\\s+"))
-                        if (parts.size >= 9) {
-                            return Pair(parts[0].toLong(), parts[8].toLong()) // Download, Upload
-                        }
-                    }
+        // 1. PURE NATIVE STATS: Ask the C-Tunnel directly for exact TUN interface traffic
+        if (activeConfigType.lowercase() != "vaydns") {
+            try {
+                // The C-engine returns an array where index 0 is TX, and index 1 is RX
+                val cStats = hev.htproxy.TProxyService.TProxyGetStats()
+                if (cStats != null && cStats.size >= 4) {
+                    val downloadBytes = cStats[3] // tx_bytes: Transmitted by tunnel to OS
+                    val uploadBytes = cStats[1]   // rx_bytes: Received by tunnel from OS
+                //    Log.i("Phoenix", "Hev Traffic (MB): Download ${downloadBytes / (1024 * 1024)} MB | Upload ${uploadBytes / (1024 * 1024)} MB")
+                    // Return Pair(RX, TX) to match the rest of the app's logic
+                    return Pair(downloadBytes, uploadBytes)
                 }
+            } catch (e: Exception) {
+                // Silently fallback if the C-engine isn't fully booted yet
             }
-        } catch (e: Exception) { }
-
-        // Method 2: sysfs
-        try {
-            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            for (intf in interfaces) {
-                if (intf.name.startsWith("tun") || intf.name.startsWith("vpn")) {
-                    val download = java.io.File("/sys/class/net/${intf.name}/statistics/rx_bytes").readText().trim().toLong()
-                    val upload = java.io.File("/sys/class/net/${intf.name}/statistics/tx_bytes").readText().trim().toLong()
-                    return Pair(download, upload)
-                }
-            }
-        } catch (e: Exception) { }
-
-        // Method 3: Safe App UID Fallback (Divided by 2 to prevent double-counting)
-        // This guarantees we only track the VPN engine, completely ignoring background OS tasks.
+        }
+        // Log.i("Phoenix", "Android was used for Traffic")
+        // 2. FALLBACK: Legacy Android UID TrafficStats for VayDNS mode
         val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
         val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
+
         if (uidRx > 0 || uidTx > 0) {
-            return Pair(uidRx / 2, uidTx / 2)
+            return Pair(uidRx, uidTx)
+            /*val finalRx = if (activeConfigType.lowercase() != "vaydns" && activeEngineType.lowercase() == "sing-box") {
+                uidRx / 2
+            } else {
+                uidRx
+            }
+            return Pair(finalRx, uidTx / 2)*/
         }
 
         return Pair(0L, 0L)

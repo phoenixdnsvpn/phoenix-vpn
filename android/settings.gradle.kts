@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "vaydns"
+rootProject.name = "phoenix"
 include(":app")
  

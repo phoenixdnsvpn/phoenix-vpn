@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 //	"fmt"
@@ -60,13 +61,18 @@ type DefaultConfig struct {
 	XhttpRealityConfig
 }
 
+type CDNSettings struct {
+	Protocols []string `json:"protocols"`
+	VlessWsIP string   `json:"vless_ws_ip"`
+}
+
 type ConfigWrapper struct {
 	Version      int             `json:"version"`
 	Release      string          `json:"release"`
 	ServerURLs   []string        `json:"serverURLs"`
 	AppSecretKey string          `json:"appSecretKey"`
-	VlessWsIP    string          `json:"vless_ws_ip"`
-	CDN          []string        `json:"cdn"`
+//	VlessWsIP    string          `json:"vless_ws_ip"`
+	CDN          map[string]CDNSettings `json:"cdn"`
 	Configs      []DefaultConfig `json:"configs"`
 }
 
@@ -76,7 +82,8 @@ var (
 	currentRelease    string
 	currentServerURLs []string
 	currentSecretKey  string
-	currentCDN        []string
+	currentCDN        map[string]CDNSettings
+	cdnNames          []string
 	configMu          sync.Mutex
 
 	defaultDisplayResolvers map[string]string
@@ -179,12 +186,18 @@ func parseConfigData(data []byte) {
 		currentVersion = wrapper.Version
 		currentRelease = wrapper.Release
 		currentServerURLs = wrapper.ServerURLs
-		currentSecretKey = wrapper.AppSecretKey		
-		SetRootVlessWsIP(wrapper.VlessWsIP)
-		currentCDN = wrapper.CDN
+		currentSecretKey = wrapper.AppSecretKey
+		currentCDN = wrapper.CDN // Directly assign the map
+
+		// Extract and sort CDN names so Android UI indexing remains consistent (Amazon, Cloudflare, etc.)
+		cdnNames = make([]string, 0, len(currentCDN))
+		for name := range currentCDN {
+			cdnNames = append(cdnNames, name)
+		}
+		sort.Strings(cdnNames)
 
 	} else {
-		// Fallback for older JSON formats
+		// Bare minimum fallback just in case the file is completely broken
 		json.Unmarshal(data, &defaultConfigs)
 	}
 }
@@ -682,13 +695,46 @@ func GetAppSecretKeyExported() string {
 
 func GetCdnCount() int64 {
 	ensureParsed()
-	return int64(len(currentCDN))
+	return int64(len(cdnNames))
 }
 
 func GetCdnName(index int64) string {
 	ensureParsed()
-	if index < 0 || index >= int64(len(currentCDN)) {
+	if index < 0 || index >= int64(len(cdnNames)) {
 		return ""
 	}
-	return currentCDN[index]
+	return cdnNames[index]
+}
+
+func GetCdnVlessWsIP(cdnName string) string {
+	ensureParsed()
+	if currentCDN == nil {
+		return ""
+	}
+	if settings, ok := currentCDN[cdnName]; ok {
+		return settings.VlessWsIP
+	}
+	return ""
+}
+
+// CdnSupportsProtocol checks if a specific CDN supports the requested protocol mode
+func CdnSupportsProtocol(cdnName string, protocol string) bool {
+	ensureParsed()
+	if currentCDN == nil {
+		return true // Fallback to true if config hasn't loaded yet
+	}
+	settings, ok := currentCDN[cdnName]
+	if !ok {
+		return true
+	}
+	if len(settings.Protocols) == 0 {
+		return true
+	}
+	protoLower := strings.ToLower(strings.TrimSpace(protocol))
+	for _, p := range settings.Protocols {
+		if strings.ToLower(strings.TrimSpace(p)) == protoLower {
+			return true
+		}
+	}
+	return false
 }

@@ -6,17 +6,12 @@ import (
 )
 
 // Global memory state storage for custom user inputs and remote server files
-var globalVlessWsIP string
-var rootVlessWsIP   string // <-- Added to hold root property from remote server JSON file
+/*var globalVlessWsIP string
 
 func SetGlobalVlessWsIP(ip string) {
 	globalVlessWsIP = strings.TrimSpace(ip)
-}
-
-// SetRootVlessWsIP maps the top-level unmarshaled proxy endpoint to native memory cache
-func SetRootVlessWsIP(ip string) {
-	rootVlessWsIP = strings.TrimSpace(ip)
-}
+	log.Printf("VAY_DEBUG: globalVlessWsIP is set with IP: %v",globalVlessWsIP)
+}*/
 
 type VlessWsConfig struct {
 	WsDomain string `json:"ws_domain"` 
@@ -37,53 +32,50 @@ type VlessWsConfig struct {
 // =====================================================================
 
 
-func getCloudflareIP(index int64) string {
-	ensureParsed()
+func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer string, getServerIpFromDomain bool, targetCdn string, runtimeVlessIP string) string {
+	
 
-//	return defaultConfigs[index].ServerIP
-	// Priority 1: Use user-defined custom Anycast IP from UI settings (if not empty or 0.0.0.0)
-	if globalVlessWsIP != "" && globalVlessWsIP != "0.0.0.0" {
-		return globalVlessWsIP
-	}
-
-	// Priority 2: Fall back to the root-level "vless_ws_ip" provided in your server JSON file
-	if rootVlessWsIP != "" && rootVlessWsIP != "0.0.0.0" {
-		return rootVlessWsIP
-	}
-
-	if index < 0 || index >= int64(len(defaultConfigs)) {
-		return ""
+	if activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade" || activeProtocol == "vless-grpc" {
+		
+		// Priority 1: User explicitly checked an IP in the Android Scanner Vault
+		if runtimeVlessIP != "" && runtimeVlessIP != "0.0.0.0" {
+			return runtimeVlessIP
+		}
+		
+		// Determine the EXACT domain the outbound needs to dial
+		var domainToResolve string
+		if activeProtocol == "vless-ws" {
+			domainToResolve = getWsDomain(configIndex)
+			if strings.ToLower(targetCdn) == "amazon" {
+				domainToResolve = getAwsCdnDomain(configIndex)
+			}
+		} else if activeProtocol == "vless-grpc" {
+			domainToResolve = getGrpcDomain(configIndex)
+			if strings.ToLower(targetCdn) == "amazon" {
+				domainToResolve = getAwsCdnDomain(configIndex)
+			}
+		} else if activeProtocol == "vless-httpupgrade" {
+			domainToResolve = getHttpupgradeDomain(configIndex)
+		}
+		
+		// Priority 2: DoH Resolution (The primary, dynamic mechanism!)
+		resolvedIP := resolveDomainOverDoH(domainToResolve, globalDnsServer)
+		if resolvedIP != "" {
+			return resolvedIP
+		}
+		
+		// Priority 3: Fallback to the JSON "vless_ws_ip" (LAST ATTEMPT AFTER DOH FAILS)
+		if targetCdn != "" {
+			if cdnIp := GetCdnVlessWsIP(targetCdn); cdnIp != "" && cdnIp != "0.0.0.0" {
+				return cdnIp
+			}
+		}
+		
+		// Priority 4: Return raw domain so the proxy engine resolves it natively via OS
+		return domainToResolve 
 	}
 	
-	return "0.0.0.0"
-}
-
-// GetActiveVlessWsIP is an exported JNI function for Android's VpnBuilder
-// to retrieve the final dialed IP and exclude it from the VPN routing table.
-func GetActiveVlessWsIP(index int64) string {
-	return getCloudflareIP(index)
-}
-
-func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer string) string {
-	if activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade" || activeProtocol == "vless-grpc"{
-		CloudflareIP := getCloudflareIP(configIndex)
-		if CloudflareIP != "" && CloudflareIP != "0.0.0.0" {
-			return CloudflareIP
-		}
-	}
-	// 1. Get the domain name of actual server		
-	serverDomain := getServerDomain(configIndex)
-	// 2. Resolve the IP silently via DoH using the Global BootstrapDns variable
-	serverIP := resolveDomainOverDoH(serverDomain, globalDnsServer)
-	// 3. Fallbacks just in case the encrypted DNS lookup fails
-	if serverIP == "" {
-		serverIP = getServerIpAddress(configIndex)
-	}
-	if serverIP == "" {
-		serverIP = serverDomain
-	}	
-	return serverIP
-		
+	return getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
 }
 
 func getVlessServerPort(index int64) int {
@@ -215,10 +207,11 @@ func getGrpcServiceName(index int64) string {
 // OUTBOUND BUILDER FOR VLESS WEBSOCKETS (CLOUDFLARE CDN)
 // =====================================================================
 
-func buildVlessWsOutbound(configIndex int64, runtimeVlessWsIp string, targetCDN string) map[string]interface{} {
-	CloudflareIP := runtimeVlessWsIp
+func buildVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
+	CloudflareIP := runtimeVlessIP
 	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		CloudflareIP = getCloudflareIP(configIndex)
+		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
+		CloudflareIP = GetTargetIP(configIndex, "vless-ws", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 	}
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
@@ -253,7 +246,7 @@ func buildVlessWsOutbound(configIndex int64, runtimeVlessWsIp string, targetCDN 
 			"Host": WsDomainName,
 		},
 //		1. EARLY DATA: Embeds the first VLESS payload directly into the HTTP handshake, saving 1 RTT (Round Trip Time).
-		"early_data_header_name": "Sec-WebSocket-Protocol",		
+//		"early_data_header_name": "Sec-WebSocket-Protocol",		
 	}
 
 	outbound := map[string]interface{}{
@@ -269,7 +262,8 @@ func buildVlessWsOutbound(configIndex int64, runtimeVlessWsIp string, targetCDN 
 		"tls":             tlsObj,
 		"transport":       transportObj,
 // 		3. TCP FAST OPEN: Bypasses the initial TCP 3-way handshake on subsequent connections.
-		"tcp_fast_open":   true,		
+		"tcp_fast_open":   true,
+//		"tcp_fast_open":   false,				
 	}
 
 	return outbound
@@ -279,10 +273,11 @@ func buildVlessWsOutbound(configIndex int64, runtimeVlessWsIp string, targetCDN 
 // OUTBOUND BUILDER FOR VLESS gRPC (CLOUDFLARE CDN MULTIPLEXING)
 // =====================================================================
 
-func buildVlessGrpcOutbound(configIndex int64, runtimeVlessIp string, targetCDN string) map[string]interface{} {
-	CloudflareIP := runtimeVlessIp
+func buildVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
+	CloudflareIP := runtimeVlessIP
 	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		CloudflareIP = getCloudflareIP(configIndex)
+		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
+		CloudflareIP = GetTargetIP(configIndex, "vless-grpc", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 	}
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
@@ -332,7 +327,7 @@ func buildVlessGrpcOutbound(configIndex int64, runtimeVlessIp string, targetCDN 
         
 		"tls":             tlsObj,
 		"transport":       transportObj,
-		"tcp_fast_open":   true,
+		"tcp_fast_open":   true, // false
 	}
 
 	return outbound
@@ -342,10 +337,11 @@ func buildVlessGrpcOutbound(configIndex int64, runtimeVlessIp string, targetCDN 
 // OUTBOUND BUILDER FOR VLESS HTTPUPGRADE (MAX HIGH-LATENCY CDN SPEED)
 // =====================================================================
 
-func buildVlessHttpUpgradeOutbound(configIndex int64, runtimeVlessIp string) map[string]interface{} {
-	CloudflareIP := runtimeVlessIp
+func buildVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
+	CloudflareIP := runtimeVlessIP
 	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		CloudflareIP = getCloudflareIP(configIndex)
+		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
+		CloudflareIP = GetTargetIP(configIndex, "vless-httpupgrade", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 	}
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
@@ -390,7 +386,7 @@ func buildVlessHttpUpgradeOutbound(configIndex int64, runtimeVlessIp string) map
 		"packet_encoding": "xudp", 
 		"tls":             tlsObj,
 		"transport":       transportObj,
-		"tcp_fast_open":   true, 
+		"tcp_fast_open":   true, //false
 	}
 
 	return outbound

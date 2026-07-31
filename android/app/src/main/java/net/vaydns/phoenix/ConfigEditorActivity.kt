@@ -158,8 +158,20 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         cbBestCfIp.setOnCheckedChangeListener { buttonView, isChecked ->
             if (isChecked) {
-                // Grab the currently selected CDN from the Editor
+                // Grab the currently selected CDN and Tunnel Protocol from the Editor
                 val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "Cloudflare"
+                val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
+                val selectedTunnelProtocol = spinnerTunnelProtocol?.selectedItem?.toString() ?: "vaydns"
+
+                // GUARDRAIL 1: Check if CDN supports the selected VLESS protocol
+                if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade")) {
+                    val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
+                    if (!supported) {
+                        Toast.makeText(this, "CDN '$selectedCdn' does not support protocol '$selectedTunnelProtocol'!", Toast.LENGTH_LONG).show()
+                        buttonView.isChecked = false
+                        return@setOnCheckedChangeListener
+                    }
+                }
 
                 // Fetch ALL IPs from the JSON Vault for the Layer 7 scanner
                 val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
@@ -199,7 +211,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     val currentDomain = etDomain?.text?.toString()?.trim() ?: ""
 
                     // Call the NEW Layer 7 Scanner
-                    val result = Mobile.getFastestCloudflareIP(isDefault, cIndex, savedIps, currentDomain, selectedCdn)
+                    val result = Mobile.getFastestCloudflareIP(isDefault, cIndex, savedIps, currentDomain, selectedCdn, selectedTunnelProtocol)
 
                     runOnUiThread {
                         buttonView.isEnabled = true
@@ -225,7 +237,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     val cIndex = if (isDefault) editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: -1L else -1L
 
                     // Call our new native Go scanner
-                    val result = Mobile.pingBestDirectIP(isDefault, cIndex, savedIps, "direct", "vless-ws")
+                    val result = Mobile.pingBestDirectIP(isDefault, cIndex, savedIps, "direct", "vless-ws", globalDnsServer, getServerIpFromDomain, selectedCdn)
 
                     runOnUiThread {
                         buttonView.isEnabled = true
@@ -942,6 +954,18 @@ class ConfigEditorActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
+            val selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
+            val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "Cloudflare"
+
+            // GUARDRAIL 2: Check protocol compatibility before saving
+            if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade")) {
+                val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
+                if (!supported) {
+                    Toast.makeText(this, "Cannot Save: CDN '$selectedCdn' does not support protocol '$selectedTunnelProtocol'!", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+            }
+
             val mode = when (rgMode.checkedRadioButtonId) {
                 R.id.rb_tcp -> "tcp"
                 R.id.rb_tls -> "dot"
@@ -973,10 +997,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             val user = etUser.text.toString().trim()
             val pass = etPass.text.toString().trim()
             val rt = spRecordType.selectedItem.toString()
-            val selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
             val selectedVlessIp = etVlessIp.text.toString().trim()
-            val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "Cloudflare"
-
             val selectedDomainIndex = when (findViewById<RadioGroup>(R.id.rg_domain_selector).checkedRadioButtonId) {
                 R.id.rb_domain_2 -> 1
                 R.id.rb_domain_3 -> 2

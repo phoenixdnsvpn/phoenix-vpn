@@ -42,6 +42,7 @@ class VayProxyService : Service() {
 
     // Session-specific tracking
     private var activeConfigType = "vaydns"
+    private var activeEngineType = "sing-box"
     private var sessionOsRx = 0L
     private var sessionOsTx = 0L
 
@@ -294,6 +295,8 @@ class VayProxyService : Service() {
 
                 // Initialize Session Variables
                 activeConfigType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
+                activeEngineType = intent?.getStringExtra("ENGINE_TYPE") ?: "sing-box"
+
                 sessionOsRx = 0L
                 sessionOsTx = 0L
 
@@ -349,6 +352,7 @@ class VayProxyService : Service() {
                 val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
                 val fragment = intent?.getBooleanExtra("USE_FRAGMENTATION", false) ?: false
                 val blockQuic = intent?.getBooleanExtra("BLOCK_QUIC", true) ?: true
+                val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
 
                 // RESTORED: Exact, working parameter list matching your native Go layout
                 val result = Mobile.startProxy(
@@ -382,7 +386,8 @@ class VayProxyService : Service() {
                     globalDnsServer,
                     isDebugEnabled,
                     fragment,
-                    blockQuic
+                    blockQuic,
+                    getServerIpFromDomain
                 )
 
                 if (result.startsWith("Success")) {
@@ -528,6 +533,25 @@ class VayProxyService : Service() {
     }
 
     private fun getProxyInterfaceStats(): Pair<Long, Long> {
+        val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
+        val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
+
+        if (uidRx > 0 || uidTx > 0) {
+            // HYBRID UX LOGIC:
+            // Download (RX): Use raw bytes for accurate ISP download metering
+            // Upload (TX): Divide by 2 to prevent local-socket bloat
+            val finalRx = if (activeConfigType.lowercase() != "vaydns" && activeEngineType.lowercase() == "sing-box") {
+                uidRx / 2
+            } else {
+                uidRx
+            }
+            return Pair(finalRx, uidTx / 2)
+        }
+
+        return Pair(0L, 0L)
+    }
+
+    private fun getProxyInterfaceStats2(): Pair<Long, Long> {
         val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
         val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
 

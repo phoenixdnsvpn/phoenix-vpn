@@ -41,7 +41,7 @@ func getXhttpPath(index int64) string {
 }*/
 
 // StartXrayEngine generates the Xray JSON config and boots the core for either VPN or Proxy mode.
-func StartXrayEngine(configIndex int64, globalDnsServer string, CloudflareIP string, targetCDN string, isProxyMode bool, localPort int, vpnMtu int, protocol string, debug bool, fragment bool, blockQuic bool) error {
+func StartXrayEngine(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, CloudflareIP string, targetCDN string, isProxyMode bool, localPort int, vpnMtu int, protocol string, debug bool, fragment bool, blockQuic bool) error {
 
 	// Ensure no orphaned instance is running
 	StopXrayEngine()
@@ -61,18 +61,24 @@ func StartXrayEngine(configIndex int64, globalDnsServer string, CloudflareIP str
 			},
 			"sniffing": {
 				"enabled": true,
-				"destOverride": ["http", "tls", "quic"]
+				"destOverride": ["http", "tls", "quic"],
+				"routeOnly": true
 			}
 		}`, localPort)
 	} else {
 		inboundsJSON = fmt.Sprintf(`{
 			"protocol": "tun",
 			"settings": {
-				"mtu": %d
+				"mtu": %d,
+                "autoRoute": false,
+				"strictRoute": false,
+				"endpointIndependentNat": true,
+				"stack": "system"				
 			},
 			"sniffing": {
 				"enabled": true,
-				"destOverride": ["http", "tls", "quic"]
+				"destOverride": ["http", "tls", "quic"],
+				"routeOnly": true
 			}
 		},
 		{
@@ -92,17 +98,17 @@ func StartXrayEngine(configIndex int64, globalDnsServer string, CloudflareIP str
 
 	switch actualProtocol {
 	case "reality-xhttp":
-		outboundJSON = buildXrayRealityXHTTPOutbound(configIndex, globalDnsServer, fragment)
+		outboundJSON = buildXrayRealityXHTTPOutbound(configIndex, globalDnsServer, getServerIpFromDomain, fragment)
 	case "reality-tcp":
-		outboundJSON = buildXrayRealityTCPOutbound(configIndex, globalDnsServer, fragment)
+		outboundJSON = buildXrayRealityTCPOutbound(configIndex, globalDnsServer, getServerIpFromDomain, fragment)
 	case "vless-ws":
-		outboundJSON = buildXrayVlessWsOutbound(configIndex, CloudflareIP, targetCDN)
+		outboundJSON = buildXrayVlessWsOutbound(configIndex, globalDnsServer, getServerIpFromDomain, CloudflareIP, targetCDN)
 	case "vless-httpupgrade":
-		outboundJSON = buildXrayVlessHttpUpgradeOutbound(configIndex, CloudflareIP)
+		outboundJSON = buildXrayVlessHttpUpgradeOutbound(configIndex, globalDnsServer, getServerIpFromDomain, CloudflareIP, targetCDN)
 	case "vless-grpc":
-		outboundJSON = buildXraVlessGrpcOutbound(configIndex, CloudflareIP, targetCDN)			
+		outboundJSON = buildXraVlessGrpcOutbound(configIndex, globalDnsServer, getServerIpFromDomain, CloudflareIP, targetCDN)			
 	case "hysteria2":
-		outboundJSON = buildXrayHysteria2Outbound(configIndex, globalDnsServer)
+		outboundJSON = buildXrayHysteria2Outbound(configIndex, globalDnsServer, getServerIpFromDomain)
 	default:
 		return fmt.Errorf("unsupported Xray protocol: %s", protocol)
 	}
@@ -309,8 +315,8 @@ func StartXrayEngine(configIndex int64, globalDnsServer string, CloudflareIP str
 // =====================================================================
 // HYSTERIA2 OUTBOUND. Not in use
 // =====================================================================
-func buildXrayHysteria2Outbound(configIndex int64, globalDnsServer string) string {
-	serverIP := getHysteriaServerIP(configIndex, globalDnsServer)
+func buildXrayHysteria2Outbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool) string {
+	serverIP := getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
 	serverPort := getHysteriaServerPort(configIndex)
 	authPass := getHysteriaAuthPass(configIndex)
 	sniDomain := getHysteriaDomain(configIndex)
@@ -367,12 +373,14 @@ func buildXrayHysteria2Outbound(configIndex int64, globalDnsServer string) strin
 // =====================================================================
 // OUTBOUND BUILDER FOR VLESS gRPC (XRAY-CORE FORMAT)
 // =====================================================================
-func buildXraVlessGrpcOutbound(configIndex int64, runtimeVlessIp string, targetCDN string) string {
+func buildXraVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
 
 	CloudflareIP := runtimeVlessIp
 	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		CloudflareIP = getCloudflareIP(configIndex)
+		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
+		CloudflareIP = GetTargetIP(configIndex, "vless-grpc", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
 	}	
+	
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
 	GrpcDomain := getGrpcDomain(configIndex)
@@ -425,15 +433,20 @@ func buildXraVlessGrpcOutbound(configIndex int64, runtimeVlessIp string, targetC
 	}`, CloudflareIP, serverPort, uuid, GrpcDomain, grpcServiceName)
 }
 
+//			"sockopt": {
+//				"tcpFastOpen": true
+//			}
+			
 // =====================================================================
 // VLESS WEBSOCKET OUTBOUND
 // =====================================================================
-func buildXrayVlessWsOutbound(configIndex int64, runtimeVlessIp string, targetCDN string) string {
+func buildXrayVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
 	// Uses the exact same fallback logic for Cloudflare Anycast IP as Sing-box
 	
 	CloudflareIP := runtimeVlessIp
 	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		CloudflareIP = getCloudflareIP(configIndex)
+		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
+		CloudflareIP = GetTargetIP(configIndex, "vless-ws", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
 	}
 		
 //	log.Printf("VAY_DEBUG: Cloudflare IP: %v", CloudflareIP)
@@ -487,11 +500,12 @@ func buildXrayVlessWsOutbound(configIndex int64, runtimeVlessIp string, targetCD
 // =====================================================================
 // VLESS HTTP-UPGRADE OUTBOUND
 // =====================================================================
-func buildXrayVlessHttpUpgradeOutbound(configIndex int64, runtimeVlessIp string) string {
+func buildXrayVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
 
 	CloudflareIP := runtimeVlessIp
 	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		CloudflareIP = getCloudflareIP(configIndex)
+		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
+		CloudflareIP = GetTargetIP(configIndex, "vless-httpupgrade", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
 	}
 
 	serverPort := getVlessServerPort(configIndex)
@@ -537,8 +551,8 @@ func buildXrayVlessHttpUpgradeOutbound(configIndex int64, runtimeVlessIp string)
 // =====================================================================
 // REALITY-XHTTP OUTBOUND
 // =====================================================================
-func buildXrayRealityXHTTPOutbound(configIndex int64, globalDnsServer string, fragment bool) string {
-	serverIP := getServerIP(configIndex, globalDnsServer)
+func buildXrayRealityXHTTPOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, fragment bool) string {
+	serverIP := getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
 	serverPortStr := getXhttpPort(configIndex)
 	serverPort, err := strconv.Atoi(serverPortStr)
 	if err != nil || serverPort == 0 {
@@ -626,8 +640,8 @@ func buildXrayRealityXHTTPOutbound(configIndex int64, globalDnsServer string, fr
 // =====================================================================
 // REALITY-TCP OUTBOUND
 // =====================================================================
-func buildXrayRealityTCPOutbound(configIndex int64, globalDnsServer string, fragment bool) string {
-	serverIP := getServerIP(configIndex, globalDnsServer)
+func buildXrayRealityTCPOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, fragment bool) string {
+	serverIP := getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
 
 	// Ensure we fetch the raw port string and convert it
 	serverPortStr := getRealityServerPortRaw(configIndex)

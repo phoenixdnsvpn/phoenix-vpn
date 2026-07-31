@@ -40,14 +40,13 @@ class VayPingService : Service() {
             var globalDnsServer = tunnelPrefs.getString("global_dns_server", "")?.trim() ?: ""
             if (globalDnsServer.isEmpty()) globalDnsServer = "1.1.1.1"
 
-            val targetCdn = tunnelPrefs.getString("target_cdn", "Cloudflare") ?: "Cloudflare"
+            // val targetCdn = tunnelPrefs.getString("target_cdn", "Cloudflare") ?: "Cloudflare"
+            val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
 
             val directResultsStr = if (useLayer7) {
-                Mobile.pingAllDirectConfigsLayer7(tasksJson, globalDnsServer, targetCdn)
-                    //Mobile.pingAllDirectConfigsLayer7(tasksJson)
+                Mobile.pingAllDirectConfigsLayer7(tasksJson, globalDnsServer, getServerIpFromDomain)
             } else {
-                Mobile.pingAllDirectConfigs(tasksJson, globalDnsServer, targetCdn)
-                //Mobile.pingAllDirectConfigs(tasksJson)
+                Mobile.pingAllDirectConfigs(tasksJson, globalDnsServer, getServerIpFromDomain)
             }
 
             // 3. Merge the JSON results cleanly

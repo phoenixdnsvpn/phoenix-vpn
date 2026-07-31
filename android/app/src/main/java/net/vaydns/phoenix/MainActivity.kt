@@ -1261,6 +1261,7 @@ class MainActivity : AppCompatActivity() {
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
         val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
+        val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
         val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
         val workers = tunnelPrefs.getInt("workers", 20)
         val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
@@ -1321,6 +1322,16 @@ class MainActivity : AppCompatActivity() {
                 finalConfig.vlessIp
             }
 
+            val targetCdn = if (globalOverride) {
+                globalCdn
+            } else if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+            } else {
+                getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                    .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+            }
+
 // Fetch the Vault JSON
             val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
             val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
@@ -1330,15 +1341,23 @@ class MainActivity : AppCompatActivity() {
                 val jsonArray = org.json.JSONArray(jsonString)
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
-                    // We only care about the single checked IP for the VPN Override
-                    if (obj.getBoolean("isChecked")) {
+                    val ipCdn = obj.optString("cdn", "Cloudflare")
+                    // Priority 1: Checked AND matches Target CDN
+                    if (obj.getBoolean("isChecked") && ipCdn.equals(targetCdn, ignoreCase = true)) {
                         firstGlobalVlessIp = obj.getString("ip")
                         break
                     }
                 }
-                // Safety Fallback: If nothing was checked, grab the first available IP
-                if (firstGlobalVlessIp.isEmpty() && jsonArray.length() > 0) {
-                    firstGlobalVlessIp = jsonArray.getJSONObject(0).getString("ip")
+                // Priority 2: Fallback to the first available IP matching Target CDN
+                if (firstGlobalVlessIp.isEmpty()) {
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val ipCdn = obj.optString("cdn", "Cloudflare")
+                        if (ipCdn.equals(targetCdn, ignoreCase = true)) {
+                            firstGlobalVlessIp = obj.getString("ip")
+                            break
+                        }
+                    }
                 }
             } catch (e: Exception) { e.printStackTrace() }
 
@@ -1375,6 +1394,7 @@ class MainActivity : AppCompatActivity() {
                 put("server_ip", serverIp)
                 put("protocol", cleanProtocol)
                 put("vless_ws_ip", firstGlobalVlessIp)
+                put("target_cdn", targetCdn)
                 put("dns_mode", finalConfig.mode)
                 // put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
                 put("custom_domain", finalConfig.domain)
@@ -3555,6 +3575,7 @@ class MainActivity : AppCompatActivity() {
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
         val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
+        val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
 
         var activeProtocol = if (config.isDefault && globalOverride) {
             globalProtocol
@@ -3615,6 +3636,16 @@ class MainActivity : AppCompatActivity() {
             finalConfig.vlessIp
         }
 
+        val targetCdn = if (globalOverride) {
+            globalCdn
+        } else if (config.isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+        } else {
+            getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+        }
+
         // Fetch the Vault JSON
         val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
         val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
@@ -3624,15 +3655,21 @@ class MainActivity : AppCompatActivity() {
             val jsonArray = org.json.JSONArray(jsonString)
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                // We only care about the single checked IP for the VPN Override
-                if (obj.getBoolean("isChecked")) {
+                val ipCdn = obj.optString("cdn", "Cloudflare")
+                if (obj.getBoolean("isChecked") && ipCdn.equals(targetCdn, ignoreCase = true)) {
                     firstGlobalVlessIp = obj.getString("ip")
                     break
                 }
             }
-            // Safety Fallback: If nothing was checked, grab the first available IP
-            if (firstGlobalVlessIp.isEmpty() && jsonArray.length() > 0) {
-                firstGlobalVlessIp = jsonArray.getJSONObject(0).getString("ip")
+            if (firstGlobalVlessIp.isEmpty()) {
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val ipCdn = obj.optString("cdn", "Cloudflare")
+                    if (ipCdn.equals(targetCdn, ignoreCase = true)) {
+                        firstGlobalVlessIp = obj.getString("ip")
+                        break
+                    }
+                }
             }
         } catch (e: Exception) { e.printStackTrace() }
 
@@ -3690,17 +3727,7 @@ class MainActivity : AppCompatActivity() {
 
             val useFragmentation = tunnelPrefs.getBoolean("use_fragmentation", false)
             val blockQuic = tunnelPrefs.getBoolean("block_quic", true)
-
-            val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
-            val targetCdn = if (globalOverride) {
-                globalCdn
-            } else if (config.isDefault) {
-                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                    .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
-            } else {
-                getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
-                    .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
-            }
+            val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
 
             val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
                 action = "ACTION_START_VPN"
@@ -3717,6 +3744,7 @@ class MainActivity : AppCompatActivity() {
                 putExtra("TARGET_CDN", targetCdn)
                 putExtra("USE_FRAGMENTATION", useFragmentation)
                 putExtra("BLOCK_QUIC", blockQuic)
+                putExtra("GET_SERVER_IP_FROM_DOMAIN", getServerIpFromDomain)
             }
 
             if (isProxyMode) {
@@ -3873,7 +3901,7 @@ class MainActivity : AppCompatActivity() {
 
                     val useFragmentation = tunnelPrefs.getBoolean("use_fragmentation", false)
                     val blockQuic = tunnelPrefs.getBoolean("block_quic", true)
-                    val targetCdn = tunnelPrefs.getString("target_cdn", "Cloudflare") ?: "Cloudflare"
+                    val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
 
                     val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
                         action = "ACTION_START_VPN"
@@ -3923,6 +3951,7 @@ class MainActivity : AppCompatActivity() {
                         putExtra("TARGET_CDN", targetCdn)
                         putExtra("USE_FRAGMENTATION", useFragmentation)
                         putExtra("BLOCK_QUIC", blockQuic)
+                        putExtra("GET_SERVER_IP_FROM_DOMAIN", getServerIpFromDomain)
                     }
 
                     if (isProxyMode) {
@@ -4127,30 +4156,6 @@ class MainActivity : AppCompatActivity() {
         // INSTANT SYNC: Check the startup behavior settings every time we return to this screen
         val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val defaultConfigsEnabled = appPrefs.getBoolean("default_configs_at_start", true)
-
-        // Fetch the Vault JSON
-        val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
-        val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
-        var firstGlobalVlessIp = ""
-
-        try {
-            val jsonArray = org.json.JSONArray(jsonString)
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                // We only care about the single checked IP for the VPN Override
-                if (obj.getBoolean("isChecked")) {
-                    firstGlobalVlessIp = obj.getString("ip")
-                    break
-                }
-            }
-            // Safety Fallback: If nothing was checked, grab the first available IP
-            if (firstGlobalVlessIp.isEmpty() && jsonArray.length() > 0) {
-                firstGlobalVlessIp = jsonArray.getJSONObject(0).getString("ip")
-            }
-        } catch (e: Exception) { e.printStackTrace() }
-
-        // Pass the saved preference to the Go core layer to sync the latency scanner
-        mobile.Mobile.setGlobalVlessWsIP(firstGlobalVlessIp)
 
         // Update the switch visually without triggering the manual listener twice
         switchDefault.setOnCheckedChangeListener(null)

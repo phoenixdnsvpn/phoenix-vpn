@@ -86,8 +86,8 @@ func getRealityDomain(index int64) string {
 // OUTBOUND BUILDER
 // =====================================================================
 
-func buildRealityOutbound(configIndex int64, globalDnsServer string, fragment bool) map[string]interface{} {
-	serverIP := getServerIP(configIndex, globalDnsServer)
+func buildRealityOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, fragment bool) map[string]interface{} {
+	serverIP := getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
 	serverPort := getRealityServerPort(configIndex)
 	uuid := getRealityUUID(configIndex)
 	pubKey := getRealityPubKey(configIndex)

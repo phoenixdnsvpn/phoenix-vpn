@@ -162,6 +162,29 @@ class CloudflareScannerActivity : AppCompatActivity() {
 
         btnStartStop.setOnClickListener {
             if (!isScanning) {
+
+                // Grab the target CDN early for the validation check
+                val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
+
+                // 1. Fetch the current tunnel protocol saved for this config
+                val currentProtocol = if (isDefaultConfig) {
+                    getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                        .getString("${configId}_tunnelProtocol", "vaydns") ?: "vaydns"
+                } else {
+                    val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this@CloudflareScannerActivity)
+                    val config = currentConfigs.find { it.id == configId }
+                    config?.tunnelProtocol ?: "vaydns"
+                }
+
+                // 2. GUARDRAIL: Verify CDN and Protocol compatibility
+                if (currentProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade")) {
+                    val supported = mobile.Mobile.cdnSupportsProtocol(selectedCdn, currentProtocol)
+                    if (!supported) {
+                        Toast.makeText(this, "Cannot Scan: CDN '$selectedCdn' does not support protocol '$currentProtocol'.", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                }
+
                 isScanning = true
                 btnStartStop.text = "STOP SCAN"
                 btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#F44336"))
@@ -169,7 +192,6 @@ class CloudflareScannerActivity : AppCompatActivity() {
                 // Grab the user's requested count
                 val countStr = etScanCount.text.toString()
                 val scanCount = countStr.toIntOrNull() ?: 512
-                val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
 
                 // Clean UI text as requested
 //                tvStatus.text = "Scanning..."

@@ -70,6 +70,7 @@ class VayRowPingService : Service() {
                 globalDnsServer = "1.1.1.1"
             }
 
+            val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
             val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
             val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
 
@@ -85,7 +86,7 @@ class VayRowPingService : Service() {
             }
 
             Thread {
-                mobile.Mobile.setGlobalVlessWsIP(vlessWsIp)
+                // mobile.Mobile.setGlobalVlessWsIP(vlessWsIp)
 
                 val latency = if (useLayer7) {
                     Mobile.pingDirectServerLayer7(
@@ -97,7 +98,9 @@ class VayRowPingService : Service() {
                         domain, // Passed down as customSni
                         "/",     // Passed down as default customPath for VLESS-WS
                        globalDnsServer,
-                        targetCdn
+                        getServerIpFromDomain,
+                        targetCdn,
+                        vlessWsIp
                     )
                 } else {
                     Mobile.pingDirectServer(
@@ -107,7 +110,9 @@ class VayRowPingService : Service() {
                         configType.lowercase(),
                         protocol.lowercase(),
                         globalDnsServer,
-                        targetCdn
+                        getServerIpFromDomain,
+                        targetCdn,
+                        vlessWsIp
                     )
                 }
 

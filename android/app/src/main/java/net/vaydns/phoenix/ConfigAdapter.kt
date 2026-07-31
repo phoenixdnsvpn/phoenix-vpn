@@ -57,6 +57,7 @@ class ConfigAdapter(
         val config = configs[position]
 
         holder.name.text = config.name
+        holder.name.setTypeface(null, android.graphics.Typeface.BOLD)
         val isSelected = config.id == selectedId
 
         // Extract Active Protocol and Colorize Config Name
@@ -96,6 +97,17 @@ class ConfigAdapter(
 
         // Assign striking Material colors based on the protocol
         val protocolColor = when (activeProtocol.lowercase().trim()) {
+            "hysteria2" -> android.graphics.Color.parseColor("#2E7D32") // Teal
+            "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
+            "vless-ws"              -> android.graphics.Color.parseColor("#7B1FA2") // Strong Blue
+            "vless-httpupgrade"     -> android.graphics.Color.parseColor("#00B7EB") // Deep Purple 5E35B1
+            "reality-xhttp"         -> android.graphics.Color.parseColor("#F9A825") // Golden
+            "vless-grpc"            -> android.graphics.Color.parseColor("#BCA38A") // Green
+            else                    -> defaultTextColor // Phoenix (Native Black/White)
+        }
+
+        // Assign striking Material colors based on the protocol
+        /**val protocolColor = when (activeProtocol.lowercase().trim()) {
             "hysteria2" -> android.graphics.Color.parseColor("#00897B") // Teal
             "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
             "vless-ws"              -> android.graphics.Color.parseColor("#1565C0") // Strong Blue
@@ -103,7 +115,7 @@ class ConfigAdapter(
             "reality-xhttp"         -> android.graphics.Color.parseColor("#F9A825") // Golden
             "vless-grpc"            -> android.graphics.Color.parseColor("#2E7D32") // Green
             else                    -> defaultTextColor // Phoenix (Native Black/White)
-        }
+        }*/
 
         holder.name.setTextColor(protocolColor)
 

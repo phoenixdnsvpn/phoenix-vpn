@@ -57,6 +57,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var cbImportApps: SwitchCompat
     private lateinit var cbExportApps: SwitchCompat
     private lateinit var cbShowBackupRestore: SwitchCompat
+    private lateinit var cbGetServerIpFromDomain: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,6 +99,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbImportApps = findViewById(R.id.cb_show_import_apps)
         cbExportApps = findViewById(R.id.cb_show_export_apps)
         cbShowBackupRestore = findViewById(R.id.cb_show_backup_restore)
+        cbGetServerIpFromDomain = findViewById(R.id.cb_get_server_ip_from_domain)
 
         // Bind Override UI
         cbGlobalProtocolOverride = findViewById(R.id.cb_global_protocol_override)
@@ -224,6 +226,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         etVaydnsMtu.setText(appPrefs.getLong("global_vaydns_mtu", 0L).toString())
         etGlobalDnsServer.setText(tunnelPrefs.getString("global_dns_server", ""))
 
+
         // Load Startup Preferences
         cbDefaultAtStart.isChecked = appPrefs.getBoolean("default_configs_at_start", true)
         val isVpnMode = appPrefs.getBoolean("default_to_vpn_mode", true)
@@ -256,6 +259,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbShowDebugLogging.isChecked = menuPrefs.getBoolean("show_debug_logging", false)
         cbUseFragmentation.isChecked = tunnelPrefs.getBoolean("use_fragmentation", false)
         cbBlockQuic.isChecked = tunnelPrefs.getBoolean("block_quic", true)
+        cbGetServerIpFromDomain.isChecked = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
 
         // Load VLESS IP Fallback
         //etVlessWsIp.setText(tunnelPrefs.getString("vless_ws_ip", ""))
@@ -343,6 +347,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             putBoolean("use_layer7_ping", cbUseLayer7Ping.isChecked)
             putBoolean("use_fragmentation", cbUseFragmentation.isChecked)
             putBoolean("block_quic", cbBlockQuic.isChecked)
+            putBoolean("get_server_ip_from_domain", cbGetServerIpFromDomain.isChecked)
             putString("global_dns_server", globalDns)
             putString("selected_cdn", selectedCdn)
         }.apply()

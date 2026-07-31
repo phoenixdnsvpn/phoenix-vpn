@@ -17,10 +17,7 @@ import (
 )
 
 var (
-/*	cfCIDRs = []string{
-		"104.16.0.0/12", "104.24.0.0/14", "172.64.0.0/13",
-		"188.114.96.0/20", "198.41.128.0/17",
-	}*/
+
 	cfCIDRs = []string{
 		"103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
 		"104.16.0.0/13", "104.24.0.0/14", "108.162.192.0/18",
@@ -594,12 +591,19 @@ func resolveDomainOverDoH(rawDomains string, customDohServer string) string {
 // SECURE INTERNAL GETTERS for SERVER IP
 // =====================================================================
 
-func getServerIP(index int64, globalDnsServer string) string {
+func getServerIP(index int64, globalDnsServer string, getServerIpFromDomain bool) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
 	}
 	
+	if !getServerIpFromDomain {
+		serverIP := getServerIpAddress(index)
+		if serverIP != ""{
+			return serverIP
+		}
+	}
+		
 	serverIP := ""
 		
 	if globalDnsServer != "0.0.0.0" && globalDnsServer != "" {
@@ -621,6 +625,19 @@ func getServerIP(index int64, globalDnsServer string) string {
 				}
 				serverIP = domain // Send the raw domain to Xray/Sing-box as a last resort
 				break
+			}
+		}
+	} else {
+		serverIP = defaultConfigs[index].ServerIP
+		if serverIP == "" {
+			serverDomain := getServerDomain(index)
+			domainList := strings.Split(serverDomain, ",")
+			for _, d := range domainList {
+				domain := strings.TrimSpace(d)
+				if domain != "" {
+					serverIP = domain
+					break
+				}
 			}
 		}
 	}

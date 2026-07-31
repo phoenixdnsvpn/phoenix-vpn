@@ -23,35 +23,6 @@ type HysteriaConfig struct {
 // HYSTERIA2 SECURE INTERNAL GETTERS
 // =====================================================================
 
-func getHysteriaServerIP(index int64, globalDnsServer string) string {
-	ensureParsed()
-	if index < 0 || index >= int64(len(defaultConfigs)) {
-		return ""
-	}
-	
-	serverIP := ""
-	
-	if globalDnsServer != "0.0.0.0" && globalDnsServer != "" {
-		// 1. Get the domain name of your actual server		
-		serverDomain := getServerDomain(index)
-
-		// 2. Resolve the IP silently via DoH using the Global BootstrapDns variable
-		serverIP = resolveDomainOverDoH(serverDomain, globalDnsServer)
-
-		// 3. Fallbacks just in case the encrypted DNS lookup fails
-		if serverIP == "" {
-			serverIP = defaultConfigs[index].ServerIP
-		}
-
-		if serverIP == "" {
-			serverIP = serverDomain // Send the raw domain to Xray/Sing-box as a last resort
-		}
-
-	}
-
-	return serverIP
-}
-
 func getHysteriaNetwork(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
@@ -148,8 +119,8 @@ func getHysteriaDomain(index int64) string {
 // =====================================================================
 
 // buildHysteriaOutbound securely constructs the sing-box Hysteria2 JSON object.
-func buildHysteriaOutbound(configIndex int64, globalDnsServer string) map[string]interface{} {
-	serverIP := getServerIP(configIndex, globalDnsServer)	
+func buildHysteriaOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool) map[string]interface{} {
+	serverIP := getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
 	rawPort := getHysteriaServerPortRaw(configIndex)
 	network := getHysteriaNetwork(configIndex)
 	upMbps := getHysteriaUpMbps(configIndex)
