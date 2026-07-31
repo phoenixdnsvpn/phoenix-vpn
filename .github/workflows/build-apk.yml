@@ -1,8 +1,10 @@
 name: Build Phoenix VPN Android APK (Multi-Arch)
+
 on:
   push:
     tags:
       - 'v*'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,72 +33,82 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
           $(go env GOPATH)/bin/gomobile init
 
+      - name: Verify Native jniLibs
+        run: |
+          echo "Checking native hev-socks5-tunnel libraries..."
+          ls -la android/app/src/main/jniLibs/arm64-v8a/libhev-socks5-tunnel.so
+          ls -la android/app/src/main/jniLibs/armeabi-v7a/libhev-socks5-tunnel.so
+
       - name: Decode Keystore
         run: |
           echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > release.jks
 
+      # ==========================================
+      # 1. BUILD ARM64-V8A (64-BIT) VERSION
+      # ==========================================
       - name: Build ARM64 Version
         run: |
           cd mobile
           go mod tidy
-          # Generate hash from the raw private key secret
           HEX_HASH=$(echo -n "${{ secrets.APP_PRIVATE_KEY }}" | sha256sum | awk '{print $1}')
-         
+          
           mkdir -p ../android/app/libs
-         
-          # Inject Private Key and Scrambled Configs via LDFLAGS
+          
+          # Build 64-bit Go AAR
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm64 \
             -androidapi 24 \
             -ldflags="-s -w -X 'github.com/phoenixdnsvpn/phoenix-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/phoenixdnsvpn/phoenix-vpn.InjectedConfigs=${{ secrets.CONFIG_B64 }}' -X 'github.com/phoenixdnsvpn/phoenix-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
             -trimpath \
             -o ../android/app/libs/vaydns-arm64.aar .
-         
+          
           cd ../android
-          chmod +x gradlew
-          ./gradlew assembleRelease \
+          ./gradlew clean assembleRelease \
             -Pandroid.injected.abi=arm64-v8a \
             -PtargetAar=vaydns-arm64.aar \
             -Pandroid.injected.signing.store.file=$(pwd)/../release.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.KEY_STORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.ALIAS }} \
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
-         
+          
           mkdir -p ../release-artifacts
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/PhoenixVpn-${TAG_NAME}-arm64-v8a.apk
-          # .aar is NO longer copied
 
+      # ==========================================
+      # 2. BUILD ARMEABI-V7A (32-BIT) VERSION
+      # ==========================================
       - name: Build ARMv7 Version
         run: |
           cd mobile
           go mod tidy
           HEX_HASH=$(echo -n "${{ secrets.APP_PRIVATE_KEY }}" | sha256sum | awk '{print $1}')
-         
+          
           mkdir -p ../android/app/libs
-         
-          # Build 32-bit version
+          
+          # Build 32-bit Go AAR
           $(go env GOPATH)/bin/gomobile bind -v \
             -target=android/arm \
             -androidapi 24 \
             -ldflags="-s -w -X 'github.com/phoenixdnsvpn/phoenix-vpn.InjectedPrivateKey=$HEX_HASH' -X 'github.com/phoenixdnsvpn/phoenix-vpn.InjectedConfigs=${{ secrets.CONFIG_B64 }}' -X 'github.com/phoenixdnsvpn/phoenix-vpn/f35.InjectedPingDomain=$PING_DOMAIN'" \
             -trimpath \
             -o ../android/app/libs/vaydns-armeabi.aar .
-         
+          
           cd ../android
-          rm -rf app/build # Clean previous architecture build
-          ./gradlew assembleRelease \
+          ./gradlew clean assembleRelease \
             -Pandroid.injected.abi=armeabi-v7a \
             -PtargetAar=vaydns-armeabi.aar \
             -Pandroid.injected.signing.store.file=$(pwd)/../release.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.KEY_STORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.ALIAS }} \
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
-         
+          
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cp app/build/outputs/apk/release/app-release.apk ../release-artifacts/PhoenixVpn-${TAG_NAME}-armeabi-v7a.apk
-          # .aar is NO longer copied
 
+      # ==========================================
+      # 3. PUBLISH RELEASE TO GITHUB
+      # ==========================================
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
