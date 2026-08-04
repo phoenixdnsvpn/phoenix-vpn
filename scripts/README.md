@@ -51,7 +51,7 @@ pip install paramiko
 **2. Run the deployment script:**
 
 ```bash
-python setup_vaydns.py
+python deploy_vaydns.py
 
 ```
 
