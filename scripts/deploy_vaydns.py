@@ -168,7 +168,7 @@ def main():
     print("[*] Note: Updating system packages may take up to 10 minutes to complete depending on how updated the server is.")
     if is_ubuntu: 
         run_cmd(ssh, "export DEBIAN_FRONTEND=noninteractive && apt-get update -y", user, password)
-        run_cmd(ssh, "export DEBIAN_FRONTEND=noninteractive && apt-get install tar danted ufw curl vnstat sed tcpdump net-tools bind9-dnsutils policycoreutils -y", user, password)
+        run_cmd(ssh, "export DEBIAN_FRONTEND=noninteractive && apt-get install tar dante-server ufw curl vnstat sed tcpdump net-tools bind9-dnsutils policycoreutils -y", user, password)
     else:
         run_cmd(ssh, "dnf update -y", user, password)
         run_cmd(ssh, "dnf install epel-release -y", user, password)
