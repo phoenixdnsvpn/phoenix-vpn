@@ -142,7 +142,7 @@ def update_vaydns(ssh, user, password, is_ubuntu, dante_service, dante_config_pa
     
     # Domain
     c_domain = curr_params['domain']
-    domain_prompt = f"Tunnel domain name (e.g., t.example.com) [{c_domain}]: " if c_domain else "Tunnel domain name (e.g., t.example.com): "
+    domain_prompt = f"Tunnel domain name(s) (comma-separated) [{c_domain}]: " if c_domain else "Tunnel domain name(s) (comma-separated, e.g., t1.com,t2.com): "
     domain = input(domain_prompt).strip() or c_domain
     while not domain:
         domain = input("Domain is required: ").strip()
@@ -252,16 +252,17 @@ socks pass {{
     run_cmd(ssh, f"systemctl restart {dante_service}", user, password)
     run_cmd(ssh, "systemctl start vaydns-server", user, password)
 
-    print_step("Fetching Updated Keys and Generating Link")
+    print_step("Fetching Updated Keys and Generating Links")
     _, pubkey_raw, _ = run_cmd(ssh, "cat /etc/vaydns/server.pub", user, password, hide_output=True)
     pubkey = pubkey_raw.strip()
 
-    client_config_url = f"dnst://{domain}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive={keepalive}&idle-timeout={idle_timeout}#vaydns"
-
     print("\n✅ CONFIGURATION UPDATE SUCCESSFUL!")
-    print("\n--- YOUR NEW VAYDNS ANDROID READY STRING ---")
-    print(client_config_url)
-
+    print("\n--- YOUR NEW VAYDNS ANDROID READY STRINGS ---")
+    
+    domains_list = [d.strip() for d in domain.split(',') if d.strip()]
+    for d in domains_list:
+        client_config_url = f"dnst://{d}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive={keepalive}&idle-timeout={idle_timeout}#vaydns"
+        print(client_config_url)
 
 def main():
     print("===================================================================")
@@ -351,7 +352,7 @@ def main():
     else:
         new_ssh_port = current_ssh_port
 
-    domain = input("Tunnel domain name (e.g., t.example.com): ").strip()
+    domain = input("Tunnel domain name(s) (comma-separated for multiple, e.g., t1.example.com,t2.example.com): ").strip()
     record_type = input("Record type (caa, null, txt) [default: caa]: ").strip().lower() or "caa"
 
     print("\n--- DNS Configuration ---")
@@ -622,8 +623,6 @@ socks pass {{
         print("\n[!] Error: Could not retrieve the public key. Check the server logs.")
         sys.exit(1)
 
-    client_config_url = f"dnst://{domain}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive=2s&idle-timeout=10s#vaydns"
-
     print("\n✅ DEPLOYMENT AND CONFIGURATION LINK GENERATION SUCCESSFUL!")
     
     print("\n--- SERVER ACCESS INSTRUCTIONS ---")
@@ -635,12 +634,16 @@ socks pass {{
     if pub_key_content:
         print(f"• Since we are using SSH keys, to login to the server without a password, simply type: ssh root@{host}" + (f" -p {new_ssh_port}" if new_ssh_port != 22 else ""))
 
-    print("\n--- YOUR VAYDNS ANDROID READY STRING ---")
-    print(client_config_url)
+    print("\n--- YOUR VAYDNS ANDROID READY STRINGS ---")
+    domains_list = [d.strip() for d in domain.split(',') if d.strip()]
+    for d in domains_list:
+        client_config_url = f"dnst://{d}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive=2s&idle-timeout=10s#vaydns"
+        print(client_config_url)
+
     print("\nImport Method:")
     print("1. Launch VayDNS Android.")
     print("2. Open context operations menu (top-right dashboard).")
-    print("3. Choose 'Import' and commit this string layout onto your configuration profile engine.")
+    print("3. Choose 'Import' and commit these string layouts onto your configuration profile engine.")
 
 if __name__ == "__main__":
     main()
