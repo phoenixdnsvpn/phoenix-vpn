@@ -28,15 +28,17 @@ func PingDirectServer(isDefault bool, configIndex int64, customIP string, config
 			targetPort = getHysteriaServerPort(configIndex)
 		} else if actualProtocol == "reality-tcp" {
 			targetIP = getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
-			targetPort = getRealityServerPort(configIndex)
+			targetPort = getRealityTcpPort(configIndex)
+			if targetPort <= 0 {
+			    targetPort = 443 // Default fallback
+			}			
 		} else if actualProtocol == "reality-xhttp" {
 			targetIP = getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
-			serverPortStr := getXhttpPort(configIndex)
-			targetPort, err := strconv.Atoi(serverPortStr)
-			if err != nil || targetPort == 0 {
-				targetPort = 2053
-			}				
-		} else if actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" || actualProtocol == "vless-grpc" {
+			targetPort = getXhttpPort(configIndex)
+			if targetPort <= 0 {
+			    targetPort = 2053 // Default fallback
+			}			
+		} else if actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" || actualProtocol == "vless-grpc" || actualProtocol == "vless-xhttp" {
 			// Priority 2: Trust the global routing hierarchy
 			targetIP = GetTargetIP(configIndex, actualProtocol, globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 						
@@ -169,7 +171,6 @@ func PingAllDirectConfigs(tasksJson string, globalDnsServer string, getServerIpF
 
 			isDefault, _ := task["is_default"].(bool)
 			
-			// JSON numbers unmarshal as float64 by default in maps
 			configIndexFloat, _ := task["config_index"].(float64)
 			configIndex := int64(configIndexFloat)
 			
@@ -180,11 +181,9 @@ func PingAllDirectConfigs(tasksJson string, globalDnsServer string, getServerIpF
 			serverIP, _ := task["server_ip"].(string)
 			protocol, _ := task["protocol"].(string)
 			
-			// Extract the newly injected variables
 			vlessWsIp, _ := task["vless_ws_ip"].(string)
 			targetCDN, _ := task["target_cdn"].(string)
 
-			// Pass the dynamically extracted CDN and IP directly to the dialer
 			latency := PingDirectServer(isDefault, configIndex, serverIP, configType, protocol, globalDnsServer, getServerIpFromDomain, targetCDN, vlessWsIp)
 			
 			if latency > 0 {
@@ -202,7 +201,7 @@ func PingAllDirectConfigs(tasksJson string, globalDnsServer string, getServerIpF
 }
 
 // PingDirectServerLayer7 performs a true Layer 7 (TLS/HTTP) latency check.
-func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, configType string, protocol string, customSni string, customPath string, globalDnsServer string, getServerIpFromDomain bool, targetCDN string, runtimeVlessIP string) int64 {
+func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, configType string, protocol string, customSni string, customPath string, globalDnsServer string, getServerIpFromDomain bool, targetCDN string, runtimeVlessIP string, sniIndex int64) int64 {
 	var targetIP string
 	var targetPort int = 443
 	var sni string
@@ -217,29 +216,33 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 		if actualProtocol == "hysteria2" || actualProtocol == "vless-grpc" {		
 			log.Printf("VAY_DEBUG: [L7 Ping] Redirecting %s to Layer 4", actualProtocol)
 			return PingDirectServer(isDefault, configIndex, customIP, configType, protocol, globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
-		} else if actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" {
-			// Priority 1: Use the IP passed from Kotlin
+		} else if actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" || actualProtocol == "vless-xhttp" {
 			targetIP = GetTargetIP(configIndex, actualProtocol, globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
-							
 			targetPort = getVlessServerPort(configIndex)
 			
-			// Set the correct SNI based on CDN
+			// Set the correct SNI based on CDN/Protocol
 			if actualProtocol == "vless-httpupgrade" {
 				sni = getHttpupgradeDomain(configIndex)
+			} else if actualProtocol == "vless-xhttp" {
+				sni = getXhttpCdnDomain(configIndex)
 			} else {
 				sni = getWsDomain(configIndex)
-				if strings.ToLower(targetCDN) == "amazon" { sni = getAwsCdnDomain(configIndex) }
+				if strings.ToLower(targetCDN) == "cloudy" { sni = getCloudYCdnDomain(configIndex) }
 			}
 		} else if actualProtocol == "reality-tcp" {
 			targetIP = getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
-			targetPort = getRealityServerPort(configIndex)
-			sni = getRealityDomain(configIndex)            
+			targetPort = getRealityTcpPort(configIndex)
+			if targetPort <= 0 {
+			    targetPort = 443 // Default fallback
+			}			
+			sni = getRealityDomain(configIndex, sniIndex)            
 		} else if actualProtocol == "reality-xhttp" {
 			targetIP = getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
-			serverPortStr := getXhttpPort(configIndex)
-			targetPort, err := strconv.Atoi(serverPortStr)
-			if err != nil || targetPort == 0 { targetPort = 2053 }
-			sni = getRealityDomain(configIndex)  
+			targetPort = getXhttpPort(configIndex)
+			if targetPort <= 0 {
+			    targetPort = 2053 // Default fallback
+			}
+			sni = getRealityDomain(configIndex, sniIndex)  
 		} else {
 			return -1
 		}
@@ -262,9 +265,9 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 	}
 
 	// =================================================================
-	// 2. LAYER 7 WEBSOCKET / HTTP-UPGRADE EXECUTION
+	// 2. LAYER 7 WEBSOCKET / HTTP-UPGRADE / XHTTP EXECUTION
 	// =================================================================
-	if actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" {
+	if actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" || actualProtocol == "vless-xhttp" {
 		log.Printf("VAY_DEBUG: [L7 Ping] Executing True L7 Ping for %s", actualProtocol)
 		
 		wsPath := "/"
@@ -272,6 +275,8 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 		if isDefault {
 			if actualProtocol == "vless-httpupgrade" {
 				wsPath = getHttpupgradePath(configIndex)
+			} else if actualProtocol == "vless-xhttp" {
+				wsPath = getXhttpPath(configIndex)
 			} else {
 				wsPath = getWsPath(configIndex)
 			}
@@ -304,7 +309,7 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 
 				if readErr == nil && n > 0 {
 					resp := string(buf[:n])
-					if strings.Contains(resp, "HTTP/1.1 101") || strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 404") {
+					if strings.Contains(resp, "HTTP/1.1 101") || strings.Contains(resp, "HTTP/1.1 200") || strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 404") {
 						latency := time.Since(start).Milliseconds()
 						tlsConn.Close()
 						log.Printf("VAY_DEBUG: [L7 Ping] SUCCESS -> Latency: %dms", latency)
@@ -357,7 +362,7 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 }
 
 // PingAllDirectConfigsLayer7 securely pings all direct protocols in parallel using L7.
-func PingAllDirectConfigsLayer7(tasksJson string, globalDnsServer string, getServerIpFromDomain bool) string {
+func PingAllDirectConfigsLayer7(tasksJson string, globalDnsServer string, getServerIpFromDomain bool, sniIndex int64) string {
 	var tasks []map[string]interface{}
 	if err := json.Unmarshal([]byte(tasksJson), &tasks); err != nil {
 		return "{}"
@@ -393,7 +398,7 @@ func PingAllDirectConfigsLayer7(tasksJson string, globalDnsServer string, getSer
 			vlessWsIp, _ := task["vless_ws_ip"].(string)
 			targetCDN, _ := task["target_cdn"].(string)
 			
-			latency := PingDirectServerLayer7(isDefault, configIndex, serverIP, configType, protocol, customDomain, "/", globalDnsServer, getServerIpFromDomain, targetCDN, vlessWsIp)
+			latency := PingDirectServerLayer7(isDefault, configIndex, serverIP, configType, protocol, customDomain, "/", globalDnsServer, getServerIpFromDomain, targetCDN, vlessWsIp, sniIndex)
 			
 			if latency > 0 {
 				resultsMu.Lock()
@@ -478,8 +483,8 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 
 	if isDefault {
 		if actualProtocol == "vless-grpc" {
-			if strings.ToLower(targetCDN) == "amazon" {
-				if d := getAwsCdnDomain(configIndex); d != "" { domainToUse = d }
+			if strings.ToLower(targetCDN) == "cloudy" {
+				if d := getCloudYCdnDomain(configIndex); d != "" { domainToUse = d }
 			} else {
 				if d := getGrpcDomain(configIndex); d != "" { domainToUse = d }
 			}
@@ -496,10 +501,14 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 			if d := getHttpupgradeDomain(configIndex); d != "" { domainToUse = d }
 			if p := getHttpupgradePath(configIndex); p != "" { pathToUse = p }
 
+		} else if actualProtocol == "vless-xhttp" {
+			if d := getXhttpCdnDomain(configIndex); d != "" { domainToUse = d }
+			if p := getXhttpPath(configIndex); p != "" { pathToUse = p }
+			
 		} else {
 			// vless-ws (Default)
-			if strings.ToLower(targetCDN) == "amazon" {
-				if d := getAwsCdnDomain(configIndex); d != "" { domainToUse = d }
+			if strings.ToLower(targetCDN) == "cloudy" {
+				if d := getCloudYCdnDomain(configIndex); d != "" { domainToUse = d }
 			} else {
 				if d := getWsDomain(configIndex); d != "" { domainToUse = d }
 			}
@@ -545,7 +554,6 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 				InsecureSkipVerify: false,
 			}
 			
-			// FIX 1: gRPC requires HTTP/2 ALPN negotiation
 			if actualProtocol == "vless-grpc" {
 				tlsConfig.NextProtos = []string{"h2"}
 			}
@@ -557,7 +565,6 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 				return
 			}
 
-			// FIX 2: If gRPC, the successful TLS Handshake is our Layer 7 validation!
 			if actualProtocol == "vless-grpc" {
 				lat := time.Since(start).Milliseconds() 
 				resChan <- pingRes{targetIP, lat}
@@ -565,7 +572,6 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 				return
 			}
 
-			// For vless-ws and vless-httpupgrade, continue with the HTTP/1.1 payload
 			reqStr := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
 			_, err = tlsConn.Write([]byte(reqStr))
 
@@ -576,114 +582,7 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 
 				if readErr == nil && n > 0 {
 					resp := string(buf[:n])
-					if strings.Contains(resp, "HTTP/1.1 101") || strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 404") {
-						lat := time.Since(start).Milliseconds() 
-						resChan <- pingRes{targetIP, lat}
-					}
-				}
-			}
-			tlsConn.Close()
-		}(ip)
-	}
-
-	go func() {
-		wg.Wait()
-		close(resChan)
-	}()
-
-	var bestIP string
-	var bestLatency int64 = 999999
-
-	for r := range resChan {
-		if r.latency > 0 && r.latency < bestLatency {
-			bestLatency = r.latency
-			bestIP = r.ip
-		}
-	}
-
-	if bestIP != "" { return fmt.Sprintf("%s|%d", bestIP, bestLatency) }
-	return ""
-}
-
-// GetFastestCloudflareIP races a list of IPs using a full Layer 7 (TLS + HTTP/WS) handshake. Not used anymore
-func GetFastestCloudflareIPWs(isDefault bool, configIndex int64, ipList string, customDomain string, targetCDN string) string {
-	parts := strings.Split(ipList, ",")
-	var cleanIPs []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" { cleanIPs = append(cleanIPs, p) }
-	}
-
-	if len(cleanIPs) == 0 { return "" }
-
-	domainToUse := customDomain
-	pathToUse := "/vayws"
-
-	if isDefault {
-		if strings.ToLower(targetCDN) == "amazon" {
-			if d := getAwsCdnDomain(configIndex); d != "" { domainToUse = d }
-		} else {
-			if d := getWsDomain(configIndex); d != "" { domainToUse = d }
-		}
-		
-		if p := getWsPath(configIndex); p != "" { pathToUse = p }
-	}
-
-	if domainToUse == "" { return "" }
-	if strings.Contains(domainToUse, ":") {
-		domainToUse = strings.Split(domainToUse, ":")[0]
-	}
-
-	type pingRes struct {
-		ip      string
-		latency int64
-	}
-	resChan := make(chan pingRes, len(cleanIPs))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 20) 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	for _, ip := range cleanIPs {
-		wg.Add(1)
-		sem <- struct{}{}
-
-		go func(targetIP string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			address := net.JoinHostPort(targetIP, "443")
-			start := time.Now()
-
-			dialCtx, dialCancel := context.WithTimeout(ctx, 2000*time.Millisecond)
-			defer dialCancel()
-
-			var d net.Dialer
-			conn, err := d.DialContext(dialCtx, "tcp", address)
-			if err != nil || conn == nil { return }
-
-			tlsConfig := &tls.Config{
-				ServerName:         domainToUse,
-				InsecureSkipVerify: false,
-			}
-			tlsConn := tls.Client(conn, tlsConfig)
-			err = tlsConn.HandshakeContext(dialCtx)
-			if err != nil {
-				tlsConn.Close()
-				return
-			}
-
-			reqStr := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
-			_, err = tlsConn.Write([]byte(reqStr))
-
-			if err == nil {
-				tlsConn.SetReadDeadline(time.Now().Add(1000 * time.Millisecond))
-				buf := make([]byte, 1024)
-				n, readErr := tlsConn.Read(buf)
-
-				if readErr == nil && n > 0 {
-					resp := string(buf[:n])
-					if strings.Contains(resp, "HTTP/1.1 101") || strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 404") {
+					if strings.Contains(resp, "HTTP/1.1 101") || strings.Contains(resp, "HTTP/1.1 200") || strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 404") {
 						lat := time.Since(start).Milliseconds() 
 						resChan <- pingRes{targetIP, lat}
 					}

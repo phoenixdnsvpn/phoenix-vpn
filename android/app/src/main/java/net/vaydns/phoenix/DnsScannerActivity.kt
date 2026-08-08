@@ -532,63 +532,19 @@ class DnsScannerActivity : AppCompatActivity() {
             // "text/*" filters for .txt files.
             customResolverPickerLauncher.launch("text/*")
         } catch (e: Exception) {
-            Toast.makeText(this, "No file manager found to pick files.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "No file manager found to pick files.", Toast.LENGTH_LONG).show()
         }
     }
+
     private fun loadCustomResolversFromUri(uri: Uri) {
         try {
             val inputStream = contentResolver.openInputStream(uri)
             if (inputStream != null) {
                 val content = inputStream.bufferedReader().use { it.readText() }
 
-                // Extract and remove duplicates
                 val parsedLines = content.split(Regex("[\\s,;]+"))
                     .map { it.replace("\"", "").trim() }
                     .filter { it.isNotEmpty() }
-                    .distinct()
-
-                if (parsedLines.isNotEmpty()) {
-                    if (switchCidrMode.isChecked) {
-                        // FIX: Filter out IPv6 and invalid data upfront for CIDRs!
-                        loadedCidrs = parsedLines.filter { isValidCidr(it) }
-                        tvResolversCount.text = "Loaded custom CIDR blocks: ${loadedCidrs.size}"
-
-                        selectedCidrs.clear()
-                        tvSelectedCidr.text = "Tap right icon to select CIDR ->"
-
-                        Toast.makeText(this, "Loaded ${loadedCidrs.size} valid CIDR blocks", Toast.LENGTH_SHORT).show()
-                    } else {
-                        // FIX: Filter out IPv6 and invalid data upfront for Static IPs!
-                        resolversList = validateAndFilterResolvers(parsedLines, selectedMode)
-                        tvResolversCount.text = "Loaded custom resolvers: ${resolversList.size}"
-
-                        etNumResolvers.setText(resolversList.size.toString())
-                        Toast.makeText(this, "Loaded ${resolversList.size} valid resolvers", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    Toast.makeText(this, "File is empty or invalid format.", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(this, "Could not open file.", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            Toast.makeText(this, "Error reading file: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun loadCustomResolversFromUri2(uri: Uri) {
-        try {
-            val inputStream = contentResolver.openInputStream(uri)
-            if (inputStream != null) {
-                val content = inputStream.bufferedReader().use { it.readText() }
-                //android.util.Log.d("VAY_SCANNER", "RAW CONTENT READ:\n$content")
-                //val parsedLines = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
-                val parsedLines = content.split(Regex("[\\s,;]+"))
-                    .map { it.replace("\"", "").trim() }
-                    .filter { it.isNotEmpty() }
-
-                //android.util.Log.d("VAY_SCANNER", "PARSED LINES FOUND: ${parsedLines.size}")
-                //android.util.Log.d("VAY_SCANNER", "PARSED DATA: $parsedLines")
 
                 if (parsedLines.isNotEmpty()) {
                     if (switchCidrMode.isChecked) {
@@ -605,10 +561,6 @@ class DnsScannerActivity : AppCompatActivity() {
                         tvResolversCount.text = "Loaded custom resolvers: ${resolversList.size}"
                         etNumResolvers.setText(parsedLines.size.toString())
 
-                        //val currentThreshold = etNumResolvers.text.toString().toIntOrNull() ?: 5000
-                        //if (parsedLines.size < currentThreshold) {
-                        //    etNumResolvers.setText(parsedLines.size.toString())
-                        //}
                         Toast.makeText(this, "Loaded ${resolversList.size} custom resolvers", Toast.LENGTH_SHORT).show()
                     }
                 } else {

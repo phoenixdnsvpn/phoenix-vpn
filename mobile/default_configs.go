@@ -1,11 +1,15 @@
 package mobile
 
 import (
+    "io"
+    "net"
+    "crypto/rand"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
@@ -71,8 +75,8 @@ type ConfigWrapper struct {
 	Release      string          `json:"release"`
 	ServerURLs   []string        `json:"serverURLs"`
 	AppSecretKey string          `json:"appSecretKey"`
-//	VlessWsIP    string          `json:"vless_ws_ip"`
 	CDN          map[string]CDNSettings `json:"cdn"`
+	SniPool      []string               `json:"sni_pool"`
 	Configs      []DefaultConfig `json:"configs"`
 }
 
@@ -84,6 +88,7 @@ var (
 	currentSecretKey  string
 	currentCDN        map[string]CDNSettings
 	cdnNames          []string
+	sniPool           []string 
 	configMu          sync.Mutex
 
 	defaultDisplayResolvers map[string]string
@@ -188,6 +193,7 @@ func parseConfigData(data []byte) {
 		currentServerURLs = wrapper.ServerURLs
 		currentSecretKey = wrapper.AppSecretKey
 		currentCDN = wrapper.CDN // Directly assign the map
+		sniPool = wrapper.SniPool
 
 		// Extract and sort CDN names so Android UI indexing remains consistent (Amazon, Cloudflare, etc.)
 		cdnNames = make([]string, 0, len(currentCDN))
@@ -271,6 +277,7 @@ func ensureResolversParsed() {
 func ClearCaches() {
 	configMu.Lock()
 	defaultConfigs = nil
+	sniPool = nil
 	configMu.Unlock()
 
 	resolverMu.Lock()
@@ -737,4 +744,187 @@ func CdnSupportsProtocol(cdnName string, protocol string) bool {
 		}
 	}
 	return false
+}
+
+// GetSniPoolCount returns the number of SNIs in the pool to Android JNI
+func GetSniPoolCount() int64 {
+	ensureParsed()
+	configMu.Lock()
+	defer configMu.Unlock()
+	return int64(len(sniPool))
+}
+
+// getSniFromPool fetches the actual SNI string by index (internal to Go)
+func getSniFromPool(index int64) string {
+	ensureParsed()
+	configMu.Lock()
+	defer configMu.Unlock()
+	if index < 0 || index >= int64(len(sniPool)) {
+		return ""
+	}
+	return sniPool[index]
+}
+
+// --- NEW: AES-GCM Encryption Helper ---
+func encryptAESGCM(data []byte, hexKey string) ([]byte, error) {
+	key, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, err
+	}
+	if len(key) != 32 {
+		return nil, errors.New("AES-256 requires a 32-byte key")
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	// Seal appends the ciphertext and prepends/handles the nonce structure
+	ciphertext := gcm.Seal(nonce, nonce, data, nil)
+	return ciphertext, nil
+}
+
+// --- EXPORTED JNI WRAPPERS FOR KOTLIN ---
+
+// EncryptText encrypts sensitive data using the native InjectedPrivateKey
+func EncryptText(plaintext string) string {
+	configMu.Lock()
+	key := InjectedPrivateKey
+	configMu.Unlock()
+
+	// Fallback if no private key exists (Community build mode)
+	if key == "" || plaintext == "" {
+		return plaintext
+	}
+
+	encrypted, err := encryptAESGCM([]byte(plaintext), key)
+	if err != nil {
+		return plaintext
+	}
+	return base64.StdEncoding.EncodeToString(encrypted)
+}
+
+// DecryptText decrypts sensitive data using the native InjectedPrivateKey
+func DecryptText(ciphertext string) string {
+	configMu.Lock()
+	key := InjectedPrivateKey
+	configMu.Unlock()
+
+	// Fallback if no private key exists or text is raw/empty
+	if key == "" || ciphertext == "" {
+		return ciphertext
+	}
+
+	data, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return ciphertext // Might be plaintext already (migration/fallback)
+	}
+
+	decrypted, err := decryptAESGCM(data, key)
+	if err != nil {
+		return ciphertext
+	}
+	return string(decrypted)
+}
+
+// --- NATIVE AES-256 FORMAT-PRESERVING ENCRYPTION (FPE) FOR IPs ---
+
+// fpeRoundFunction acts as the pseudo-random function for the Feistel network
+func fpeRoundFunction(block cipher.Block, right16 uint16, roundIndex uint8) uint16 {
+	src := make([]byte, 16)
+	binary.BigEndian.PutUint16(src[0:2], right16)
+	src[2] = roundIndex
+
+	dst := make([]byte, 16)
+	block.Encrypt(dst, src)
+
+	return binary.BigEndian.Uint16(dst[0:2])
+}
+
+// EncryptIP scrambles a real IPv4 address into a fake, mapped IPv4 address
+func EncryptIP(ipStr string) string {
+	configMu.Lock()
+	hexKey := InjectedPrivateKey
+	configMu.Unlock()
+
+	ip := net.ParseIP(strings.TrimSpace(ipStr))
+	// Fallback to raw string if it is not an IPv4 address, or if it is a community build
+	if ip == nil || ip.To4() == nil || hexKey == "" {
+		return ipStr 
+	}
+
+	key, err := hex.DecodeString(hexKey)
+	if err != nil || len(key) != 32 {
+		return ipStr
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return ipStr
+	}
+
+	ip32 := binary.BigEndian.Uint32(ip.To4())
+	left := uint16(ip32 >> 16)
+	right := uint16(ip32 & 0xFFFF)
+
+	// Forward Feistel Network Execution (6 Rounds)
+	for i := uint8(0); i < 6; i++ {
+		nextLeft := right
+		nextRight := left ^ fpeRoundFunction(block, right, i)
+		left = nextLeft
+		right = nextRight
+	}
+
+	encryptedIP := make(net.IP, 4)
+	binary.BigEndian.PutUint32(encryptedIP, (uint32(left)<<16)|uint32(right))
+	return encryptedIP.String()
+}
+
+// DecryptIP perfectly restores a fake IPv4 address back to the real IPv4 address
+func DecryptIP(ipStr string) string {
+	configMu.Lock()
+	hexKey := InjectedPrivateKey
+	configMu.Unlock()
+
+	ip := net.ParseIP(strings.TrimSpace(ipStr))
+	if ip == nil || ip.To4() == nil || hexKey == "" {
+		return ipStr 
+	}
+
+	key, err := hex.DecodeString(hexKey)
+	if err != nil || len(key) != 32 {
+		return ipStr
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return ipStr
+	}
+
+	ip32 := binary.BigEndian.Uint32(ip.To4())
+	left := uint16(ip32 >> 16)
+	right := uint16(ip32 & 0xFFFF)
+
+	// Reverse Feistel Network Execution (6 Rounds backwards)
+	for i := int8(5); i >= 0; i-- {
+		prevRight := left
+		prevLeft := right ^ fpeRoundFunction(block, left, uint8(i))
+		left = prevLeft
+		right = prevRight
+	}
+
+	decryptedIP := make(net.IP, 4)
+	binary.BigEndian.PutUint32(decryptedIP, (uint32(left)<<16)|uint32(right))
+	return decryptedIP.String()
 }

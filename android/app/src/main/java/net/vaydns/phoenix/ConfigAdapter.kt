@@ -102,7 +102,9 @@ class ConfigAdapter(
             "vless-ws"              -> android.graphics.Color.parseColor("#7B1FA2") // Strong Blue
             "vless-httpupgrade"     -> android.graphics.Color.parseColor("#00B7EB") // Deep Purple 5E35B1
             "reality-xhttp"         -> android.graphics.Color.parseColor("#F9A825") // Golden
-            "vless-grpc"            -> android.graphics.Color.parseColor("#BCA38A") // Green
+            "vless-grpc"            -> android.graphics.Color.parseColor("#D98C8C") // Sausage
+            //"vless-xhttp"           -> android.graphics.Color.parseColor("#D98C8C") // Sausage
+            "vless-xhttp"           -> android.graphics.Color.parseColor("#BCA38A") // Creame
             else                    -> defaultTextColor // Phoenix (Native Black/White)
         }
 

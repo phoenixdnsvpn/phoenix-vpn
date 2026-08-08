@@ -40,11 +40,15 @@ class VayPingService : Service() {
             var globalDnsServer = tunnelPrefs.getString("global_dns_server", "")?.trim() ?: ""
             if (globalDnsServer.isEmpty()) globalDnsServer = "1.1.1.1"
 
-            // val targetCdn = tunnelPrefs.getString("target_cdn", "Cloudflare") ?: "Cloudflare"
+            // val targetCdn = tunnelPrefs.getString("target_cdn", "CloudX") ?: "CloudX"
             val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
 
+            val useSniPool = tunnelPrefs.getBoolean("use_sni_pool", false)
+            val selectedSniIndex = tunnelPrefs.getInt("selected_sni_index", -1)
+            val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
+
             val directResultsStr = if (useLayer7) {
-                Mobile.pingAllDirectConfigsLayer7(tasksJson, globalDnsServer, getServerIpFromDomain)
+                Mobile.pingAllDirectConfigsLayer7(tasksJson, globalDnsServer, getServerIpFromDomain, sniIndex)
             } else {
                 Mobile.pingAllDirectConfigs(tasksJson, globalDnsServer, getServerIpFromDomain)
             }

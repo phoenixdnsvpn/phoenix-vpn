@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -128,16 +129,16 @@
         </service>
 
         <service
-            android:name="net.vaydns.phoenix.CFScannerService"
+            android:name="net.vaydns.phoenix.CdnScannerService"
             android:exported="false" />
 
         <activity
-            android:name="net.vaydns.phoenix.CloudflareScannerActivity"
+            android:name="net.vaydns.phoenix.CdnScannerActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
 
         <activity
-            android:name="net.vaydns.phoenix.CfIpManagerActivity"
+            android:name="net.vaydns.phoenix.CdnIpManagerActivity"
             android:windowSoftInputMode="adjustResize"
             android:exported="false" />
 
@@ -157,6 +158,11 @@
         </provider>
 
         <activity android:name=".RestoreBackupActivity" android:exported="false"/>
+
+        <activity
+            android:name=".SniScannerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
 
     </application>
 

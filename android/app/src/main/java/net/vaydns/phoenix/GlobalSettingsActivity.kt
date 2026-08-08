@@ -37,7 +37,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var layoutCdn: View
     private lateinit var spinnerCdn: android.widget.Spinner
     private lateinit var cbDebugLogs: SwitchCompat
-    private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc")
+    //private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp")
+    private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-xhttp")
     // Notification Management
     private lateinit var etUnlockedDelay: EditText
     private lateinit var etLockedDelay: EditText
@@ -58,6 +59,9 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var cbExportApps: SwitchCompat
     private lateinit var cbShowBackupRestore: SwitchCompat
     private lateinit var cbGetServerIpFromDomain: SwitchCompat
+
+    private lateinit var cbUseSniPool: SwitchCompat
+    private lateinit var spinnerSniPool: android.widget.Spinner
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,14 +109,14 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbGlobalProtocolOverride = findViewById(R.id.cb_global_protocol_override)
         btnCfHistory.setOnClickListener {
             // 1. Grab the currently selected CDN on the screen
-            val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
+            val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
 
             // 2. Save it immediately so it doesn't get lost if the system kills the activity
             getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
                 .edit().putString("selected_cdn", selectedCdn).apply()
 
             // 3. Launch the Manager and tell it which CDN to display
-            val intent = Intent(this, CfIpManagerActivity::class.java).apply {
+            val intent = Intent(this, CdnIpManagerActivity::class.java).apply {
                 putExtra("TARGET_CDN", selectedCdn)
             }
             startActivity(intent)
@@ -128,6 +132,13 @@ class GlobalSettingsActivity : AppCompatActivity() {
             } else {
                 tvAllAppsWarning.visibility = View.GONE
             }
+        }
+
+        cbUseSniPool = findViewById(R.id.cb_use_sni_pool)
+        spinnerSniPool = findViewById(R.id.spinner_sni_pool)
+
+        cbUseSniPool.setOnCheckedChangeListener { _, isChecked ->
+            spinnerSniPool.visibility = if (isChecked) View.VISIBLE else View.GONE
         }
 
         spinnerGlobalProtocol = findViewById(R.id.spinner_global_protocol)
@@ -190,6 +201,15 @@ class GlobalSettingsActivity : AppCompatActivity() {
             sharedPrefs.edit().putBoolean("debug_logs_enabled", isChecked).apply()
         }
 
+        val sniCount = Mobile.getSniPoolCount()
+        val sniList = mutableListOf<String>()
+        for (i in 1..sniCount) {
+            sniList.add("SNI-$i")
+        }
+        val sniAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, sniList)
+        sniAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerSniPool.adapter = sniAdapter
+
         // Populate CDN Spinner dynamically from Go Native Vault
         val cdnList = mutableListOf<String>()
         val cdnCount = Mobile.getCdnCount()
@@ -201,8 +221,9 @@ class GlobalSettingsActivity : AppCompatActivity() {
         }
         // Fallback options if JSON hasn't loaded yet
         if (cdnList.isEmpty()) {
-            cdnList.add("Cloudflare")
-            cdnList.add("Amazon")
+            cdnList.add("CloudX")
+            cdnList.add("CloudY")
+            cdnList.add("CloudZ")
         }
 
         val cdnAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
@@ -216,6 +237,9 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+
+        val useSniPool = tunnelPrefs.getBoolean("use_sni_pool", false)
+        val sniIndex = tunnelPrefs.getInt("selected_sni_index", 0)
 
         cbImportApps.isChecked = menuPrefs.getBoolean("show_import_apps", false)
         cbExportApps.isChecked = menuPrefs.getBoolean("show_export_apps", false)
@@ -279,7 +303,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         if (pIndex >= 0) spinnerGlobalProtocol.setSelection(pIndex)
 
         // Load saved CDN Selection
-        val savedCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+        val savedCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
         for (i in 0 until spinnerCdn.adapter.count) {
             if (spinnerCdn.adapter.getItem(i).toString() == savedCdn) {
                 spinnerCdn.setSelection(i)
@@ -287,21 +311,24 @@ class GlobalSettingsActivity : AppCompatActivity() {
             }
         }
 
+        cbUseSniPool.isChecked = useSniPool
+        spinnerSniPool.visibility = if (useSniPool) View.VISIBLE else View.GONE
+        if (sniIndex >= 0 && sniIndex < (spinnerSniPool.adapter?.count ?: 0)) {
+            spinnerSniPool.setSelection(sniIndex)
+        }
+
         // --- DYNAMIC UI VISIBILITY (Community vs Official Builds) ---
-        val isOfficialBuild = Mobile.isOfficialBuild()
+        // val isOfficialBuild = Mobile.isOfficialBuild()
+        // val configCount = Mobile.getDefaultConfigCount()
+
+        val releaseType = try { Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
         val configCount = Mobile.getDefaultConfigCount()
 
-        if (!isOfficialBuild) {
-            // 1. Completely remove the Startup Behavior Section
-            tvStartupBehaviorHeader.visibility = View.GONE
-            divStartupModeDivider.visibility = View.GONE
-            cbDefaultAtStart.visibility = View.GONE
+        if (releaseType == "community") {
 
-            // 2. Completely remove the Global Protocol Override Section
-            tvGlobalProtocolHeader.visibility = View.GONE
-            divProtocolModeDivider.visibility = View.GONE
-            cbGlobalProtocolOverride.visibility = View.GONE
-            spinnerGlobalProtocol.visibility = View.GONE
+            // 2. Hide the wrapped sections for Community Builds (Engine, Reality, Layer 7, Override, CDN, DNS)
+            findViewById<View>(R.id.section_engine_mode)?.visibility = View.GONE
+            findViewById<View>(R.id.section_advanced_protocols)?.visibility = View.GONE
 
             // 3. Remove Update & Upload options from the Menu Visibility Section
             cbUpdateConfigs.visibility = View.GONE
@@ -309,24 +336,26 @@ class GlobalSettingsActivity : AppCompatActivity() {
             cbUploadConfigs.visibility = View.GONE
             cbUploadResolvers.visibility = View.GONE
 
-            layoutCdn.visibility = View.GONE
-            // 4. Remove Cloudflare IP Address Section
-            // tvProtocolModeLabel.visibility = View.GONE
-            // etVlessWsIp.visibility = View.GONE
+            // Note: SNI Pool and CloudX IP fields are automatically hidden
+            // because they are now safely inside the section_advanced_protocols wrapper!
 
         } else if (configCount == 0L) {
-            // Fallback for Official Builds that haven't downloaded configs yet
+            // Fallback for Private Builds that haven't downloaded configs yet
             cbDefaultAtStart.visibility = View.GONE
             cbUpdateConfigs.visibility = View.GONE
             cbUpdateResolvers.visibility = View.GONE
         }
+
     }
 
     private fun checkIpAndExit() {
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
-        val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
+        val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
+
+        val useSniPool = cbUseSniPool.isChecked
+        val selectedSniIndex = if (useSniPool) spinnerSniPool.selectedItemPosition else -1
 
         val selectedEngine = if (rgEngineMode.checkedRadioButtonId == R.id.rb_engine_xray) {
             "xray"
@@ -339,6 +368,18 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val selectedGlobalProto = spinnerGlobalProtocol.selectedItem?.toString() ?: "vaydns"
         val globalDns = etGlobalDnsServer.text.toString().trim()
 
+        if (overrideChecked && selectedGlobalProto.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
+            val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedGlobalProto)
+            if (!supported) {
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("Protocol Conflict / تداخل پروتکل")
+                    .setMessage("Cannot save settings: The selected CDN '$selectedCdn' does not support the '$selectedGlobalProto' protocol.\n\nPlease select a different CDN or Protocol.\n\nامکان ذخیره وجود ندارد: شبکه '$selectedCdn' از پروتکل '$selectedGlobalProto' پشتیبانی نمی‌کند. لطفاً CDN یا پروتکل خود را تغییر دهید.")
+                    .setPositiveButton("OK", null)
+                    .show()
+                return // Instantly abort saving and prevent exiting the window
+            }
+        }
+
         tunnelPrefs.edit().apply {
             // putString("vless_ws_ip", ip)
             putString("tun_engine", selectedEngine)
@@ -350,6 +391,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
             putBoolean("get_server_ip_from_domain", cbGetServerIpFromDomain.isChecked)
             putString("global_dns_server", globalDns)
             putString("selected_cdn", selectedCdn)
+            putBoolean("use_sni_pool", useSniPool)
+            putInt("selected_sni_index", selectedSniIndex)
         }.apply()
 
         var unlockedDelay = etUnlockedDelay.text.toString().toLongOrNull() ?: 2000L

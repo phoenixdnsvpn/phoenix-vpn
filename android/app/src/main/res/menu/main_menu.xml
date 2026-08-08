@@ -77,12 +77,17 @@
 
     <item
         android:id="@+id/action_cf_scanner"
-        android:title="CDN IP Scanner"
+        android:title="Cloud IP Scanner"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_global_dns_scanner"
         android:title="Global DNS Scanner"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_check_sni"
+        android:title="SNI Health Scanner"
         app:showAsAction="never" />
 
     <item

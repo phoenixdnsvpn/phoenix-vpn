@@ -5,14 +5,6 @@ import (
 //	"log"
 )
 
-// Global memory state storage for custom user inputs and remote server files
-/*var globalVlessWsIP string
-
-func SetGlobalVlessWsIP(ip string) {
-	globalVlessWsIP = strings.TrimSpace(ip)
-	log.Printf("VAY_DEBUG: globalVlessWsIP is set with IP: %v",globalVlessWsIP)
-}*/
-
 type VlessWsConfig struct {
 	WsDomain string `json:"ws_domain"` 
 	WsPath   string `json:"ws_path"`
@@ -35,7 +27,7 @@ type VlessWsConfig struct {
 func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer string, getServerIpFromDomain bool, targetCdn string, runtimeVlessIP string) string {
 	
 
-	if activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade" || activeProtocol == "vless-grpc" {
+	if activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade" || activeProtocol == "vless-grpc" || activeProtocol == "vless-xhttp"{
 		
 		// Priority 1: User explicitly checked an IP in the Android Scanner Vault
 		if runtimeVlessIP != "" && runtimeVlessIP != "0.0.0.0" {
@@ -46,18 +38,19 @@ func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer strin
 		var domainToResolve string
 		if activeProtocol == "vless-ws" {
 			domainToResolve = getWsDomain(configIndex)
-			if strings.ToLower(targetCdn) == "amazon" {
-				domainToResolve = getAwsCdnDomain(configIndex)
+			if strings.ToLower(targetCdn) == "cloudy" {
+				domainToResolve = getCloudYCdnDomain(configIndex)
 			}
 		} else if activeProtocol == "vless-grpc" {
 			domainToResolve = getGrpcDomain(configIndex)
-			if strings.ToLower(targetCdn) == "amazon" {
-				domainToResolve = getAwsCdnDomain(configIndex)
+			if strings.ToLower(targetCdn) == "cloudy" {
+				domainToResolve = getCloudYCdnDomain(configIndex)
 			}
 		} else if activeProtocol == "vless-httpupgrade" {
 			domainToResolve = getHttpupgradeDomain(configIndex)
-		}
-		
+		}else if activeProtocol == "vless-xhttp" {
+			domainToResolve = getVlessXhttpDomain(configIndex)
+		}		
 		// Priority 2: DoH Resolution (The primary, dynamic mechanism!)
 		resolvedIP := resolveDomainOverDoH(domainToResolve, globalDnsServer)
 		if resolvedIP != "" {
@@ -125,7 +118,7 @@ func getAwsDomain(index int64) string {
 	return defaultConfigs[index].Domain
 }
 
-func getAwsCdnDomain(index int64) string {
+func getCloudYCdnDomain(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
@@ -173,12 +166,12 @@ func getGrpcDomain(index int64) string {
 func getXhttpPath(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
-		return "/vayxhttp"
+		return "/xhttp"
 	}
 	if defaultConfigs[index].XhttpPath != "" {
 		return defaultConfigs[index].XhttpPath
 	}
-	return "/vayxhttp"
+	return "/xhttp"
 }
 
 func getHttpupgradePath(index int64) string {
@@ -208,23 +201,23 @@ func getGrpcServiceName(index int64) string {
 // =====================================================================
 
 func buildVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
-	CloudflareIP := runtimeVlessIP
-	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
-		CloudflareIP = GetTargetIP(configIndex, "vless-ws", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
+	CdnIP := runtimeVlessIP
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
+		CdnIP = GetTargetIP(configIndex, "vless-ws", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 	}
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
 	WsDomainName := getWsDomain(configIndex)
 	
-	if strings.ToLower(targetCDN) == "amazon" {
-		WsDomainName = getAwsCdnDomain(configIndex)
+	if strings.ToLower(targetCDN) == "cloudy" {
+		WsDomainName = getCloudYCdnDomain(configIndex)
 	}
 	wsPath := getWsPath(configIndex)
 
 	// Strict Matched-Domain Fallback Logic
-	if CloudflareIP == "" || CloudflareIP == "0.0.0.0"{
-		CloudflareIP = WsDomainName	
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = WsDomainName	
 	}
 	
 	tlsObj := map[string]interface{}{
@@ -252,7 +245,7 @@ func buildVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIp
 	outbound := map[string]interface{}{
 		"type":            "vless",
 		"tag":             "proxy-out",
-		"server":          CloudflareIP,
+		"server":          CdnIP,
 		"server_port":     serverPort,
 		"uuid":            uuid,
 		
@@ -274,22 +267,22 @@ func buildVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIp
 // =====================================================================
 
 func buildVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
-	CloudflareIP := runtimeVlessIP
-	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
-		CloudflareIP = GetTargetIP(configIndex, "vless-grpc", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
+	CdnIP := runtimeVlessIP
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
+		CdnIP = GetTargetIP(configIndex, "vless-grpc", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 	}
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
 	GrpcDomain := getGrpcDomain(configIndex)
 
-	if strings.ToLower(targetCDN) == "amazon" {
-		GrpcDomain = getAwsCdnDomain(configIndex)
+	if strings.ToLower(targetCDN) == "cloudy" {
+		GrpcDomain = getCloudYCdnDomain(configIndex)
 	}
 	
 	// Strict Matched-Domain Fallback Logic
-	if CloudflareIP == "" || CloudflareIP == "0.0.0.0"{
-		CloudflareIP = GrpcDomain
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = GrpcDomain
 	}
 		
 	// We use the path variable to store the gRPC Service Name (e.g., "vaygrpc")
@@ -319,7 +312,7 @@ func buildVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServer
 	outbound := map[string]interface{}{
 		"type":            "vless",
 		"tag":             "proxy-out",
-		"server":          CloudflareIP,
+		"server":          CdnIP,
 		"server_port":     serverPort,
 		"uuid":            uuid,
 		
@@ -338,10 +331,10 @@ func buildVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServer
 // =====================================================================
 
 func buildVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
-	CloudflareIP := runtimeVlessIP
-	if CloudflareIP == "" || CloudflareIP == "0.0.0.0" {
-		// CloudflareIP = getCdnFallbackIP(configIndex, targetCDN)
-		CloudflareIP = GetTargetIP(configIndex, "vless-httpupgrade", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
+	CdnIP := runtimeVlessIP
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
+		CdnIP = GetTargetIP(configIndex, "vless-httpupgrade", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 	}
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
@@ -351,8 +344,8 @@ func buildVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, ge
 	// vlessPath	:= "/vayupgrade"
 	
 	// Strict Matched-Domain Fallback Logic
-	if CloudflareIP == "" || CloudflareIP == "0.0.0.0"{
-		CloudflareIP = HttpupgradeDomain
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = HttpupgradeDomain
 	}
 		
 	tlsObj := map[string]interface{}{
@@ -378,7 +371,7 @@ func buildVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, ge
 	outbound := map[string]interface{}{
 		"type":            "vless",
 		"tag":             "proxy-out",
-		"server":          CloudflareIP,
+		"server":          CdnIP,
 		"server_port":     serverPort,
 		"uuid":            uuid,
 		

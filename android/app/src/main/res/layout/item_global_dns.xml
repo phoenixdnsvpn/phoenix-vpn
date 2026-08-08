@@ -31,7 +31,7 @@
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/tv_latency"
-            android:text="Cloudflare" />
+            android:text="CloudX" />
 
         <TextView
             android:id="@+id/tv_ip_address"

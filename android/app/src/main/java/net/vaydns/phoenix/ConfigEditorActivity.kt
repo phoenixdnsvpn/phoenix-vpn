@@ -35,6 +35,17 @@ class ConfigEditorActivity : AppCompatActivity() {
     private var multipathDialog: androidx.appcompat.app.AlertDialog? = null
     private lateinit var switchMultiDomain: SwitchCompat
 
+    private var realVlessIp = ""
+
+    /*private fun getMaskedIp(ip: String): String {
+        val parts = ip.split(".")
+        return if (parts.size == 4 && !ip.contains("***")) {
+            "***.***.${parts[2]}.${parts[3]}"
+        } else {
+            ip
+        }
+    }*/
+
     data class ResolverEntry(
         var address: String,
         var isChecked: Boolean = false,
@@ -159,12 +170,12 @@ class ConfigEditorActivity : AppCompatActivity() {
         cbBestCfIp.setOnCheckedChangeListener { buttonView, isChecked ->
             if (isChecked) {
                 // Grab the currently selected CDN and Tunnel Protocol from the Editor
-                val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "Cloudflare"
+                val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "CloudX"
                 val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
                 val selectedTunnelProtocol = spinnerTunnelProtocol?.selectedItem?.toString() ?: "vaydns"
 
                 // GUARDRAIL 1: Check if CDN supports the selected VLESS protocol
-                if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade")) {
+                if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
                     val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
                     if (!supported) {
                         Toast.makeText(this, "CDN '$selectedCdn' does not support protocol '$selectedTunnelProtocol'!", Toast.LENGTH_LONG).show()
@@ -182,11 +193,15 @@ class ConfigEditorActivity : AppCompatActivity() {
                     val jsonArray = org.json.JSONArray(jsonString)
                     for (i in 0 until jsonArray.length()) {
                         val obj = jsonArray.getJSONObject(i)
-                        val ipCdn = obj.optString("cdn", "Cloudflare")
+                        val ipCdn = obj.optString("cdn", "CloudX")
 
                         // FILTER: Only race IPs that belong to the Target CDN
                         if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
-                            allIpsList.add(obj.getString("ip"))
+                            val rawIp = obj.getString("ip")
+                            val decryptedIp = CryptoHelper.decrypt(rawIp)
+                            if (decryptedIp.isNotBlank()) {
+                                allIpsList.add(decryptedIp)
+                            }
                         }
                     }
                 } catch (e: Exception) { e.printStackTrace() }
@@ -223,8 +238,11 @@ class ConfigEditorActivity : AppCompatActivity() {
                             val latency = parts[1]
 
                             val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
-                            etVlessIp.setText(bestIp)
-                            Toast.makeText(this@ConfigEditorActivity, "Winner: $bestIp (${latency}ms)", Toast.LENGTH_LONG).show()
+                            realVlessIp = bestIp
+                            // val maskedWinner = getMaskedIp(bestIp)
+                            val mappedWinner = mobile.Mobile.encryptIP(bestIp)
+                            etVlessIp.setText(mappedWinner)
+                            Toast.makeText(this@ConfigEditorActivity, "Winner: $mappedWinner (${latency}ms)", Toast.LENGTH_LONG).show()
                         } else {
                             Toast.makeText(this@ConfigEditorActivity, "All IPs failed the Layer 7 Handshake.", Toast.LENGTH_LONG).show()
                         }
@@ -710,6 +728,19 @@ class ConfigEditorActivity : AppCompatActivity() {
         val tvVlessIpLabel = findViewById<TextView>(R.id.tv_vless_ip_label)
         val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
 
+        etVlessIp.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val input = s.toString().trim()
+                if (input.isNotEmpty()) {
+                    realVlessIp = mobile.Mobile.decryptIP(input)
+                } else {
+                    realVlessIp = ""
+                }
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
         // Setup Target CDN Spinner ---
         val spinnerEditorCdn = findViewById<Spinner>(R.id.spinner_editor_cdn)
         val layoutEditorCdn = findViewById<LinearLayout>(R.id.layout_editor_cdn)
@@ -721,8 +752,9 @@ class ConfigEditorActivity : AppCompatActivity() {
             if (name.isNotEmpty()) cdnList.add(name)
         }
         if (cdnList.isEmpty()) {
-            cdnList.add("Cloudflare")
-            cdnList.add("Amazon")
+            cdnList.add("CloudX")
+            cdnList.add("CloudY")
+            cdnList.add("CloudZ")
         }
         val cdnAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
         cdnAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -731,15 +763,15 @@ class ConfigEditorActivity : AppCompatActivity() {
         // Load Global Override settings
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
-        val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+        val globalCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
 
         // Load this config's saved CDN (bypass the Config data class to prevent data loss)
         val currentConfigCdn = if (isDefault) {
             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                .getString("${editingConfigId}_cdn", "Cloudflare") ?: "Cloudflare"
+                .getString("${editingConfigId}_cdn", "CloudX") ?: "CloudX"
         } else {
             getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
-                .getString("${editingConfigId}_cdn", "Cloudflare") ?: "Cloudflare"
+                .getString("${editingConfigId}_cdn", "CloudX") ?: "CloudX"
         }
 
         // Apply Logic: If Global Override is ON, force it to the Global setting initially
@@ -759,6 +791,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 }
 
                 // 1. Instantly clear the existing IP to prevent a CDN/IP mismatch
+                realVlessIp = ""
                 etVlessIp.setText("")
 
                 val selectedCdn = parent.getItemAtPosition(position).toString()
@@ -770,10 +803,11 @@ class ConfigEditorActivity : AppCompatActivity() {
                     val jsonArray = org.json.JSONArray(jsonString)
                     for (i in 0 until jsonArray.length()) {
                         val obj = jsonArray.getJSONObject(i)
-                        val ipCdn = obj.optString("cdn", "Cloudflare")
+                        val ipCdn = obj.optString("cdn", "CloudX")
 
                         if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
-                            firstIp = obj.getString("ip")
+                            val rawIp = obj.getString("ip")
+                            firstIp = CryptoHelper.decrypt(rawIp)
                             break // Stop at the very first match
                         }
                     }
@@ -783,7 +817,8 @@ class ConfigEditorActivity : AppCompatActivity() {
 
                 // 2. Replace with the retrieved IP (if one was found)
                 if (firstIp.isNotEmpty()) {
-                    etVlessIp.setText(firstIp)
+                    realVlessIp = firstIp
+                    etVlessIp.setText(mobile.Mobile.encryptIP(firstIp))
                 }
 
                 // Uncheck the scanner toggle so it's ready if they decide to scan later
@@ -794,14 +829,22 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         // 1. Load the currently saved value
         val currentVlessIp = if (isDefault) {
-            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+            val encrypted = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 .getString("${editingConfigId}_vlessIp", "") ?: ""
+            CryptoHelper.decrypt(encrypted)
         } else {
             val configs = loadAllConfigs(this)
             val config = configs.find { it.id == editingConfigId }
             config?.vlessIp ?: ""
         }
-        etVlessIp.setText(currentVlessIp)
+
+        realVlessIp = currentVlessIp
+        if (currentVlessIp.isNotEmpty()) {
+            etVlessIp.setText(mobile.Mobile.encryptIP(currentVlessIp))
+        } else {
+            etVlessIp.setText("")
+        }
+
         if (!mobile.Mobile.isOfficialBuild()) {
             // 1. Hide the Tunnel Protocol Selection
             findViewById<TextView>(R.id.tv_tunnel_protocol_label)?.visibility = View.GONE
@@ -819,7 +862,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val visibilityState = if (isVaydns) View.VISIBLE else View.GONE
 
                 // 1. Handle Vless IP visibility universally
-                if (selected == "vless-ws" || selected == "vless-httpupgrade" || selected == "vless-grpc") {
+                if (selected == "vless-ws" || selected == "vless-httpupgrade" || selected == "vless-grpc" || selected == "vless-xhttp") {
                     tvVlessIpLabel.visibility = View.VISIBLE
                     etVlessIp.visibility = View.VISIBLE
                     cbBestCfIp.visibility = View.VISIBLE
@@ -955,10 +998,10 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
 
             val selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
-            val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "Cloudflare"
+            val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "CloudX"
 
             // GUARDRAIL 2: Check protocol compatibility before saving
-            if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade")) {
+            if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
                 val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
                 if (!supported) {
                     Toast.makeText(this, "Cannot Save: CDN '$selectedCdn' does not support protocol '$selectedTunnelProtocol'!", Toast.LENGTH_LONG).show()
@@ -997,7 +1040,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             val user = etUser.text.toString().trim()
             val pass = etPass.text.toString().trim()
             val rt = spRecordType.selectedItem.toString()
-            val selectedVlessIp = etVlessIp.text.toString().trim()
+            val selectedVlessIp = realVlessIp.trim()
             val selectedDomainIndex = when (findViewById<RadioGroup>(R.id.rg_domain_selector).checkedRadioButtonId) {
                 R.id.rb_domain_2 -> 1
                 R.id.rb_domain_3 -> 2
@@ -1406,7 +1449,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putLong("${editingConfigId}_mtu", mtu)
                 putBoolean("${editingConfigId}_useMultiDomains", useMultiDomains)
                 putString("${editingConfigId}_tunnelProtocol", tunnelProtocol)
-                putString("${editingConfigId}_vlessIp", selectedVlessIp)
+                putString("${editingConfigId}_vlessIp", CryptoHelper.encrypt(selectedVlessIp))
                 putInt("${editingConfigId}_domainIndex", domainIndex)
                 putString("${editingConfigId}_cdn", selectedCdn)
             }.apply()
@@ -1509,7 +1552,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                         useMultiDomains = obj.optBoolean("useMultiDomains", false),
                         domainIndex = obj.optInt("domainIndex", 0),
                         tunnelProtocol = obj.optString("tunnelProtocol", "vaydns"),
-                        vlessIp = obj.optString("vlessIp", ""),
+                        // vlessIp = obj.optString("vlessIp", ""),
+                        vlessIp = CryptoHelper.decrypt(obj.optString("vlessIp", "")),
                         isDefault = false // User configs are never default
                     )
                 )
@@ -1549,7 +1593,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("pass", config.pass)
                         put("useMultiDomains", config.useMultiDomains)
                         put("tunnelProtocol", config.tunnelProtocol)
-                        put("vlessIp", config.vlessIp)
+                        // put("vlessIp", config.vlessIp)
+                        put("vlessIp", CryptoHelper.encrypt(config.vlessIp))
                         put("domainIndex", config.domainIndex)
                     }
                     array.put(obj)

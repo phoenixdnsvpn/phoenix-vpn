@@ -76,7 +76,7 @@ class VayVpnService : VpnService() {
 
                     val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
                     if (currentTrackingDate != dateStr) {
-                        val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+                        val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
                         absoluteDailyRx = prefs.getLong("rx_$dateStr", 0L)
                         absoluteDailyTx = prefs.getLong("tx_$dateStr", 0L)
                         absoluteDailyOsRx = prefs.getLong("os_rx_$dateStr", 0L)
@@ -126,7 +126,7 @@ class VayVpnService : VpnService() {
 
                     if (currentTime - lastDbSaveTime >= 10000L) {
                         if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
-                            val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+                            val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
                             val dailyRx = prefs.getLong("rx_$dateStr", 0L) + pendingRxSave
                             val dailyTx = prefs.getLong("tx_$dateStr", 0L) + pendingTxSave
                             val dailyOsRx = prefs.getLong("os_rx_$dateStr", 0L) + pendingOsRxSave
@@ -244,7 +244,7 @@ class VayVpnService : VpnService() {
     private fun flushPendingTraffic() {
         if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
             val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
-            val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
             prefs.edit()
                 .putLong("rx_$dateStr", absoluteDailyRx)
                 .putLong("tx_$dateStr", absoluteDailyTx)
@@ -324,10 +324,11 @@ class VayVpnService : VpnService() {
                     activeConfigType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
 
                     val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
-                    val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
+                    val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "CloudX"
                     val fragment = intent.getBooleanExtra("USE_FRAGMENTATION", false)
                     val blockQuic = intent.getBooleanExtra("BLOCK_QUIC", true)
                     val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
+                    val sniIndex = intent.getLongExtra("SNI_INDEX", -1L)
                     sessionOsRx = 0L
                     sessionOsTx = 0L
 
@@ -335,8 +336,8 @@ class VayVpnService : VpnService() {
 
                     val finalMtu = if (lowerConfig == "direct" ||
                         lowerConfig == "hysteria2" || lowerConfig == "reality-tcp" || lowerConfig == "reality-xhttp" ||
-                        lowerConfig == "vless-httpupgrade" || lowerConfig == "vless-ws" || lowerConfig == "vless-grpc") {
-                        1500
+                        lowerConfig == "vless-httpupgrade" || lowerConfig == "vless-ws" || lowerConfig == "vless-grpc" || lowerConfig == "vless-xhttp") {
+                        1420
                     } else {
                         1232
                     }
@@ -361,7 +362,8 @@ class VayVpnService : VpnService() {
                     builder = Builder()
                     builder.setSession("Phoenix Tunnel Active")
                         .addAddress("10.0.0.2", 24)
-                        .addDnsServer("8.8.8.8")
+                        .addDnsServer("1.1.1.1") // Primary public DNS
+                        .addDnsServer("8.8.8.8") // Secondary public DNS
                         .setMtu(finalMtu)
                         .addRoute("0.0.0.0", 0)
                         .setBlocking(false)
@@ -408,7 +410,9 @@ class VayVpnService : VpnService() {
                         bypassIp = bypassIp.substringBefore(":")
                     }
 
-                    if (isValidIp(bypassIp)) {
+                    // ONLY bypass the DNS IP if we are actively tunneling via VayDNS.
+                    // For Direct proxies (VLESS/Hysteria), DNS must route THROUGH the VPN to prevent carrier hijacking.
+                    if (!isDirectMode && isValidIp(bypassIp)) {
                         Log.i("VAY_DEBUG", "Excluding DNS IP from VPN Routing Table: $bypassIp")
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             try {
@@ -418,6 +422,17 @@ class VayVpnService : VpnService() {
                             } catch (e: Exception) {}
                         }
                     }
+
+                    /**if (isValidIp(bypassIp)) {
+                        Log.i("VAY_DEBUG", "Excluding DNS IP from VPN Routing Table: $bypassIp")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            try {
+                                val inetAddress = InetAddress.getByName(bypassIp)
+                                val ipPrefix = android.net.IpPrefix(inetAddress, 32)
+                                builder.excludeRoute(ipPrefix)
+                            } catch (e: Exception) {}
+                        }
+                    }*/
 
                     val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                     val isDebugEnabled = sharedPrefs.getBoolean("debug_logs_enabled", false)
@@ -519,6 +534,7 @@ class VayVpnService : VpnService() {
                             fragment,
                             blockQuic,
                             getServerIpFromDomain,
+                            sniIndex,
                             protector
                         )
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")

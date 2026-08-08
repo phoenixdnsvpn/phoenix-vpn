@@ -76,7 +76,7 @@ class VayProxyService : Service() {
 
                     val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
                     if (currentTrackingDate != dateStr) {
-                        val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+                        val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
                         absoluteDailyRx = prefs.getLong("rx_$dateStr", 0L)
                         absoluteDailyTx = prefs.getLong("tx_$dateStr", 0L)
                         absoluteDailyOsRx = prefs.getLong("os_rx_$dateStr", 0L)
@@ -135,7 +135,7 @@ class VayProxyService : Service() {
                     // ==========================================
                     if (currentTime - lastDbSaveTime >= 10000L) {
                         if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
-                            val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+                            val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
                             val dailyRx = prefs.getLong("rx_$dateStr", 0L) + pendingRxSave
                             val dailyTx = prefs.getLong("tx_$dateStr", 0L) + pendingTxSave
                             val dailyOsRx = prefs.getLong("os_rx_$dateStr", 0L) + pendingOsRxSave
@@ -349,10 +349,11 @@ class VayProxyService : Service() {
                 val engineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
                 val configType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
                 val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
-                val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
+                val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "CloudX"
                 val fragment = intent?.getBooleanExtra("USE_FRAGMENTATION", false) ?: false
                 val blockQuic = intent?.getBooleanExtra("BLOCK_QUIC", true) ?: true
                 val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
+                val sniIndex = intent.getLongExtra("SNI_INDEX", -1L)
 
                 // RESTORED: Exact, working parameter list matching your native Go layout
                 val result = Mobile.startProxy(
@@ -387,7 +388,8 @@ class VayProxyService : Service() {
                     isDebugEnabled,
                     fragment,
                     blockQuic,
-                    getServerIpFromDomain
+                    getServerIpFromDomain,
+                    sniIndex
                 )
 
                 if (result.startsWith("Success")) {
@@ -435,7 +437,7 @@ class VayProxyService : Service() {
     private fun flushPendingTraffic() {
         if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
             val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
-            val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
             prefs.edit()
                 .putLong("rx_$dateStr", absoluteDailyRx)
                 .putLong("tx_$dateStr", absoluteDailyTx)

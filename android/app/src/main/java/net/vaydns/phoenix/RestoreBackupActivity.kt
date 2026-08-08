@@ -70,7 +70,19 @@ class RestoreBackupActivity : AppCompatActivity() {
 
     private fun processRestore(jsonStr: String) {
         try {
-            val backup = org.json.JSONObject(jsonStr)
+            // Parse the initial pasted text or file content
+            val importedJson = org.json.JSONObject(jsonStr)
+
+            // --- NEW: DECRYPTION WRAPPER ---
+            // Check if it's our new secure wrapper or a legacy plaintext backup
+            val backup = if (importedJson.optBoolean("is_encrypted_backup", false)) {
+                val encryptedPayload = importedJson.getString("payload")
+                val decryptedString = CryptoHelper.decrypt(encryptedPayload)
+                org.json.JSONObject(decryptedString)
+            } else {
+                importedJson // Fallback for old/unencrypted backups
+            }
+            // -------------------------------
 
             // SANITY CHECK: Ensure this is actually a Phoenix Backup File
             if (!backup.has("backup_version")) {
@@ -98,7 +110,7 @@ class RestoreBackupActivity : AppCompatActivity() {
             // 4. Restore Traffic Data
             if (backup.has("traffic_data")) {
                 val trafficObj = backup.getJSONObject("traffic_data")
-                val editor = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE).edit()
+                val editor = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE).edit()
                 // Wipe current memory first to prevent ghost merging
                 editor.clear()
                 val keys = trafficObj.keys()

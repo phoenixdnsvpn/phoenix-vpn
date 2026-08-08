@@ -153,6 +153,7 @@ func StartVpn(
 	fragment bool,
 	blockQuic bool,
 	getServerIpFromDomain bool,
+	sniIndex int64,
 	protector SocketProtector,
 ) string {
 
@@ -194,13 +195,14 @@ func StartVpn(
 
 	isDirectMode := !strings.Contains(configTypeLower, "vaydns") || 
 					activeProto == "hysteria2" || 
-					activeProto == "reality-tcp" || activeProto == "vless-ws" ||
+					activeProto == "reality-tcp" || activeProto == "vless-ws" || activeProto == "vless-xhttp" ||
 					activeProto == "vless-grpc" || activeProto == "vless-httpupgrade" || activeProto == "reality-xhttp" || 
 					configTypeLower == "direct"
 	
+			
 	if isDirectMode {
 		// Force xhttp to Xray because Sing-box doesn't support it natively yet.
-		if activeProto == "reality-xhttp" {
+		if activeProto == "reality-xhttp" || activeProto == "vless-xhttp" {
 			engineType = "xray"
 		}
 		
@@ -227,7 +229,7 @@ func StartVpn(
 	var finalMtu int
 	if isDirectMode {
 //		finalMtu = 9000 // High-speed unfragmented pipe for tun2socks -> sing-box
-		finalMtu = 1500 // High-speed unfragmented pipe for tun2socks -> sing-box
+		finalMtu = 1420 // High-speed unfragmented pipe for tun2socks -> sing-box
 	} else {
 		finalMtu = 1232 // Safe pipe for tun2socks -> VayDNS engine
 	}
@@ -418,7 +420,7 @@ func StartVpn(
 		activeSocksPort = singBoxListenPort
 		mu.Unlock()
 
-		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment)
+		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment, sniIndex)
 		if err != nil {
 			errMsg := fmt.Sprintf("Error: sing-box layer failure: %v", err)
 			log.Println("VAY_DEBUG: FATAL -> " + errMsg)
@@ -437,7 +439,7 @@ func StartVpn(
 		// os.Setenv("XRAY_TUN_FD", strconv.Itoa(int(fd)))
 
 		// 3. Pass both the Watchdog port (for the SOCKS inbound) and MTU (for the TUN inbound)
-		err := StartXrayEngine(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN, true, activeSocksPort, int(finalMtu), protocol, debug, fragment, blockQuic)
+		err := StartXrayEngine(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN, true, activeSocksPort, int(finalMtu), protocol, debug, fragment, blockQuic, sniIndex)
 		if err != nil {
 			cancel()
 			return fmt.Sprintf("Error starting Xray Engine: %v", err)
@@ -451,25 +453,7 @@ func StartVpn(
 		}()
 
 	} else {		
-/*	} else if engineType == "xray" {
-		log.Printf("VAY_DEBUG: Booting cutting-edge Xray processing pipeline...")
-		xrayListenPort := 30000 + rand.Intn(20000) 
-		
-		mu.Lock()
-		activeSocksPort = xrayListenPort
-		mu.Unlock()
 
-		err := StartXrayEngine(xrayListenPort, configIndex, globalDnsServer)
-		if err != nil {
-			errMsg := fmt.Sprintf("Error: Xray layer failure: %v", err)
-			log.Println("VAY_DEBUG: FATAL -> " + errMsg)
-			return errMsg
-		}
-		
-		// Bind Tun2Socks to the newly created Xray SOCKS port
-		xrayProxyString := fmt.Sprintf("socks5://127.0.0.1:%d", xrayListenPort)
-		startTun2SocksEngine(wg, newFd, xrayProxyString, finalMtu)		
-	} else {*/
 		// ADDED: Ensure watchdog knows the final local proxy port if wrapped by SSH/SS
 		if u, err := url.Parse(proxyString); err == nil {
 			if portStr := u.Port(); portStr != "" {
@@ -540,6 +524,7 @@ func StartProxy(
 	fragment bool,
 	blockQuic bool,
 	getServerIpFromDomain bool,
+	sniIndex int64,
 ) string {
 
 	mu.Lock()
@@ -604,14 +589,14 @@ func StartProxy(
 
 	isDirectMode := !strings.Contains(configTypeLower, "vaydns") || 
 					activeProto == "hysteria2" || 
-					activeProto == "reality-tcp" || activeProto == "vless-ws" ||
+					activeProto == "reality-tcp" || activeProto == "vless-ws" || activeProto == "vless-xhttp" ||
 					activeProto == "vless-grpc" || activeProto == "vless-httpupgrade" || activeProto == "reality-xhttp" ||
 					configTypeLower == "direct"
 					
 	if isDirectMode {
 		// Force xhttp to Xray because Sing-box doesn't support it natively yet.
 		// For all other protocols, respect the user's 'engineType' choice from Kotlin!
-		if activeProto == "reality-xhttp" {
+		if activeProto == "reality-xhttp" || activeProto == "vless-xhttp" {
 			engineType = "xray"
 		}
 		
@@ -633,7 +618,7 @@ func StartProxy(
 			
 			// We pass 'customPort' directly to Sing-box so it creates a SOCKS5 server on that exact port.
 			// No tun2socks is needed!
-			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment)
+			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment, sniIndex)
 			
 			if err != nil {
 				return fmt.Sprintf("Error|sing-box proxy failure: %v", err)
@@ -642,7 +627,7 @@ func StartProxy(
 
 			log.Printf("VAY_DEBUG: Booting cutting-edge Xray in PROXY MODE on port %d", customPort)
 
-			err := StartXrayEngine(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN, true, customPort, 0, protocol, debug, fragment, blockQuic)
+			err := StartXrayEngine(configIndex, globalDnsServer, getServerIpFromDomain, vlessWsIp, targetCDN, true, customPort, 0, protocol, debug, fragment, blockQuic, sniIndex)
 //			err := StartXrayEngine_socks(customPort, configIndex, globalDnsServer)
 			if err != nil {
 				errMsg := fmt.Sprintf("Error: Xray layer failure: %v", err)
@@ -1153,7 +1138,7 @@ waitLoop:
 	return finalLatency
 }
 
-func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, targetCDN string, globalDnsServer string, getServerIpFromDomain bool, fragment bool) error {
+func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, targetCDN string, globalDnsServer string, getServerIpFromDomain bool, fragment bool, sniIndex int64) error {
 
 	var outboundMap map[string]interface{}
 	var upstreamScheme string
@@ -1185,7 +1170,7 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 		} else if activeProto == "reality-tcp" {
 			upstreamScheme = "vless"
 			if configIndex >= 0 {
-				outboundMap = buildRealityOutbound(configIndex, globalDnsServer, getServerIpFromDomain, fragment)
+				outboundMap = buildRealityOutbound(configIndex, globalDnsServer, getServerIpFromDomain, fragment, sniIndex)
 			} else {
 				return fmt.Errorf("invalid config index for direct protocol")
 			}			
@@ -1281,6 +1266,7 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 	// 1. "level" remains "debug" to preserve the micro-delay that fixes the FakeIP race condition.
 	// 2. "output" is set to "/dev/null" so the logs are instantly destroyed and never reach Logcat.
 
+
 	rawConfig := fmt.Sprintf(`{
 		"log": {
 			"level": "debug",
@@ -1340,6 +1326,10 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 		"outbounds": [
 			%s,
 			{
+				"type": "direct",
+				"tag": "direct-out"
+			},			
+			{
 				"type": "block",
 				"tag": "block-out"
 			}
@@ -1370,7 +1360,18 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 					"network": "udp",
 					"port": [443],
 					"outbound": "block-out"
-				}
+				},
+				{
+					"ip_cidr": [
+						"10.0.0.0/8",
+						"172.16.0.0/12",
+						"192.168.0.0/16",
+						"127.0.0.0/8",
+						"fc00::/7",
+						"fe80::/10"
+					],
+					"outbound": "direct-out"
+				}				
 			],
 			"auto_detect_interface": false,
 			"final": "proxy-out"

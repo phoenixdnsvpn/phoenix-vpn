@@ -42,7 +42,6 @@ import net.vaydns.phoenix.ConfigEditorActivity.Companion.loadAllConfigs
 import net.vaydns.phoenix.ConfigEditorActivity.Companion.saveAllConfigs
 import kotlinx.coroutines.*
 import kotlin.coroutines.resume
-import androidx.core.content.FileProvider
 import java.io.File
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -368,19 +367,25 @@ class MainActivity : AppCompatActivity() {
     private var pendingExportJsonText = ""
 
     private val configFilePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            importConfigBinary(uri)
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                importConfigBinary(uri)
+            }
         }
     }
+
     private val resolverFilePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            importResolverBinary(uri)
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                importResolverBinary(uri)
+            }
         }
     }
+
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -1261,7 +1266,7 @@ class MainActivity : AppCompatActivity() {
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
         val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
-        val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+        val globalCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
         val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
         val workers = tunnelPrefs.getInt("workers", 20)
         val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
@@ -1316,8 +1321,9 @@ class MainActivity : AppCompatActivity() {
             }
 
             val configVlessIp = if (config.isDefault) {
-                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                val encrypted = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                     .getString("${config.id}_vlessIp", "") ?: ""
+                CryptoHelper.decrypt(encrypted) // <-- Added Decryption
             } else {
                 finalConfig.vlessIp
             }
@@ -1326,10 +1332,10 @@ class MainActivity : AppCompatActivity() {
                 globalCdn
             } else if (config.isDefault) {
                 getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                    .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+                    .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
             } else {
                 getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
-                    .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+                    .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
             }
 
 // Fetch the Vault JSON
@@ -1341,10 +1347,11 @@ class MainActivity : AppCompatActivity() {
                 val jsonArray = org.json.JSONArray(jsonString)
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
-                    val ipCdn = obj.optString("cdn", "Cloudflare")
+                    val ipCdn = obj.optString("cdn", "CloudX")
                     // Priority 1: Checked AND matches Target CDN
                     if (obj.getBoolean("isChecked") && ipCdn.equals(targetCdn, ignoreCase = true)) {
-                        firstGlobalVlessIp = obj.getString("ip")
+                        val rawIp = obj.getString("ip")
+                        firstGlobalVlessIp = CryptoHelper.decrypt(rawIp)
                         break
                     }
                 }
@@ -1352,9 +1359,10 @@ class MainActivity : AppCompatActivity() {
                 if (firstGlobalVlessIp.isEmpty()) {
                     for (i in 0 until jsonArray.length()) {
                         val obj = jsonArray.getJSONObject(i)
-                        val ipCdn = obj.optString("cdn", "Cloudflare")
+                        val ipCdn = obj.optString("cdn", "CloudX")
                         if (ipCdn.equals(targetCdn, ignoreCase = true)) {
-                            firstGlobalVlessIp = obj.getString("ip")
+                            val rawIp = obj.getString("ip")
+                            firstGlobalVlessIp = CryptoHelper.decrypt(rawIp)
                             break
                         }
                     }
@@ -1367,7 +1375,7 @@ class MainActivity : AppCompatActivity() {
             var serverIp = ""
             if (isDirectMode) {
                 if (cleanProtocol.lowercase() == "vless-ws" || cleanProtocol.lowercase() == "vless-httpupgrade"
-                    || cleanProtocol.lowercase() == "vless-grpc") {
+                    || cleanProtocol.lowercase() == "vless-grpc" || cleanProtocol.lowercase() == "vless-xhttp") {
                     // Priority 1: Config's specific VLESS IP (Custom or Default Override)
                     // Priority 2: Global Vault VLESS IP fallback
                     serverIp = if (configVlessIp.isNotEmpty()) configVlessIp else firstGlobalVlessIp
@@ -1483,13 +1491,33 @@ class MainActivity : AppCompatActivity() {
                     // Instead of refreshConfigList(), we just update the ID and notify
                     configAdapter?.updateSelectedId(config.id)
                 },
+                // locking the Config editor
                 onEditClicked = { config ->
+                    val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                    val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+
+                    if (globalOverride) {
+                        // Lock the editor and explain why
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                            .setTitle("Editor Locked / ویرایشگر قفل است")
+                            .setMessage("Config editing is disabled while Global Protocol Override is active, as native parameters are hidden to prevent conflicts.\n\nPlease disable the override in Global Settings to edit this profile.\n\nدر زمان فعال بودن تغییر سراسری پروتکل، ویرایش تنظیمات غیرفعال است. لطفاً برای ویرایش این پروفایل، ابتدا تغییر سراسری را در تنظیمات خاموش کنید.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    } else {
+                        // Open the editor normally
+                        val intent = Intent(this, ConfigEditorActivity::class.java).apply {
+                            putExtra("CONFIG_ID", config.id)
+                        }
+                        startActivity(intent)
+                    }
+                },
+                /**onEditClicked = { config ->
                     // All configs can now be edited to select their protocol!
                     val intent = Intent(this, ConfigEditorActivity::class.java).apply {
                         putExtra("CONFIG_ID", config.id)
                     }
                     startActivity(intent)
-                },
+                },*/
                 onDeleteClicked = { config -> showDeleteConfirmation(config) },
                 onExportClicked = { config ->
                     if (config.isDefault) {
@@ -1637,9 +1665,15 @@ class MainActivity : AppCompatActivity() {
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
 
-        val isOfficialBuild = mobile.Mobile.isOfficialBuild()
-        menu?.findItem(R.id.action_cf_scanner)?.isVisible = isOfficialBuild
-        menu?.findItem(R.id.action_global_dns_scanner)?.isVisible = isOfficialBuild
+        // Fetch the release key directly from Go
+        val releaseType = try { mobile.Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
+        val isPrivateBuild = (releaseType == "private")
+
+        // Hide advanced scanners for the Community release
+        menu.findItem(R.id.action_cf_scanner)?.isVisible = isPrivateBuild
+        menu.findItem(R.id.action_global_dns_scanner)?.isVisible = isPrivateBuild
+        menu.findItem(R.id.action_check_sni)?.isVisible = isPrivateBuild
+
         return true
     }
 
@@ -1798,21 +1832,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        //val buildStatus = mobile.Mobile.getBuildStatus()
+        // Fetch the release key directly from Go
+        val releaseType = try { mobile.Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
         val configCount = mobile.Mobile.getDefaultConfigCount()
-        //val isOfficialBuild = buildStatus == "Official Release" || configCount > 0
-        val isOfficialBuild = mobile.Mobile.isOfficialBuild()
 
         // Read user preferences (Default is false/invisible)
         val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
         val showShareLogs = menuPrefs.getBoolean("show_share_logs", false)
         val showDebugLogging = menuPrefs.getBoolean("show_debug_logging", false)
-        // val showAppUpdate = menuPrefs.getBoolean("show_check_app_update", true)
         val showUpdateConfigs = menuPrefs.getBoolean("show_update_configs", false)
         val showUpdateResolvers = menuPrefs.getBoolean("show_update_resolvers", false)
         val showUploadConfigs = menuPrefs.getBoolean("show_upload_configs", false)
         val showUploadResolvers = menuPrefs.getBoolean("show_upload_resolvers", false)
-        //val menuPrefs = getSharedPreferences("VayDNS_MenuPrefs", Context.MODE_PRIVATE)
         val showImport = menuPrefs.getBoolean("show_import_resolvers", false)
         val showExport = menuPrefs.getBoolean("show_export_resolvers", false)
 
@@ -1828,9 +1859,6 @@ class MainActivity : AppCompatActivity() {
         if (itemExportApps != null) itemExportApps.isVisible = showExportApps
         if (itemBackupRestore != null) itemBackupRestore.isVisible = showBackupRestore
 
-        //menu.findItem(R.id.action_import_resolvers)?.isVisible = showImport
-        //menu.findItem(R.id.action_export_resolvers)?.isVisible = showExport
-
         val itemImport = menu.findItem(R.id.action_import_resolvers)
         val itemExport = menu.findItem(R.id.action_export_resolvers)
 
@@ -1843,7 +1871,7 @@ class MainActivity : AppCompatActivity() {
         if (logItem != null) {
             logItem.isVisible = showDebugLogging // Hide or show based on settings
 
-            // Dynamic text swap (from our previous step)
+            // Dynamic text swap
             if (isLoggingActive) {
                 logItem.title = "Stop Debug Log"
             } else {
@@ -1851,31 +1879,31 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (!isOfficialBuild) {
+        if (releaseType == "community") {
             // Hide all private infrastructure options for completely public community builds
-            // menu.findItem(R.id.action_verify)?.isVisible = false
-            // menu.findItem(R.id.action_check_app_update)?.isVisible = false
             menu.findItem(R.id.action_update_configs)?.isVisible = false
             menu.findItem(R.id.action_update_resolvers)?.isVisible = false
             menu.findItem(R.id.action_upload_resolvers)?.isVisible = false
             menu.findItem(R.id.action_upload_configs)?.isVisible = false
-            menu.findItem(R.id.action_quick_scanner)?.isVisible = false
+
+            // QUICK SCANNER: Restored! Visible for community builds as long as configs exist
+            menu.findItem(R.id.action_quick_scanner)?.isVisible = (configCount > 0L)
+
             menu.findItem(R.id.action_cf_scanner)?.isVisible = false
             menu.findItem(R.id.action_global_dns_scanner)?.isVisible = false
+            menu.findItem(R.id.action_check_sni)?.isVisible = false
         } else {
             // HYBRID VAULT MODE: Keep App Verification visible, but filter out sync tools if configs are omitted
-            // menu.findItem(R.id.action_verify)?.isVisible = true
-            // menu.findItem(R.id.action_check_app_update)?.isVisible = showAppUpdate
             menu.findItem(R.id.action_cf_scanner)?.isVisible = true
             menu.findItem(R.id.action_global_dns_scanner)?.isVisible = true
+            menu.findItem(R.id.action_check_sni)?.isVisible = true
 
             if (configCount == 0L) {
-                // If official configs are entirely missing, hide all config/resolver sync & scanning mechanics
-                menu.findItem(R.id.action_update_configs)?.isVisible = false
-                menu.findItem(R.id.action_update_resolvers)?.isVisible = false
-                menu.findItem(R.id.action_upload_configs)?.isVisible = false
-                menu.findItem(R.id.action_upload_resolvers)?.isVisible = false
                 menu.findItem(R.id.action_quick_scanner)?.isVisible = false
+                menu.findItem(R.id.action_update_configs)?.isVisible = showUpdateConfigs
+                menu.findItem(R.id.action_update_resolvers)?.isVisible = showUpdateResolvers
+                menu.findItem(R.id.action_upload_configs)?.isVisible = showUploadConfigs
+                menu.findItem(R.id.action_upload_resolvers)?.isVisible = showUploadResolvers
             } else {
                 menu.findItem(R.id.action_quick_scanner)?.isVisible = true
                 menu.findItem(R.id.action_update_configs)?.isVisible = showUpdateConfigs
@@ -2237,14 +2265,14 @@ class MainActivity : AppCompatActivity() {
 
                 val configTypeLower = (if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else config.mode ?: "").lowercase()
                 val supportsVless = configTypeLower.contains("vless-ws") || configTypeLower.contains("vless-httpupgrade")
-                        || configTypeLower.contains("vless-grpc")
+                        || configTypeLower.contains("vless-grpc" ) || configTypeLower.contains("vless-xhttp" )
 
                 if (!supportsVless) {
-                    Toast.makeText(this, "Cloudflare Scanner requires a VLESS-WS or VLESS-HTTPUpgrade configuration. This config does not support it.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "CloudX Scanner requires a VLESS-WS or VLESS-HTTPUpgrade configuration. This config does not support it.", Toast.LENGTH_LONG).show()
                     return true // Instantly abort
                 }
 
-                val intent = Intent(this, CloudflareScannerActivity::class.java).apply {
+                val intent = Intent(this, CdnScannerActivity::class.java).apply {
                     putExtra("IS_DEFAULT", config.isDefault)
                     putExtra("CONFIG_INDEX", nativeIndex)
                     putExtra("DOMAIN", config.domain)
@@ -2264,6 +2292,15 @@ class MainActivity : AppCompatActivity() {
                 // 2. Launch the new Activity!
                 // (Unlike the CF scanner, this doesn't require a specific config to be selected, it just scans the public internet)
                 startActivity(Intent(this, GlobalDnsScannerActivity::class.java))
+                true
+            }
+
+            R.id.action_check_sni -> {
+                if (isVpnConnected) {
+                    Toast.makeText(this, "Please stop the VPN before running an SNI check.", Toast.LENGTH_LONG).show()
+                    return true
+                }
+                startActivity(Intent(this, SniScannerActivity::class.java))
                 true
             }
 
@@ -2288,16 +2325,38 @@ class MainActivity : AppCompatActivity() {
             }
 
             R.id.action_upload_configs -> {
-                configFilePickerLauncher.launch(arrayOf("*/*"))
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_LOCAL_ONLY, true) // Bypasses Samsung bug
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                configFilePickerLauncher.launch(intent)
                 true
             }
 
             R.id.action_upload_resolvers -> {
-                // Using "*/*" because Android's SAF can be extremely strict
-                // about selecting custom extensions like .bin
-                resolverFilePickerLauncher.launch(arrayOf("*/*"))
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_LOCAL_ONLY, true) // Bypasses Samsung bug
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                resolverFilePickerLauncher.launch(intent)
                 true
             }
+
+            //R.id.action_upload_configs -> {
+            //    configFilePickerLauncher.launch(arrayOf("*/*"))
+            //    true
+            //}
+
+            //R.id.action_upload_resolvers -> {
+                // Using "*/*" because Android's SAF can be extremely strict
+                // about selecting custom extensions like .bin
+            //    resolverFilePickerLauncher.launch(arrayOf("*/*"))
+            //    true
+            //}
 
             R.id.action_my_dns -> {
                 showCurrentDnsDialog()
@@ -2603,7 +2662,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDailyTrafficDialog() {
-        val prefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
         val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         val displayFormat = java.text.SimpleDateFormat("MMM dd", java.util.Locale.US)
 
@@ -3232,6 +3291,9 @@ class MainActivity : AppCompatActivity() {
 
         Thread {
             try {
+                // Give the VPN tunnel 4 seconds to fully stabilize its routing
+                // to Cloudflare before attempting the background HTTP request.
+                Thread.sleep(4000)
                 val releaseType = mobile.Mobile.getReleaseType()
                 if (releaseType.lowercase() == "private") {
                     // Check Custom Server
@@ -3312,8 +3374,48 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
+                // Scoped Storage Compliant Download ---
+                val inputStream: java.io.InputStream = body.byteStream()
+                val mimeType = "application/vnd.android.package-archive"
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // Modern Android 10+ (API 29+): Use MediaStore API (No permissions required)
+                    val contentValues = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    }
+
+                    val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        contentResolver.openOutputStream(uri)?.use { outputStream ->
+                            inputStream.copyTo(outputStream) // Elegantly handles buffering and flushing
+                        }
+                    } else {
+                        throw Exception("MediaStore rejected file creation.")
+                    }
+                } else {
+                    // Legacy Android 9 and below: Fallback to direct file paths
+                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    val outputFile = File(downloadsDir, fileName)
+
+                    java.io.FileOutputStream(outputFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+
+                    // Manually scan the file so it appears in the user's File Manager immediately
+                    android.media.MediaScannerConnection.scanFile(
+                        this@MainActivity,
+                        arrayOf(outputFile.absolutePath),
+                        arrayOf(mimeType)
+                    ) { _, uri ->
+                        android.util.Log.i("Phoenix", "Update APK scanned into MediaStore: $uri")
+                    }
+                }
+                inputStream.close()
+
                 // Target the public Downloads directory on the device storage
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                /**val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val outputFile = File(downloadsDir, fileName)
 
                 // Stream data block-by-block from the network to disk memory
@@ -3336,7 +3438,7 @@ class MainActivity : AppCompatActivity() {
                     arrayOf("application/vnd.android.package-archive") // APK MIME type
                 ) { path, uri ->
                     android.util.Log.i("Phoenix", "Update APK scanned into MediaStore: $uri")
-                }
+                }*/
 
                 // 2. Return to the main UI thread to notify the user
 
@@ -3485,7 +3587,10 @@ class MainActivity : AppCompatActivity() {
 
             // 3. Construct the Download URL based on Release Type
             val downloadUrl = if (releaseType.lowercase() == "private") {
-                val serverBase = mobile.Mobile.getPrimaryUpdateServer()
+                var serverBase = mobile.Mobile.getPrimaryUpdateServer()
+                if (serverBase.startsWith("http://", ignoreCase = true)) {
+                    serverBase = serverBase.replace("http://", "https://", ignoreCase = true)
+                }
                 "$serverBase/assets/$fileName"
 
             } else {
@@ -3575,7 +3680,11 @@ class MainActivity : AppCompatActivity() {
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
         val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
-        val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+        val globalCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
+
+        val useSniPool = tunnelPrefs.getBoolean("use_sni_pool", false)
+        val selectedSniIndex = tunnelPrefs.getInt("selected_sni_index", -1)
+        val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
 
         var activeProtocol = if (config.isDefault && globalOverride) {
             globalProtocol
@@ -3630,8 +3739,9 @@ class MainActivity : AppCompatActivity() {
 
         // 1. Fetch the specific IP for this config
         val configVlessIp = if (config.isDefault) {
-            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+            val encrypted = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 .getString("${config.id}_vlessIp", "") ?: ""
+            CryptoHelper.decrypt(encrypted) // <-- Added Decryption
         } else {
             finalConfig.vlessIp
         }
@@ -3640,10 +3750,10 @@ class MainActivity : AppCompatActivity() {
             globalCdn
         } else if (config.isDefault) {
             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+                .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
         } else {
             getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
-                .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
+                .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
         }
 
         // Fetch the Vault JSON
@@ -3655,18 +3765,20 @@ class MainActivity : AppCompatActivity() {
             val jsonArray = org.json.JSONArray(jsonString)
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                val ipCdn = obj.optString("cdn", "Cloudflare")
+                val ipCdn = obj.optString("cdn", "CloudX")
                 if (obj.getBoolean("isChecked") && ipCdn.equals(targetCdn, ignoreCase = true)) {
-                    firstGlobalVlessIp = obj.getString("ip")
+                    val rawIp = obj.getString("ip")
+                    firstGlobalVlessIp = CryptoHelper.decrypt(rawIp) // <-- Added Decryption
                     break
                 }
             }
             if (firstGlobalVlessIp.isEmpty()) {
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
-                    val ipCdn = obj.optString("cdn", "Cloudflare")
+                    val ipCdn = obj.optString("cdn", "CloudX")
                     if (ipCdn.equals(targetCdn, ignoreCase = true)) {
-                        firstGlobalVlessIp = obj.getString("ip")
+                        val rawIp = obj.getString("ip")
+                        firstGlobalVlessIp = CryptoHelper.decrypt(rawIp) // <-- Added Decryption
                         break
                     }
                 }
@@ -3745,6 +3857,7 @@ class MainActivity : AppCompatActivity() {
                 putExtra("USE_FRAGMENTATION", useFragmentation)
                 putExtra("BLOCK_QUIC", blockQuic)
                 putExtra("GET_SERVER_IP_FROM_DOMAIN", getServerIpFromDomain)
+                putExtra("SNI_INDEX", sniIndex)
             }
 
             if (isProxyMode) {
@@ -4254,13 +4367,13 @@ class MainActivity : AppCompatActivity() {
             val customConfigsStr = appPrefs.getString("configs", "[]") ?: "[]"
             megaBackup.put("custom_configs", org.json.JSONArray(customConfigsStr))
 
-            // 3. CDN IPs (Cloudflare/Amazon)
+            // 3. CDN IPs (CloudX/CloudY/CloudZ)
             val cdnPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
             val cdnIpsStr = cdnPrefs.getString("vault_ips_json", "[]") ?: "[]"
             megaBackup.put("cdn_ips", org.json.JSONArray(cdnIpsStr))
 
             // 4. Traffic Data
-            val trafficPrefs = getSharedPreferences("VayDNS_Traffic", Context.MODE_PRIVATE)
+            val trafficPrefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
             val trafficObj = org.json.JSONObject()
             trafficPrefs.all.forEach { (key, value) ->
                 if (value is Long) trafficObj.put(key, value)
@@ -4303,7 +4416,16 @@ class MainActivity : AppCompatActivity() {
             }
             megaBackup.put("multipath_resolvers", resolversObj)
 
-            pendingExportJsonText = megaBackup.toString(2)
+            val rawBackupJson = megaBackup.toString(2)
+            val encryptedPayload = CryptoHelper.encrypt(rawBackupJson)
+
+            val secureBackupWrapper = org.json.JSONObject().apply {
+                put("is_encrypted_backup", true)
+                put("payload", encryptedPayload)
+            }
+
+            pendingExportJsonText = secureBackupWrapper.toString(2)
+            // pendingExportJsonText = megaBackup.toString(2)
 
             // Present choice to user: Share text or Save as .json file
             val options = arrayOf("Share via... / اشتراک‌گذاری", "Save as JSON file / ذخیره به صورت فایل JSON")

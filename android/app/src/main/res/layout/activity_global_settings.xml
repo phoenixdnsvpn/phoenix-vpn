@@ -36,45 +36,54 @@
             android:paddingTop="24dp"
             android:paddingBottom="32dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Engine Mode"
-                android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                android:layout_marginBottom="16dp"/>
-
-            <RadioGroup
-                android:id="@+id/rg_engine_mode"
+            <!-- WRAPPER FOR ENGINE MODE -->
+            <LinearLayout
+                android:id="@+id/section_engine_mode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="24dp">
+                android:orientation="vertical">
 
-                <RadioButton
-                    android:id="@+id/rb_engine_singbox"
-                    android:layout_width="0dp"
+                <TextView
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Sing-Box"
-                    android:textColor="?attr/colorOnSurface"
-                    android:buttonTint="?attr/colorPrimary" />
+                    android:text="Engine Mode"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
 
-                <RadioButton
-                    android:id="@+id/rb_engine_xray"
-                    android:layout_width="0dp"
+                <RadioGroup
+                    android:id="@+id/rg_engine_mode"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Xray"
-                    android:textColor="?attr/colorOnSurface"
-                    android:buttonTint="?attr/colorPrimary" />
-            </RadioGroup>
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="24dp">
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?android:attr/dividerVertical"
-                android:layout_marginBottom="24dp"/>
+                    <RadioButton
+                        android:id="@+id/rb_engine_singbox"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Sing-Box"
+                        android:textColor="?attr/colorOnSurface"
+                        android:buttonTint="?attr/colorPrimary" />
+
+                    <RadioButton
+                        android:id="@+id/rb_engine_xray"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Xray"
+                        android:textColor="?attr/colorOnSurface"
+                        android:buttonTint="?attr/colorPrimary" />
+                </RadioGroup>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?android:attr/dividerVertical"
+                    android:layout_marginBottom="24dp"/>
+            </LinearLayout>
+            <!-- END WRAPPER FOR ENGINE MODE -->
 
             <TextView
                 android:layout_width="wrap_content"
@@ -116,254 +125,282 @@
                 android:background="?android:attr/dividerVertical"
                 android:layout_marginBottom="24dp"/>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Reality Settings"
-                android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                android:layout_marginBottom="16dp"/>
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_use_fragmentation"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Use Fragmentation"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface"
-                app:thumbTint="?attr/colorPrimary"
-                android:layout_marginBottom="16dp" />
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_block_quic"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Block QUIC"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface"
-                app:thumbTint="?attr/colorPrimary"
-                android:layout_marginBottom="0dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Block UDP:443 to stream youtube etc."
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="14sp"
-                android:layout_marginBottom="24dp" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?android:attr/dividerVertical"
-                android:layout_marginBottom="24dp"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Layer 7 Ping (TLS Handshake)"
-                android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                android:layout_marginBottom="16dp"/>
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_use_layer7_ping"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Use Layer 7 Ping"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface"
-                app:thumbTint="?attr/colorPrimary"
-                android:layout_marginBottom="24dp" />
-
-            <View
-                android:id="@+id/div_protocol_mode_divider"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?android:attr/dividerVertical"
-                android:layout_marginBottom="24dp"/>
-
-            <TextView
-                android:id="@+id/tv_global_protocol_header"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Global Protocol Override"
-                android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                android:layout_marginBottom="16dp"/>
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_global_protocol_override"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Override Per-Config Protocol"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface"
-                app:thumbTint="?attr/colorPrimary"
-                android:layout_marginBottom="16dp" />
-
-            <Spinner
-                android:id="@+id/spinner_global_protocol"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:backgroundTint="?attr/colorOnSurface"
-                android:visibility="gone" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?android:attr/dividerVertical"
-                android:layout_marginBottom="24dp"/>
-
-            <TextView
-                android:id="@+id/tv_global_cdn_header"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="CDN Management"
-                android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                android:layout_marginBottom="16dp"/>
-
+            <!-- WRAPPER FOR ADVANCED PROTOCOLS -->
             <LinearLayout
-                android:id="@+id/layout_cdn"
+                android:id="@+id/section_advanced_protocols"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginBottom="16dp">
+                android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/tv_cdn_label"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:text="CDN"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="16sp" />
-
-                <Spinner
-                    android:id="@+id/spinner_cdn"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:backgroundTint="?attr/colorOnSurface" />
-            </LinearLayout>
+                    android:text="Reality Settings"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginBottom="16dp">
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_use_fragmentation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Use Fragmentation"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurface"
+                    app:thumbTint="?attr/colorPrimary"
+                    android:layout_marginBottom="16dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_block_quic"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Block QUIC"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurface"
+                    app:thumbTint="?attr/colorPrimary"
+                    android:layout_marginBottom="0dp" />
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="CDN IP Management"
+                    android:text="Block UDP:443 to stream youtube etc."
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp"
+                    android:layout_marginBottom="24dp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?android:attr/dividerVertical"
+                    android:layout_marginBottom="24dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Layer 7 Ping (TLS Handshake)"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_use_layer7_ping"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Use Layer 7 Ping"
                     android:textSize="16sp"
-                    android:textColor="?attr/colorOnSurface" />
+                    android:textColor="?attr/colorOnSurface"
+                    app:thumbTint="?attr/colorPrimary"
+                    android:layout_marginBottom="24dp" />
 
-                <ImageButton
-                    android:id="@+id/btn_cf_history"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:src="@android:drawable/ic_menu_recent_history"
-                    app:tint="?attr/colorPrimary" />
+                <View
+                    android:id="@+id/div_protocol_mode_divider"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?android:attr/dividerVertical"
+                    android:layout_marginBottom="24dp"/>
 
-            </LinearLayout>
+                <TextView
+                    android:id="@+id/tv_global_protocol_header"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Global Protocol Override"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?android:attr/dividerVertical"
-                android:layout_marginBottom="24dp"/>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_global_protocol_override"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Override Per-Config Protocol"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurface"
+                    app:thumbTint="?attr/colorPrimary"
+                    android:layout_marginBottom="16dp" />
 
-            <TextView
-                android:id="@+id/tv_global_dns_header"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Global DNS Settings"
-                android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="4dp"/>
+                <Spinner
+                    android:id="@+id/spinner_global_protocol"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:backgroundTint="?attr/colorOnSurface"
+                    android:visibility="gone" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingVertical="12dp"
-                android:gravity="center_vertical">
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_use_sni_pool"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Use SNI Pool"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="14sp"
+                    app:thumbTint="?attr/colorPrimary" />
+
+                <Spinner
+                    android:id="@+id/spinner_sni_pool"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone"
+                    android:backgroundTint="?attr/colorOnSurface" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?android:attr/dividerVertical"
+                    android:layout_marginBottom="24dp"/>
+
+                <TextView
+                    android:id="@+id/tv_global_cdn_header"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Cloud Management"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:id="@+id/layout_cdn"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:paddingEnd="16dp">
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
 
                     <TextView
-                        android:layout_width="wrap_content"
+                        android:id="@+id/tv_cdn_label"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
                         android:layout_height="wrap_content"
-                        android:text="Get Server IP from Domain"
+                        android:text="CDN"
                         android:textColor="?attr/colorOnSurface"
                         android:textSize="16sp" />
 
-                    <TextView
+                    <Spinner
+                        android:id="@+id/spinner_cdn"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Applicable to Hysteria and Reality."
-                        android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="14sp"
-                        android:layout_marginTop="2dp" />
+                        android:backgroundTint="?attr/colorOnSurface" />
                 </LinearLayout>
 
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/cb_get_server_ip_from_domain"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:thumbTint="?attr/colorPrimary" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
 
-            </LinearLayout>
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Cloud IP Management"
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginBottom="24dp">
+                    <ImageButton
+                        android:id="@+id/btn_cf_history"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@android:drawable/ic_menu_recent_history"
+                        app:tint="?attr/colorPrimary" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?android:attr/dividerVertical"
+                    android:layout_marginBottom="24dp"/>
 
                 <TextView
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
+                    android:id="@+id/tv_global_dns_header"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Global DNS Server"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="16sp"/>
+                    android:text="Global DNS Settings"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp"/>
 
-                <EditText
-                    android:id="@+id/et_global_dns_server"
-                    android:layout_width="160dp"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Set via Scanner"
-                    android:inputType="none"
-                    android:focusable="false"
-                    android:focusableInTouchMode="false"
-                    android:cursorVisible="false"
-                    android:longClickable="true"
-                    android:maxLines="1"
-                    android:gravity="center"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:orientation="horizontal"
+                    android:paddingVertical="12dp"
+                    android:gravity="center_vertical">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:paddingEnd="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Get Server IP from Domain"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="16sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Applicable to Hysteria and Reality."
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="14sp"
+                            android:layout_marginTop="2dp" />
+                    </LinearLayout>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/cb_get_server_ip_from_domain"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        app:thumbTint="?attr/colorPrimary" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="24dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Global DNS Server"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="16sp"/>
+
+                    <EditText
+                        android:id="@+id/et_global_dns_server"
+                        android:layout_width="160dp"
+                        android:layout_height="wrap_content"
+                        android:hint="Set via Scanner"
+                        android:inputType="none"
+                        android:focusable="false"
+                        android:focusableInTouchMode="false"
+                        android:cursorVisible="false"
+                        android:longClickable="true"
+                        android:maxLines="1"
+                        android:gravity="center"
+                        android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?android:attr/dividerVertical"
+                    android:layout_marginBottom="24dp"/>
+
             </LinearLayout>
+            <!-- END WRAPPER FOR ADVANCED PROTOCOLS -->
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="?android:attr/dividerVertical"
-                android:layout_marginBottom="24dp"/>
-            
             <TextView
                 android:id="@+id/tv_tunnel_apps_header"
                 android:layout_width="wrap_content"

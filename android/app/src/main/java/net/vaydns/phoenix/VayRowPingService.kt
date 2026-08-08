@@ -25,7 +25,7 @@ class VayRowPingService : Service() {
 
         // ARCHITECTURAL FORK: Check if it is a direct connection by verifying the active protocol string
         val isDirectMode = !configType.lowercase().contains("vaydns") ||
-                protocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc")
+                protocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp")
 
         // ARCHITECTURAL FORK: Check if it is a direct connection
         //val isDirectMode = configType.lowercase() == "direct"
@@ -72,18 +72,24 @@ class VayRowPingService : Service() {
 
             val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
             val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
-            val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+            val globalCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
+
+            val useSniPool = tunnelPrefs.getBoolean("use_sni_pool", false)
+            val selectedSniIndex = tunnelPrefs.getInt("selected_sni_index", -1)
+            val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
 
             // Fetch the specific CDN saved to this config, unless Global Override is active
             val targetCdn = if (globalOverride) {
                 globalCdn
             } else if (isDefault) {
                 val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                defPrefs.getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
+                defPrefs.getString("${configId}_cdn", "CloudX") ?: "CloudX"
             } else {
                 val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
-                appPrefs.getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
+                appPrefs.getString("${configId}_cdn", "CloudX") ?: "CloudX"
             }
+
+            vlessWsIp = CryptoHelper.decrypt(vlessWsIp)
 
             Thread {
                 // mobile.Mobile.setGlobalVlessWsIP(vlessWsIp)
@@ -100,7 +106,8 @@ class VayRowPingService : Service() {
                        globalDnsServer,
                         getServerIpFromDomain,
                         targetCdn,
-                        vlessWsIp
+                        vlessWsIp,
+                        sniIndex
                     )
                 } else {
                     Mobile.pingDirectServer(

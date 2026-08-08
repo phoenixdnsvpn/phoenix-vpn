@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="16dp"
+    android:gravity="center_vertical"
+    android:background="?attr/selectableItemBackground">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_sni_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SNI-1"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface" />
+
+        <TextView
+            android:id="@+id/tv_sni_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Passed"
+            android:textSize="14sp"
+            android:layout_marginTop="4dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tv_sni_latency"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="120 ms"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+</LinearLayout>

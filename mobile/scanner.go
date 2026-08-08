@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"fmt"
 	"math/rand"
 	"net"
@@ -12,45 +14,66 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	_ "embed"	
 	"sync/atomic"
 	"time"
+    "bytes"
 )
 
-var (
+//go:embed cdn_data.enc
+var encryptedCDNData []byte
 
-	cfCIDRs = []string{
-		"103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
-		"104.16.0.0/13", "104.24.0.0/14", "108.162.192.0/18",
-		"131.0.72.0/22", "141.101.64.0/18", "162.158.0.0/15",
-		"172.64.0.0/13", "173.245.48.0/20", "188.114.96.0/20",
-		"190.93.240.0/20", "197.234.240.0/22", "198.41.128.0/17",				
-	}
-	
-	cfScanCancel context.CancelFunc
-	cfScanMu     sync.Mutex
-)
-
-var amazonCIDRs = []string{
-	"13.32.0.0/15", "13.35.0.0/16", "13.113.203.0/24",
-	"13.124.199.0/24", "13.224.0.0/14", "13.249.0.0/16",
-	"15.158.0.0/16", "15.193.0.0/16", "18.160.0.0/15",
-	"18.164.0.0/15", "18.172.0.0/15", "52.46.0.0/18",
-	"52.84.0.0/15", "52.124.128.0/17", "52.222.128.0/17",
-	"54.182.0.0/16", "54.192.0.0/16", "54.230.0.0/16",
-	"54.239.128.0/18", "54.239.192.0/19", "54.240.128.0/18",
-	"64.252.64.0/18", "71.152.0.0/17", "99.84.0.0/16",
-	"108.138.0.0/15", "130.176.0.0/16", "143.204.0.0/16",
-	"204.246.164.0/22", "204.246.168.0/22", "204.246.174.0/23",
-	"204.246.176.0/20", "205.251.192.0/19", "205.251.249.0/24",
-	"205.251.250.0/23", "205.251.252.0/23", "205.251.254.0/24",
-	"216.137.32.0/19", 
+type CDNLists struct {
+	CloudXCIDRs []string `json:"cloudx_cidrs"`
+	CloudYCIDRs []string `json:"cloudy_cidrs"`
+	CloudZCIDRs []string `json:"cloudz_cidrs"`
 }
 
-type CFScannerCallback interface {
+var (
+	cfScanCancel context.CancelFunc
+	cfScanMu     sync.Mutex
+	
+	// Global variable to hold your decrypted lists in memory
+	TargetCDNs CDNLists 
+)
+
+// Call this function once when scanner initializes
+func LoadCDNData() error {
+	// 1. Safety check for community builds where the key might be empty
+	if InjectedPrivateKey == "" {
+		return errors.New("no injected private key found for CDN data decryption")
+	}
+
+	// 2. Decrypt the embedded byte array using the native AES-GCM helper and injected key
+	decryptedJSON, err := decryptAESGCM(encryptedCDNData, InjectedPrivateKey)
+	if err != nil {
+		log.Printf("VAY_DEBUG: [Scanner] AES DECRYPTION FAILED: %v", err)
+		return err
+	}
+
+
+	// 3. Strip hidden UTF-8 BOMs or stray characters before the JSON starts
+	startIdx := bytes.IndexByte(decryptedJSON, '{')
+	if startIdx != -1 {
+		decryptedJSON = decryptedJSON[startIdx:]
+	}
+
+	// 4. Parse the JSON into your Go struct
+	err = json.Unmarshal(decryptedJSON, &TargetCDNs)
+	if err != nil {
+		log.Printf("VAY_DEBUG: [Scanner] JSON PARSE ERROR: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+type CdnScannerCallback interface {
 	OnUpdate(result string)
 }
 
-func getRandomIP(cidr string) (string, error) {
+// Updated to accept our custom time-seeded random generator
+func getRandomIP(cidr string, rnd *rand.Rand) (string, error) {
 	_, ipv4Net, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return "", err
@@ -62,7 +85,7 @@ func getRandomIP(cidr string) (string, error) {
 
 	ones, bits := ipv4Net.Mask.Size()
 	hostBits := bits - ones
-	hostNum := rand.Intn(1<<hostBits - 2) + 1
+	hostNum := rnd.Intn(1<<hostBits - 2) + 1
 
 	resultIP := make(net.IP, 4)
 	copy(resultIP, ip)
@@ -72,23 +95,8 @@ func getRandomIP(cidr string) (string, error) {
 	}
 	return resultIP.String(), nil
 }
-/*
-func generateCloudflareIPs(count int) []string {
-	ips := make(map[string]bool)
-	var result []string
 
-	for len(result) < count {
-		cidr := cfCIDRs[rand.Intn(len(cfCIDRs))]
-		ip, err := getRandomIP(cidr)
-		if err == nil && !ips[ip] {
-			ips[ip] = true
-			result = append(result, ip)
-		}
-	}
-	return result
-}*/
-
-func StopCloudflareScanner() {
+func StopCdnScanner() {
 	cfScanMu.Lock()
 	defer cfScanMu.Unlock()
 	if cfScanCancel != nil {
@@ -98,31 +106,60 @@ func StopCloudflareScanner() {
 }
 
 func generateIPs(count int, targetCDN string) []string {
+	cdnLower := strings.ToLower(targetCDN)
+
+	// Create a localized, time-seeded random generator to ensure a unique series every run
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// Ensure the CDN data is loaded before attempting to access it
+	if len(TargetCDNs.CloudZCIDRs) == 0 {
+		err := LoadCDNData()
+		if err != nil {
+			log.Printf("VAY_DEBUG: [Scanner] WARNING: Failed to load encrypted CDN data: %v", err)
+		}
+	}
+
+	if cdnLower == "cloudz" {
+		ips := make([]string, len(TargetCDNs.CloudZCIDRs))
+		copy(ips, TargetCDNs.CloudZCIDRs) // Work on a copy to avoid modifying the global list
+		
+		if len(ips) > 0 {
+			// Use our custom time-seeded generator to shuffle
+			rnd.Shuffle(len(ips), func(i, j int) {
+				ips[i], ips[j] = ips[j], ips[i]
+			})
+
+			if count > 0 && len(ips) > count {
+				return ips[:count]
+			}
+			return ips
+		}
+
+		log.Printf("VAY_DEBUG: [Scanner] WARNING: No IP was found!")
+		return []string{}
+	}
+
 	var cidrs []string
-	
-	// Route the IP generation based on the dynamic JSON value passed from Kotlin
-	switch strings.ToLower(targetCDN) {
-	case "amazon":
-		cidrs = amazonCIDRs
-	case "cloudflare":
-		cidrs = cfCIDRs
-	// case "fastly":
-	// 	cidrs = fastlyCIDRs // (Easy to add in the future)
+	switch cdnLower {
+	case "cloudy":
+		cidrs = TargetCDNs.CloudYCIDRs
+	case "cloudx":
+		cidrs = TargetCDNs.CloudXCIDRs
 	default:
-		cidrs = cfCIDRs // Safe fallback if the JSON contains an unsupported CDN
+		cidrs = TargetCDNs.CloudXCIDRs
 	}
 
 	ips := make(map[string]bool)
 	var result []string
 
-// Safety check to prevent panics if a future CIDR list is empty
 	if len(cidrs) == 0 {
 		return result
 	}
-	
+
 	for len(result) < count {
-		cidr := cidrs[rand.Intn(len(cidrs))]
-		ip, err := getRandomIP(cidr)
+		// Use our custom time-seeded generator here as well
+		cidr := cidrs[rnd.Intn(len(cidrs))]
+		ip, err := getRandomIP(cidr, rnd)
 		if err == nil && !ips[ip] {
 			ips[ip] = true
 			result = append(result, ip)
@@ -131,10 +168,10 @@ func generateIPs(count int, targetCDN string) []string {
 	return result
 }
 
-func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int64, targetCDN string, cb CFScannerCallback) string {
+func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targetCDN string, dialTimeoutMs int, readDeadlineMs int, cb CdnScannerCallback) string {
 	cfScanMu.Lock()
 	if cfScanCancel != nil {
-		cfScanCancel() 
+		cfScanCancel()
 	}
 
 	if requestedCount <= 0 {
@@ -145,30 +182,44 @@ func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int6
 	cfScanCancel = cancel
 	cfScanMu.Unlock()
 
-	defer StopCloudflareScanner()
-   
-	// 1. Resolve SNI
+	defer StopCdnScanner()
+
+	// 1. Resolve SNI & Path
 	domainToUse := ""
-	pathToUse := "/vayws"
+	pathToUse := "/"
+	isWebsocket := true
 
 	if isDefault {
-		// APPLY THE TARGET CDN FORK HERE
-		if strings.ToLower(targetCDN) == "amazon" {
-			if d := getAwsCdnDomain(configIndex); d != "" {
+		cdnLower := strings.ToLower(targetCDN)
+
+		if cdnLower == "cloudy" {
+			if d := getCloudYCdnDomain(configIndex); d != "" {
 				domainToUse = d
 			}
+		} else if cdnLower == "cloudz" {
+			if d := getXhttpCdnDomain(configIndex); d != "" {
+				domainToUse = d
+			}
+			isWebsocket = false
 		} else {
 			if d := getWsDomain(configIndex); d != "" {
 				domainToUse = d
 			}
 		}
-		
-		if p := getWsPath(configIndex); p != "" {
-			pathToUse = p
+
+		if cdnLower == "cloudz" {
+			if p := getXhttpPath(configIndex); p != "" {
+				pathToUse = p
+			}
+		} else {
+			if p := getWsPath(configIndex); p != "" {
+				pathToUse = p
+			}
 		}
 	}
 
 	if domainToUse == "" {
+		log.Printf("VAY_DEBUG: [Scanner] ERROR: Resolved domain is EMPTY! Cannot scan without SNI.")
 		return ""
 	}
 
@@ -176,16 +227,26 @@ func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int6
 		domainToUse = strings.Split(domainToUse, ":")[0]
 	}
 
-	// 2. Setup Batch Parameters using the selected CDN CIDR ranges
+	// 2. Generate target IP list
 	testIPs := generateIPs(int(requestedCount), targetCDN)
-	
+//	log.Printf("VAY_DEBUG: [Scanner] STARTING SCAN -> CDN: %s | Total IPs to test: %d | SNI Domain: %s | Path: %s | Mode: %s",
+//		targetCDN, len(testIPs), domainToUse, pathToUse, map[bool]string{true: "WebSocket", false: "xHTTP"}[isWebsocket])
+
+// ADD THESE DEBUG LOGS:
+	if len(testIPs) == 0 {
+		log.Printf("VAY_DEBUG: [Scanner] ERROR: generateIPs returned 0 IPs for target: %s! The scan loop will be skipped.", targetCDN)
+	}
+
+//	log.Printf("VAY_DEBUG: [Scanner] STARTING SCAN -> CDN: %s | Total IPs to test: %d | SNI Domain: %s | Path: %s | Mode: %s",
+//		targetCDN, len(testIPs), domainToUse, pathToUse, map[bool]string{true: "WebSocket", false: "xHTTP"}[isWebsocket])
+		
 	batchSize := 1024
 
 	type scanRes struct {
 		ip      string
 		latency int64
 	}
-	
+
 	type CFResult struct {
 		IP      string `json:"ip"`
 		Latency int64  `json:"latency"`
@@ -194,8 +255,8 @@ func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int6
 	resultsChan := make(chan scanRes, requestedCount)
 	var scannedCount int32 = 0
 	var foundCount int32 = 0
-	
-	var validResults []CFResult 
+
+	var validResults []CFResult
 
 	// 3. Start Batch Loop
 	for i := 0; i < len(testIPs); i += batchSize {
@@ -223,15 +284,18 @@ func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int6
 				}
 
 				atomic.AddInt32(&scannedCount, 1)
+				// log.Printf("VAY_DEBUG: [Scanner] Processing IP: %s", targetIP)
+
 				address := net.JoinHostPort(targetIP, "443")
 				start := time.Now()
 
-				dialCtx, dialCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+				dialCtx, dialCancel := context.WithTimeout(ctx, time.Duration(dialTimeoutMs)*time.Millisecond)
 				defer dialCancel()
 
 				var d net.Dialer
 				conn, err := d.DialContext(dialCtx, "tcp", address)
 				if err != nil || conn == nil {
+					// log.Printf("VAY_DEBUG: [Scanner] %s -> TCP Dial Failed: %v", targetIP, err)
 					return
 				}
 
@@ -242,74 +306,78 @@ func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int6
 				tlsConn := tls.Client(conn, tlsConfig)
 				err = tlsConn.HandshakeContext(dialCtx)
 				if err != nil {
+					// log.Printf("VAY_DEBUG: [Scanner] %s -> TLS Handshake Failed (SNI: %s): %v", targetIP, domainToUse, err)
 					tlsConn.Close()
 					return
 				}
 
-				reqStr := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
+				var reqStr string
+				if isWebsocket {
+					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
+				} else {
+					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
+				}
+
 				_, err = tlsConn.Write([]byte(reqStr))
+				if err != nil {
+					//log.Printf("VAY_DEBUG: [Scanner] %s -> Failed to send HTTP probe: %v", targetIP, err)
+					tlsConn.Close()
+					return
+				}
 
-				if err == nil {
-					tlsConn.SetReadDeadline(time.Now().Add(800 * time.Millisecond))
-					buf := make([]byte, 1024)
-					n, readErr := tlsConn.Read(buf)
+				tlsConn.SetReadDeadline(time.Now().Add(time.Duration(readDeadlineMs) * time.Millisecond))
+				buf := make([]byte, 1024)
+				n, readErr := tlsConn.Read(buf)
 
-					if readErr == nil && n > 0 {
-						resp := string(buf[:n])
-						if strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 101") {
-							lat := time.Since(start).Milliseconds()
-							atomic.AddInt32(&foundCount, 1)
-							resultsChan <- scanRes{ip: targetIP, latency: lat}
-						}
+				if readErr == nil && n > 0 {
+					resp := string(buf[:n])
+					//Log the exact response header line for debugging in logcat
+					/*firstLine := resp
+					if idx := strings.Index(resp, "\r\n"); idx != -1 {
+						firstLine = resp[:idx]
 					}
+					log.Printf("VAY_DEBUG: [Scanner] %s -> Response Received: %s", targetIP, firstLine)*/
+
+					if strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 101") || strings.Contains(resp, "HTTP/1.1 200") || strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 404") {
+						lat := time.Since(start).Milliseconds()
+						atomic.AddInt32(&foundCount, 1)
+						// log.Printf("VAY_DEBUG: [Scanner] SUCCESS -> Valid IP Found: %s (%dms)", targetIP, lat)
+						resultsChan <- scanRes{ip: targetIP, latency: lat}
+					}
+				} else {
+					// log.Printf("VAY_DEBUG: [Scanner] %s -> Read Timeout or Empty Response: %v", targetIP, readErr)
 				}
 				tlsConn.Close()
 			}(ip)
 		}
 
-		// Wait for batch to finish
 		wg.Wait()
 
-		// 4. Drain, Sort, and Mask Results
 	drainLoop:
 		for {
 			select {
 			case res := <-resultsChan:
 				validResults = append(validResults, CFResult{IP: res.ip, Latency: res.latency})
 			default:
-				break drainLoop 
+				break drainLoop
 			}
 		}
 
 		sort.Slice(validResults, func(x, y int) bool {
 			return validResults[x].Latency < validResults[y].Latency
 		})
-
-		maskedDisplay := make([]CFResult, len(validResults))
-		for i, v := range validResults {
-			if i == 0 {
-				maskedDisplay[i] = v
-			} else {
-				parts := strings.Split(v.IP, ".")
-				if len(parts) == 4 {
-					maskedDisplay[i] = CFResult{IP: fmt.Sprintf("%s.%s.%s.%s", parts[0], parts[1], parts[2], parts[3]), Latency: v.Latency}
-				} else {
-					maskedDisplay[i] = CFResult{IP: "***.***.***.***", Latency: v.Latency}
-				}
-			}
-		}
-
-		resBytes, _ := json.Marshal(maskedDisplay)
+	
+		resBytes, _ := json.Marshal(validResults)
 		currentResultStr := fmt.Sprintf("%s|%d|%d", string(resBytes), atomic.LoadInt32(&scannedCount), atomic.LoadInt32(&foundCount))
 
 		if end < len(testIPs) {
 			if cb != nil {
 				cb.OnUpdate(currentResultStr)
 			}
-			
+
 			select {
 			case <-ctx.Done():
-				return currentResultStr 
+				return currentResultStr
 			case <-time.After(30 * time.Second):
 			}
 		} else {
@@ -320,195 +388,7 @@ func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int6
 	return ""
 }
 
-/*func RunCloudflareScanner(isDefault bool, configIndex int64, requestedCount int64, cb CFScannerCallback) string {
-	cfScanMu.Lock()
-	if cfScanCancel != nil {
-		cfScanCancel() 
-	}
-
-	if requestedCount <= 0 {
-		requestedCount = 512
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cfScanCancel = cancel
-	cfScanMu.Unlock()
-
-	defer StopCloudflareScanner()
-   
-	// 1. Resolve SNI
-	domainToUse := ""
-	pathToUse := "/vayws"
-
-	if isDefault {
-		if d := getWsDomain(configIndex); d != "" {
-			domainToUse = d
-		}
-		if p := getWsPath(configIndex); p != "" {
-			pathToUse = p
-		}
-	}
-
-	if domainToUse == "" {
-		return ""
-	}
-
-	if strings.Contains(domainToUse, ":") {
-		domainToUse = strings.Split(domainToUse, ":")[0]
-	}
-
-	// 2. Setup Batch Parameters
-	testIPs := generateCloudflareIPs(int(requestedCount))
-	
-	// INCREASED: Now processes 512 IPs before pushing an update
-	batchSize := 1024
-
-	type scanRes struct {
-		ip      string
-		latency int64
-	}
-	
-	type CFResult struct {
-		IP      string `json:"ip"`
-		Latency int64  `json:"latency"`
-	}
-
-	resultsChan := make(chan scanRes, requestedCount)
-	var scannedCount int32 = 0
-	var foundCount int32 = 0
-	
-	var validResults []CFResult 
-
-	// 3. Start Batch Loop
-	for i := 0; i < len(testIPs); i += batchSize {
-		end := i + batchSize
-		if end > len(testIPs) {
-			end = len(testIPs)
-		}
-		batchIPs := testIPs[i:end]
-
-		var wg sync.WaitGroup
-		sem := make(chan struct{}, 20)
-
-		for _, ip := range batchIPs {
-			wg.Add(1)
-			sem <- struct{}{}
-
-			go func(targetIP string) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				atomic.AddInt32(&scannedCount, 1)
-				address := net.JoinHostPort(targetIP, "443")
-				start := time.Now()
-
-				dialCtx, dialCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
-				defer dialCancel()
-
-				var d net.Dialer
-				conn, err := d.DialContext(dialCtx, "tcp", address)
-				if err != nil || conn == nil {
-					return
-				}
-
-				tlsConfig := &tls.Config{
-					ServerName:         domainToUse,
-					InsecureSkipVerify: false,
-				}
-				tlsConn := tls.Client(conn, tlsConfig)
-				err = tlsConn.HandshakeContext(dialCtx)
-				if err != nil {
-					tlsConn.Close()
-					return
-				}
-
-				reqStr := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
-				_, err = tlsConn.Write([]byte(reqStr))
-
-				if err == nil {
-					tlsConn.SetReadDeadline(time.Now().Add(800 * time.Millisecond))
-					buf := make([]byte, 1024)
-					n, readErr := tlsConn.Read(buf)
-
-					if readErr == nil && n > 0 {
-						resp := string(buf[:n])
-						if strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 101") {
-							lat := time.Since(start).Milliseconds()
-							atomic.AddInt32(&foundCount, 1)
-							resultsChan <- scanRes{ip: targetIP, latency: lat}
-						}
-					}
-				}
-				tlsConn.Close()
-			}(ip)
-		}
-
-		// Wait for batch to finish
-		wg.Wait()
-
-		// 4. Drain, Sort, and Mask Results
-	drainLoop:
-		for {
-			select {
-			case res := <-resultsChan:
-				validResults = append(validResults, CFResult{IP: res.ip, Latency: res.latency})
-			default:
-				break drainLoop 
-			}
-		}
-
-		sort.Slice(validResults, func(x, y int) bool {
-			return validResults[x].Latency < validResults[y].Latency
-		})
-
-		// ANTI-CENSORSHIP: Create a masked copy for the UI
-		maskedDisplay := make([]CFResult, len(validResults))
-		for i, v := range validResults {
-			if i == 0 {
-				maskedDisplay[i] = v
-			} else {
-				parts := strings.Split(v.IP, ".")
-				if len(parts) == 4 {
-					maskedDisplay[i] = CFResult{IP: fmt.Sprintf("%s.%s.%s.%s", parts[0], parts[1], parts[2], parts[3]), Latency: v.Latency}
-					// maskedDisplay[i] = CFResult{IP: fmt.Sprintf("%s.*.*.*", parts[0]), Latency: v.Latency}
-				} else {
-					maskedDisplay[i] = CFResult{IP: "***.***.***.***", Latency: v.Latency}
-				}
-			}
-		}
-
-		resBytes, _ := json.Marshal(maskedDisplay)
-		currentResultStr := fmt.Sprintf("%s|%d|%d", string(resBytes), atomic.LoadInt32(&scannedCount), atomic.LoadInt32(&foundCount))
-
-		// 5. Push Update and Pause NAT
-		if end < len(testIPs) {
-			if cb != nil {
-				cb.OnUpdate(currentResultStr)
-			}
-			
-			// INCREASED: Wait 30 seconds for Router NAT table to flush completely
-			select {
-			case <-ctx.Done():
-				return currentResultStr 
-			case <-time.After(30 * time.Second):
-			}
-		} else {
-			return currentResultStr
-		}
-	}
-
-	return ""
-}*/
-
 // resolveDomainOverDoH safely queries a list of domains using encrypted HTTPS.
-// It accepts a comma-separated string of domains, testing each one sequentially,
-// and returns the first valid IP address it successfully resolves.
 func resolveDomainOverDoH(rawDomains string, customDohServer string) string {
 	// 1. Format the DoH URL safely (Prepared once for all domains)
 	dohServer := "https://1.1.1.1/dns-query" // Ultimate Fallback
@@ -643,4 +523,51 @@ func getServerIP(index int64, globalDnsServer string, getServerIpFromDomain bool
 	}
 		
 	return serverIP 
+}
+
+// GetCloudIPCounts calculates the total number of available IP addresses
+// for each CDN and returns them as a JSON string to Kotlin.
+func GetCloudIPCounts() string {
+	// Ensure the encrypted JSON has been decrypted and loaded into memory
+	if len(TargetCDNs.CloudZCIDRs) == 0 && len(TargetCDNs.CloudXCIDRs) == 0 {
+		_ = LoadCDNData()
+	}
+
+	// Helper function to calculate the total number of IPs inside a list of CIDRs
+	countCIDRIPs := func(cidrs []string) int64 {
+		var total int64 = 0
+		for _, cidrStr := range cidrs {
+			_, ipv4Net, err := net.ParseCIDR(cidrStr)
+			if err != nil {
+				continue // Skip invalid CIDRs
+			}
+			ones, bits := ipv4Net.Mask.Size()
+			hostBits := bits - ones
+			if hostBits >= 0 && hostBits <= 32 {
+				total += int64(1) << hostBits // 2^hostBits
+			}
+		}
+		return total
+	}
+
+	// Use a map to ensure we only count strictly unique IPs for Cloudz
+	uniqueCloudZ := make(map[string]bool)
+	for _, ip := range TargetCDNs.CloudZCIDRs {
+		uniqueCloudZ[ip] = true
+	}
+
+	// Map the totals
+	counts := map[string]int64{
+		"cloudx": countCIDRIPs(TargetCDNs.CloudXCIDRs),
+		"cloudy": countCIDRIPs(TargetCDNs.CloudYCIDRs),
+		"cloudz": int64(len(uniqueCloudZ)),
+	}
+
+	// Convert to a JSON string for the Kotlin frontend
+	resBytes, err := json.Marshal(counts)
+	if err != nil {
+		return `{"cloudx": 0, "cloudy": 0, "cloudz": 0}`
+	}
+
+	return string(resBytes)
 }
