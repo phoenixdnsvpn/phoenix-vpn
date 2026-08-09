@@ -426,10 +426,7 @@ def main():
         run_cmd(ssh, "iptables -X", user, password)
         run_cmd(ssh, "iptables -t nat -F", user, password)
         
-        run_cmd(ssh, "iptables -P INPUT DROP", user, password)
-        run_cmd(ssh, "iptables -P FORWARD ACCEPT", user, password)
-        run_cmd(ssh, "iptables -P OUTPUT ACCEPT", user, password)
-        
+        # 1. ALLOW REQUIRED TRAFFIC FIRST
         run_cmd(ssh, "iptables -A INPUT -i lo -j ACCEPT", user, password)
         run_cmd(ssh, "iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", user, password)
         run_cmd(ssh, f"iptables -A INPUT -p tcp --dport {current_ssh_port} -j ACCEPT", user, password)
@@ -438,6 +435,11 @@ def main():
             run_cmd(ssh, f"iptables -A INPUT -p tcp --dport {new_ssh_port} -j ACCEPT", user, password)
             
         run_cmd(ssh, "iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 5300", user, password)
+        
+        # 2. NOW SAFE TO DROP EVERYTHING ELSE
+        run_cmd(ssh, "iptables -P INPUT DROP", user, password)
+        run_cmd(ssh, "iptables -P FORWARD ACCEPT", user, password)
+        run_cmd(ssh, "iptables -P OUTPUT ACCEPT", user, password)
         
         run_cmd(ssh, "mkdir -p /etc/iptables", user, password)
         run_cmd(ssh, "iptables-save > /etc/iptables/rules.v4", user, password)
