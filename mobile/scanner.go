@@ -3,6 +3,7 @@ package mobile
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,13 +12,15 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
+	"strconv"
 	"sync"
 	_ "embed"	
 	"sync/atomic"
 	"time"
-    "bytes"
+	"bytes"
 )
 
 //go:embed cdn_data.enc
@@ -27,6 +30,7 @@ type CDNLists struct {
 	CloudXCIDRs []string `json:"cloudx_cidrs"`
 	CloudYCIDRs []string `json:"cloudy_cidrs"`
 	CloudZCIDRs []string `json:"cloudz_cidrs"`
+	CloudVCIDRs []string `json:"cloudv_cidrs"`
 }
 
 var (
@@ -51,7 +55,6 @@ func LoadCDNData() error {
 		return err
 	}
 
-
 	// 3. Strip hidden UTF-8 BOMs or stray characters before the JSON starts
 	startIdx := bytes.IndexByte(decryptedJSON, '{')
 	if startIdx != -1 {
@@ -72,7 +75,7 @@ type CdnScannerCallback interface {
 	OnUpdate(result string)
 }
 
-// Updated to accept our custom time-seeded random generator
+// Old Method Helper: Used when uniformDistribution is FALSE
 func getRandomIP(cidr string, rnd *rand.Rand) (string, error) {
 	_, ipv4Net, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -105,26 +108,33 @@ func StopCdnScanner() {
 	}
 }
 
-func generateIPs(count int, targetCDN string) []string {
+// Updated with uniformDistribution flag branch
+func generateIPs(count int, targetCDN string, uniformDistribution bool) []string {
 	cdnLower := strings.ToLower(targetCDN)
 
 	// Create a localized, time-seeded random generator to ensure a unique series every run
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Ensure the CDN data is loaded before attempting to access it
-	if len(TargetCDNs.CloudZCIDRs) == 0 {
+	if len(TargetCDNs.CloudZCIDRs) == 0 && len(TargetCDNs.CloudXCIDRs) == 0 {
 		err := LoadCDNData()
 		if err != nil {
 			log.Printf("VAY_DEBUG: [Scanner] WARNING: Failed to load encrypted CDN data: %v", err)
 		}
 	}
 
-	if cdnLower == "cloudz" {
-		ips := make([]string, len(TargetCDNs.CloudZCIDRs))
-		copy(ips, TargetCDNs.CloudZCIDRs) // Work on a copy to avoid modifying the global list
-		
+	if cdnLower == "cloudz" || cdnLower == "cloudv" {
+		var sourceList []string
+		if cdnLower == "cloudz" {
+			sourceList = TargetCDNs.CloudZCIDRs
+		} else {
+			sourceList = TargetCDNs.CloudVCIDRs
+		}
+
+		ips := make([]string, len(sourceList))
+		copy(ips, sourceList)
+
 		if len(ips) > 0 {
-			// Use our custom time-seeded generator to shuffle
 			rnd.Shuffle(len(ips), func(i, j int) {
 				ips[i], ips[j] = ips[j], ips[i]
 			})
@@ -133,12 +143,13 @@ func generateIPs(count int, targetCDN string) []string {
 				return ips[:count]
 			}
 			return ips
-		}
-
-		log.Printf("VAY_DEBUG: [Scanner] WARNING: No IP was found!")
-		return []string{}
 	}
 
+	log.Printf("VAY_DEBUG: [Scanner] WARNING: No %s IPs found!", targetCDN)
+	return []string{}
+}
+
+	// --- Resolve target CIDR list for CloudX or CloudY ---
 	var cidrs []string
 	switch cdnLower {
 	case "cloudy":
@@ -149,26 +160,105 @@ func generateIPs(count int, targetCDN string) []string {
 		cidrs = TargetCDNs.CloudXCIDRs
 	}
 
-	ips := make(map[string]bool)
-	var result []string
-
 	if len(cidrs) == 0 {
+		return []string{}
+	}
+
+	// =======================================================
+	// ROUTING FORK: Old Method vs Flattened Uniform Method
+	// =======================================================
+
+	if !uniformDistribution {
+		// --- OLD METHOD: Random CIDR Block -> Random IP ---
+		ips := make(map[string]bool)
+		var result []string
+
+		for len(result) < count {
+			cidr := cidrs[rnd.Intn(len(cidrs))]
+			ip, err := getRandomIP(cidr, rnd)
+			if err == nil && !ips[ip] {
+				ips[ip] = true
+				result = append(result, ip)
+			}
+		}
 		return result
 	}
 
+	// --- NEW METHOD: Uniform Distribution (Flattened CIDRs) ---
+	type ipBlock struct {
+		base uint32
+		size uint32
+	}
+	var blocks []ipBlock
+	var totalIPs uint32 = 0
+
+	// 1. Calculate the total continuous IP space
+	for _, cidrStr := range cidrs {
+		_, ipv4Net, err := net.ParseCIDR(cidrStr)
+		if err != nil {
+			continue // Skip invalid CIDR strings
+		}
+		ip := ipv4Net.IP.To4()
+		if ip == nil {
+			continue
+		}
+
+		ipInt := binary.BigEndian.Uint32(ip)
+		ones, bits := ipv4Net.Mask.Size()
+		size := uint32(1 << (bits - ones))
+
+		// Strip Network and Broadcast addresses
+		if size > 2 {
+			ipInt += 1
+			size -= 2
+		}
+
+		blocks = append(blocks, ipBlock{base: ipInt, size: size})
+		totalIPs += size
+	}
+
+	if totalIPs == 0 {
+		return []string{}
+	}
+
+	if uint32(count) > totalIPs {
+		count = int(totalIPs)
+	}
+
+	// 2. Draw Uniform Samples
+	selectedMap := make(map[uint32]bool)
+	var result []string
+
 	for len(result) < count {
-		// Use our custom time-seeded generator here as well
-		cidr := cidrs[rnd.Intn(len(cidrs))]
-		ip, err := getRandomIP(cidr, rnd)
-		if err == nil && !ips[ip] {
-			ips[ip] = true
-			result = append(result, ip)
+		// Pick a random index across the entirely flattened IP pool
+		targetIndex := rnd.Uint32() % totalIPs
+
+		// Map the index back to a specific IP in a specific block
+		var selectedIP uint32
+		var currentSum uint32 = 0
+
+		for _, b := range blocks {
+			if targetIndex < currentSum+b.size {
+				selectedIP = b.base + (targetIndex - currentSum)
+				break
+			}
+			currentSum += b.size
+		}
+
+		// Ensure uniqueness and convert back to string
+		if !selectedMap[selectedIP] {
+			selectedMap[selectedIP] = true
+			ipBytes := make(net.IP, 4)
+			binary.BigEndian.PutUint32(ipBytes, selectedIP)
+			result = append(result, ipBytes.String())
 		}
 	}
+
 	return result
 }
 
-func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targetCDN string, dialTimeoutMs int, readDeadlineMs int, cb CdnScannerCallback) string {
+// Note the updated signature using 'batchDelaySec int'
+func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targetCDN string, targetPort int, dialTimeoutMs int, readDeadlineMs int, batchDelaySec int, uniformDistribution bool, cb CdnScannerCallback) string {
 	cfScanMu.Lock()
 	if cfScanCancel != nil {
 		cfScanCancel()
@@ -192,22 +282,15 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 	if isDefault {
 		cdnLower := strings.ToLower(targetCDN)
 
-		if cdnLower == "cloudy" {
-			if d := getCloudYCdnDomain(configIndex); d != "" {
-				domainToUse = d
-			}
-		} else if cdnLower == "cloudz" {
-			if d := getXhttpCdnDomain(configIndex); d != "" {
-				domainToUse = d
-			}
+		activeProtocol := "vless-ws"
+		if cdnLower == "cloudz" {
+			activeProtocol = "vless-xhttp"
 			isWebsocket = false
-		} else {
-			if d := getWsDomain(configIndex); d != "" {
-				domainToUse = d
-			}
 		}
 
-		if cdnLower == "cloudz" {
+		domainToUse = GetVlessCdnDomain(configIndex, activeProtocol, targetCDN)
+
+		if activeProtocol == "vless-xhttp" {
 			if p := getXhttpPath(configIndex); p != "" {
 				pathToUse = p
 			}
@@ -217,7 +300,7 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 			}
 		}
 	}
-
+	
 	if domainToUse == "" {
 		log.Printf("VAY_DEBUG: [Scanner] ERROR: Resolved domain is EMPTY! Cannot scan without SNI.")
 		return ""
@@ -227,18 +310,12 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 		domainToUse = strings.Split(domainToUse, ":")[0]
 	}
 
-	// 2. Generate target IP list
-	testIPs := generateIPs(int(requestedCount), targetCDN)
-//	log.Printf("VAY_DEBUG: [Scanner] STARTING SCAN -> CDN: %s | Total IPs to test: %d | SNI Domain: %s | Path: %s | Mode: %s",
-//		targetCDN, len(testIPs), domainToUse, pathToUse, map[bool]string{true: "WebSocket", false: "xHTTP"}[isWebsocket])
+	// 2. Generate target IP list using the specified distribution method
+	testIPs := generateIPs(int(requestedCount), targetCDN, uniformDistribution)
 
-// ADD THESE DEBUG LOGS:
 	if len(testIPs) == 0 {
 		log.Printf("VAY_DEBUG: [Scanner] ERROR: generateIPs returned 0 IPs for target: %s! The scan loop will be skipped.", targetCDN)
 	}
-
-//	log.Printf("VAY_DEBUG: [Scanner] STARTING SCAN -> CDN: %s | Total IPs to test: %d | SNI Domain: %s | Path: %s | Mode: %s",
-//		targetCDN, len(testIPs), domainToUse, pathToUse, map[bool]string{true: "WebSocket", false: "xHTTP"}[isWebsocket])
 		
 	batchSize := 1024
 
@@ -256,7 +333,16 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 	var scannedCount int32 = 0
 	var foundCount int32 = 0
 
-	var validResults []CFResult
+	validResults := []CFResult{}
+
+	// Helper function to print passed IPs to Logcat
+	printPassedIPs := func(status string) {
+		//log.Printf("VAY_DEBUG: [Scanner] === PASSED IPs LOG (%s) | Total Found: %d ===", status, len(validResults))
+		//for idx, res := range validResults {
+		//	log.Printf("VAY_DEBUG: [Scanner] #%d IP: %s | Latency: %d ms", idx+1, res.IP, res.Latency)
+		//}
+		// log.Printf("VAY_DEBUG: [Scanner] ===================================================")
+	}
 
 	// 3. Start Batch Loop
 	for i := 0; i < len(testIPs); i += batchSize {
@@ -285,8 +371,9 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 
 				atomic.AddInt32(&scannedCount, 1)
 				// log.Printf("VAY_DEBUG: [Scanner] Processing IP: %s", targetIP)
-
-				address := net.JoinHostPort(targetIP, "443")
+//				address := net.JoinHostPort(targetIP, "443")
+				address := net.JoinHostPort(targetIP, strconv.Itoa(targetPort))
+				strconv.Itoa(targetPort)
 				start := time.Now()
 
 				dialCtx, dialCancel := context.WithTimeout(ctx, time.Duration(dialTimeoutMs)*time.Millisecond)
@@ -295,7 +382,7 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 				var d net.Dialer
 				conn, err := d.DialContext(dialCtx, "tcp", address)
 				if err != nil || conn == nil {
-					// log.Printf("VAY_DEBUG: [Scanner] %s -> TCP Dial Failed: %v", targetIP, err)
+					// log.Printf("VAY_DEBUG: [Scanner] %s -> TCP Dial Failed: %v", targetIP, err)				
 					return
 				}
 
@@ -306,21 +393,22 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 				tlsConn := tls.Client(conn, tlsConfig)
 				err = tlsConn.HandshakeContext(dialCtx)
 				if err != nil {
-					// log.Printf("VAY_DEBUG: [Scanner] %s -> TLS Handshake Failed (SNI: %s): %v", targetIP, domainToUse, err)
 					tlsConn.Close()
+				    // log.Printf("VAY_DEBUG: [Scanner] %s -> TLS Handshake Failed (SNI: %s): %v", targetIP, domainToUse, err)
 					return
 				}
 
 				var reqStr string
 				if isWebsocket {
-					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
+//					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
+					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
 				} else {
-					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
+					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)					
 				}
 
 				_, err = tlsConn.Write([]byte(reqStr))
 				if err != nil {
-					//log.Printf("VAY_DEBUG: [Scanner] %s -> Failed to send HTTP probe: %v", targetIP, err)
+				    // log.Printf("VAY_DEBUG: [Scanner] %s -> Failed to send HTTP probe: %v", targetIP, err)
 					tlsConn.Close()
 					return
 				}
@@ -331,22 +419,54 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 
 				if readErr == nil && n > 0 {
 					resp := string(buf[:n])
-					//Log the exact response header line for debugging in logcat
-					/*firstLine := resp
-					if idx := strings.Index(resp, "\r\n"); idx != -1 {
-						firstLine = resp[:idx]
-					}
-					log.Printf("VAY_DEBUG: [Scanner] %s -> Response Received: %s", targetIP, firstLine)*/
+					respLower := strings.ToLower(resp)
 
-					if strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 101") || strings.Contains(resp, "HTTP/1.1 200") || strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 404") {
+					isValid := false
+
+					if isWebsocket {
+						// STRICT WEBSOCKET MODE
+						// Working proxies MUST return 101 Switching Protocols.
+						// WARP IPs and DPI middleboxes will NEVER return 101.
+						isValid = strings.Contains(resp, "HTTP/1.1 101")
+					} else {
+						// NON-WEBSOCKET MODE (xHTTP / gRPC)
+						// 1. Fetch the strict validation rules for the currently selected CDN target
+						targetCdnName := getCdnVendorName(targetCDN)
+						targetCdnCode := getCdnMatchCode(targetCDN)
+						
+						// 2. Strict validation ONLY. If it's missing from config, it fails securely.
+						isGenuineCDN := false
+						if targetCdnName != "" && targetCdnCode != "" {
+							isGenuineCDN = strings.Contains(respLower, "server: " + strings.ToLower(targetCdnName)) || 
+							               strings.Contains(respLower, strings.ToLower(targetCdnCode))
+						}
+
+						// Accept standard proxy backend responses
+						isValidStatus := strings.Contains(resp, "HTTP/1.1 200") ||
+							strings.Contains(resp, "HTTP/1.1 404") ||
+							strings.Contains(resp, "HTTP/1.1 400")
+							
+						// Explicitly REJECT 403 Forbidden (WARP/DPI blocks) and 426 (Upgrade Required)
+						isBlocked := strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 426")
+
+						if isGenuineCDN && isValidStatus && !isBlocked {
+							isValid = true
+						}
+					}
+
+					if isValid {
 						lat := time.Since(start).Milliseconds()
 						atomic.AddInt32(&foundCount, 1)
 						// log.Printf("VAY_DEBUG: [Scanner] SUCCESS -> Valid IP Found: %s (%dms)", targetIP, lat)
 						resultsChan <- scanRes{ip: targetIP, latency: lat}
+					}else{
+   					     // log.Printf("VAY_DEBUG: [Scanner] FAILED -> Valid IP Found: %s %v", targetIP, respLower)
 					}
-				} else {
-					// log.Printf("VAY_DEBUG: [Scanner] %s -> Read Timeout or Empty Response: %v", targetIP, readErr)
-				}
+					
+				}else{
+				    // log.Printf("VAY_DEBUG: [Scanner] %s -> Read Timeout or Empty Response: %v", targetIP, readErr)
+   		        }
+
 				tlsConn.Close()
 			}(ip)
 		}
@@ -366,7 +486,7 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 		sort.Slice(validResults, func(x, y int) bool {
 			return validResults[x].Latency < validResults[y].Latency
 		})
-	
+		
 		resBytes, _ := json.Marshal(validResults)
 		currentResultStr := fmt.Sprintf("%s|%d|%d", string(resBytes), atomic.LoadInt32(&scannedCount), atomic.LoadInt32(&foundCount))
 
@@ -375,18 +495,27 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 				cb.OnUpdate(currentResultStr)
 			}
 
+			// Force memory and socket cleanup before the pause
+		    runtime.GC()
+    
 			select {
 			case <-ctx.Done():
+				// Print passed IPs if user cancels mid-scan
+				printPassedIPs("CANCELLED")
 				return currentResultStr
-			case <-time.After(30 * time.Second):
+			// Delay uses seconds now
+			case <-time.After(time.Duration(batchDelaySec) * time.Second):
 			}
 		} else {
+			// Print passed IPs when all batches finish normally
+			printPassedIPs("COMPLETED")
 			return currentResultStr
 		}
 	}
 
 	return ""
 }
+
 
 // resolveDomainOverDoH safely queries a list of domains using encrypted HTTPS.
 func resolveDomainOverDoH(rawDomains string, customDohServer string) string {
@@ -556,11 +685,17 @@ func GetCloudIPCounts() string {
 		uniqueCloudZ[ip] = true
 	}
 
+	uniqueCloudV := make(map[string]bool)
+	for _, ip := range TargetCDNs.CloudVCIDRs {
+		uniqueCloudV[ip] = true
+	}
+	
 	// Map the totals
 	counts := map[string]int64{
 		"cloudx": countCIDRIPs(TargetCDNs.CloudXCIDRs),
 		"cloudy": countCIDRIPs(TargetCDNs.CloudYCIDRs),
 		"cloudz": int64(len(uniqueCloudZ)),
+		"cloudv": int64(len(uniqueCloudV)),		
 	}
 
 	// Convert to a JSON string for the Kotlin frontend

@@ -16,13 +16,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.switchmaterial.SwitchMaterial
 import org.json.JSONArray
 
 class CdnScannerActivity : AppCompatActivity() {
 
     private lateinit var tvProgress: TextView
     private lateinit var tvPassed: TextView
-//    private lateinit var tvStatus: TextView
     private lateinit var btnStartStop: Button
     private lateinit var btnSet: ImageButton
     private lateinit var btnShare: ImageButton
@@ -34,11 +34,16 @@ class CdnScannerActivity : AppCompatActivity() {
     private var configIndex = -1L
     private var configId = ""
     private var customDomain = ""
+
     private lateinit var etScanCount: com.google.android.material.textfield.TextInputEditText
+    private lateinit var etDelayTime: com.google.android.material.textfield.TextInputEditText
     private lateinit var etDialTimeout: com.google.android.material.textfield.TextInputEditText
     private lateinit var etReadDeadline: com.google.android.material.textfield.TextInputEditText
+    private lateinit var switchUniformDistribution: SwitchMaterial
+
     private val cfResults = mutableListOf<ResolverResult>()
     private lateinit var spinnerProtocol: android.widget.Spinner
+    private lateinit var spinnerPort: android.widget.Spinner
 
     private val scanReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -50,11 +55,14 @@ class CdnScannerActivity : AppCompatActivity() {
                     isScanning = false
                     btnStartStop.text = "START SCAN"
                     btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
-                    etScanCount.isEnabled = true // Unlocks the input field universally
+                    etScanCount.isEnabled = true
+                    etDelayTime.isEnabled = true
                     etDialTimeout.isEnabled = true
                     etReadDeadline.isEnabled = true
                     spinnerCdn.isEnabled = true
                     spinnerProtocol.isEnabled = true
+                    spinnerPort.isEnabled = true
+                    switchUniformDistribution.isEnabled = true
                 }
 
                 val rawResult = intent.getStringExtra("RAW_RESULT") ?: ""
@@ -68,13 +76,7 @@ class CdnScannerActivity : AppCompatActivity() {
                     val scannedCount = parts.getOrNull(1) ?: "0"
                     val foundCount = parts.getOrNull(2) ?: "0"
 
-                    // Apply dynamic target count
-                    if (isFinished) {
-//                        tvStatus.text = "Done"
-                    } else {
-//                        tvStatus.text = "Scanning..."
-                    }
-                    tvProgress.text = "$scannedCount / $targetCount" // Back to just numbers!
+                    tvProgress.text = "$scannedCount / $targetCount"
                     tvPassed.text = "$foundCount found"
 
                     cfResults.clear()
@@ -95,9 +97,7 @@ class CdnScannerActivity : AppCompatActivity() {
                     btnShare.isEnabled = cfResults.isNotEmpty()
 
                 } else {
-                    // Apply dynamic target count here as well
-//                    tvStatus.text = "Stopped"
-                    tvProgress.text = "0 / $targetCount" // Back to just numbers!
+                    tvProgress.text = "0 / $targetCount"
                     tvPassed.text = "0 found"
                     cfResults.clear()
                     adapter.notifyDataSetChanged()
@@ -124,16 +124,18 @@ class CdnScannerActivity : AppCompatActivity() {
         supportActionBar?.setDisplayShowHomeEnabled(true)
 
         etScanCount = findViewById(R.id.et_cf_scan_count)
+        etDelayTime = findViewById(R.id.et_cf_delay_time)
         etDialTimeout = findViewById(R.id.et_cf_dial_timeout)
         etReadDeadline = findViewById(R.id.et_cf_read_deadline)
+        switchUniformDistribution = findViewById(R.id.switch_uniform_distribution)
         tvProgress = findViewById(R.id.tv_cf_progress)
         tvPassed = findViewById(R.id.tv_cf_passed)
-//        tvStatus = findViewById(R.id.tv_cf_status)
         btnStartStop = findViewById(R.id.btn_cf_start_stop)
         btnSet = findViewById(R.id.btn_cf_set)
         btnShare = findViewById(R.id.btn_cf_share)
         spinnerCdn = findViewById(R.id.spinner_scanner_cdn)
         spinnerProtocol = findViewById(R.id.spinner_scanner_protocol)
+        spinnerPort = findViewById(R.id.spinner_scanner_port)
         recycler = findViewById(R.id.recycler_cf_results)
         recycler.layoutManager = LinearLayoutManager(this)
         recycler.addItemDecoration(androidx.recyclerview.widget.DividerItemDecoration(this, LinearLayoutManager.VERTICAL))
@@ -143,12 +145,22 @@ class CdnScannerActivity : AppCompatActivity() {
 
         // 1. Populate CDN Spinner dynamically from Go Native Vault
         val cdnList = mutableListOf<String>()
-        val cdnCount = mobile.Mobile.getCdnCount()
+        if (isDefaultConfig) {
+            val nativeIndex = configId.removePrefix("default_").toLongOrNull() ?: 0L
+            val configCloudsStr = mobile.Mobile.getDefaultConfigClouds(nativeIndex)
+            if (configCloudsStr.isNotEmpty()) {
+                cdnList.addAll(configCloudsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+            }
+        }
 
-        for (i in 0 until cdnCount) {
-            val name = mobile.Mobile.getCdnName(i)
-            if (name.isNotEmpty()) {
-                cdnList.add(name)
+        // Fallback: If it's a Custom Config (or the JSON didn't have the "clouds" array), load the Global list
+        if (cdnList.isEmpty()) {
+            val cdnCount = mobile.Mobile.getCdnCount()
+            for (i in 0 until cdnCount) {
+                val name = mobile.Mobile.getCdnName(i)
+                if (name.isNotEmpty()) {
+                    cdnList.add(name)
+                }
             }
         }
 
@@ -156,6 +168,7 @@ class CdnScannerActivity : AppCompatActivity() {
             cdnList.add("CloudX")
             cdnList.add("CloudY")
             cdnList.add("CloudZ")
+            cdnList.add("CloudV")
         }
 
         val spinnerAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
@@ -227,6 +240,26 @@ class CdnScannerActivity : AppCompatActivity() {
                 } else {
                     spinnerProtocol.setSelection(0)
                 }
+
+                val portsCsv = mobile.Mobile.getCdnPortsCsv(selectedCdn)
+                val cdnFilteredPorts = if (portsCsv.isNotEmpty()) {
+                    portsCsv.split(",").map { it.trim() }
+                } else {
+                    listOf("443")
+                }
+
+                val currentSelectedPort = spinnerPort.selectedItem?.toString() ?: "443"
+                val portAdapter = android.widget.ArrayAdapter(this@CdnScannerActivity, android.R.layout.simple_spinner_item, cdnFilteredPorts)
+                portAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                spinnerPort.adapter = portAdapter
+
+                if (cdnFilteredPorts.contains(currentSelectedPort)) {
+                    spinnerPort.setSelection(cdnFilteredPorts.indexOf(currentSelectedPort))
+                } else if (cdnFilteredPorts.contains("443")) {
+                    spinnerPort.setSelection(cdnFilteredPorts.indexOf("443"))
+                } else {
+                    spinnerPort.setSelection(0)
+                }
             }
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
@@ -240,6 +273,8 @@ class CdnScannerActivity : AppCompatActivity() {
 
                 // 1. Fetch the tunnel protocol directly from the Spinner UI
                 val currentProtocol = spinnerProtocol.selectedItem?.toString() ?: "vaydns"
+                val currentPortStr = spinnerPort.selectedItem?.toString() ?: "443"
+                val currentPort = currentPortStr.toLongOrNull() ?: 443L
 
                 // 2. GUARDRAIL: Verify CDN and Protocol compatibility
                 if (currentProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
@@ -250,27 +285,32 @@ class CdnScannerActivity : AppCompatActivity() {
                     }
                 }
 
-                // Grab the user's requested count
+                // 3. GUARDRAIL: Verify CDN and Port integrity (NEW)
+                // (Note: Gomobile maps Go 'int' to Kotlin 'Long' automatically)
+                val portSupported = mobile.Mobile.cdnSupportsPort(selectedCdn, currentPort)
+                if (!portSupported) {
+                    Toast.makeText(this, "Cannot Scan: CDN '$selectedCdn' does not support port '$currentPortStr'.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+
+                // Grab the user's requested values
                 val countStr = etScanCount.text.toString()
                 var scanCount = countStr.toIntOrNull() ?: 512
+                val delayTime = etDelayTime.text.toString().toIntOrNull() ?: 30
                 val dialTimeout = etDialTimeout.text.toString().toIntOrNull() ?: -1
                 val readDeadline = etReadDeadline.text.toString().toIntOrNull() ?: -1
+                val uniformDist = switchUniformDistribution.isChecked
 
-                // Cap the requested scan count to the maximum available IPs ---
+                // Cap the requested scan count to the maximum available IPs
                 try {
-                    // Fetch the JSON string representing the total IPs from your Go backend
                     val countsJsonStr = mobile.Mobile.getCloudIPCounts()
                     val countsJson = org.json.JSONObject(countsJsonStr)
 
-                    // Match the key (e.g., "CloudX" -> "cloudx")
                     val cdnKey = selectedCdn.lowercase()
                     val maxAvailable = countsJson.optLong(cdnKey, Long.MAX_VALUE)
 
-                    // If the user asked for more IPs than actually exist, hard-cap it
                     if (maxAvailable > 0 && scanCount > maxAvailable) {
                         scanCount = maxAvailable.toInt()
-
-                        // Automatically update the text field so the user sees the correction
                         etScanCount.setText(scanCount.toString())
                         Toast.makeText(this@CdnScannerActivity, "Count capped to max available IPs: $scanCount", Toast.LENGTH_SHORT).show()
                     }
@@ -279,28 +319,28 @@ class CdnScannerActivity : AppCompatActivity() {
                 }
 
                 // Validate the inputs before starting
-                if (dialTimeout <= 0 || readDeadline <= 0) {
-                    Toast.makeText(this@CdnScannerActivity, "Invalid timeout values. Must be > 0.", Toast.LENGTH_SHORT).show()
+                if (dialTimeout <= 0 || readDeadline <= 0 || delayTime < 0) {
+                    Toast.makeText(this@CdnScannerActivity, "Invalid numeric values.", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-
 
                 isScanning = true
                 btnStartStop.text = "STOP SCAN"
                 btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#F44336"))
 
-                // Clean UI text as requested
-//                tvStatus.text = "Scanning..."
                 tvProgress.text = "0 / $scanCount"
                 tvPassed.text = "0 found"
 
                 btnSet.isEnabled = false
                 btnShare.isEnabled = false
                 etScanCount.isEnabled = false
+                etDelayTime.isEnabled = false
                 etDialTimeout.isEnabled = false
                 etReadDeadline.isEnabled = false
                 spinnerCdn.isEnabled = false
                 spinnerProtocol.isEnabled = false
+                spinnerPort.isEnabled = false
+                switchUniformDistribution.isEnabled = false
 
                 cfResults.clear()
                 adapter.notifyDataSetChanged()
@@ -311,6 +351,11 @@ class CdnScannerActivity : AppCompatActivity() {
                     putExtra("CONFIG_INDEX", configIndex)
                     putExtra("SCAN_COUNT", scanCount)
                     putExtra("TARGET_CDN", selectedCdn)
+                    putExtra("TARGET_PORT", currentPort.toInt())
+                    putExtra("DIAL_TIMEOUT", dialTimeout)
+                    putExtra("READ_DEADLINE", readDeadline)
+                    putExtra("BATCH_DELAY_SEC", delayTime)
+                    putExtra("UNIFORM_DIST", uniformDist)
                 }
                 startService(serviceIntent)
             } else {
@@ -318,7 +363,9 @@ class CdnScannerActivity : AppCompatActivity() {
                 btnStartStop.text = "START SCAN"
                 btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2F4A6F"))
                 etScanCount.isEnabled = true
+                etDelayTime.isEnabled = true
                 spinnerCdn.isEnabled = true
+                switchUniformDistribution.isEnabled = true
                 startService(Intent(this, CdnScannerService::class.java).apply { action = "ACTION_STOP_SCAN" })
             }
         }
@@ -329,17 +376,15 @@ class CdnScannerActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // Capture the currently selected CDN from the spinner
             val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
+            val selectedPort = spinnerPort.selectedItem?.toString()?.toIntOrNull() ?: 443
 
-            // 1. Create the custom layout for the Dialog
             val container = android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
                 val padding = (24 * resources.displayMetrics.density).toInt()
                 setPadding(padding, (16 * resources.displayMetrics.density).toInt(), padding, 0)
             }
 
-            // --- NEW: Max Latency Input Field ---
             val etMaxLatency = com.google.android.material.textfield.TextInputEditText(this).apply {
                 inputType = android.text.InputType.TYPE_CLASS_NUMBER
                 setText("2000")
@@ -361,7 +406,6 @@ class CdnScannerActivity : AppCompatActivity() {
             }
 
             container.addView(tilMaxLatency)
-            // ------------------------------------
 
             val radioGroup = android.widget.RadioGroup(this).apply {
                 orientation = android.widget.RadioGroup.VERTICAL
@@ -384,15 +428,12 @@ class CdnScannerActivity : AppCompatActivity() {
             radioGroup.addView(rbOverwrite)
             container.addView(radioGroup)
 
-            // 2. Build the new Dialog
             MaterialAlertDialogBuilder(this)
                 .setTitle("Save IPs")
                 .setView(container)
                 .setPositiveButton("Save") { _, _ ->
 
-                    // --- NEW: Filter by Max Latency ---
                     val maxLatency = etMaxLatency.text.toString().toIntOrNull() ?: 2000
-
                     val filteredResults = cfResults.filter { it.latencyMs <= maxLatency }
                     val scannedIps = filteredResults.map { it.ip }
 
@@ -400,7 +441,6 @@ class CdnScannerActivity : AppCompatActivity() {
                         Toast.makeText(this, "No IPs under $maxLatency ms to save.", Toast.LENGTH_SHORT).show()
                         return@setPositiveButton
                     }
-                    // ----------------------------------
 
                     val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
                     val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
@@ -409,12 +449,12 @@ class CdnScannerActivity : AppCompatActivity() {
                     val existingTargetCdnIps = mutableListOf<String>()
                     val existingLatencies = mutableMapOf<String, Int>()
 
-                    // 3. Separate other CDNs from the Target CDN
                     try {
                         val jsonArray = org.json.JSONArray(jsonString)
                         for (i in 0 until jsonArray.length()) {
                             val obj = jsonArray.getJSONObject(i)
                             val ipCdn = obj.optString("cdn", "CloudX")
+                            val ipPort = obj.optInt("port", 443)
                             val rawIp = obj.optString("ip", "")
                             val ip = CryptoHelper.decrypt(rawIp)
                             val lat = obj.optInt("latency", -1)
@@ -425,13 +465,11 @@ class CdnScannerActivity : AppCompatActivity() {
                                     existingLatencies[ip] = lat
                                 }
                             } else {
-                                // Keep other CDN data completely untouched!
                                 finalJsonArray.put(obj)
                             }
                         }
                     } catch (e: Exception) { e.printStackTrace() }
 
-                    // 4. Process Merge or Overwrite exclusively for the Target CDN
                     val finalTargetIpsToSave = mutableListOf<String>()
                     if (rbMerge.isChecked) {
                         finalTargetIpsToSave.addAll(existingTargetCdnIps)
@@ -444,29 +482,25 @@ class CdnScannerActivity : AppCompatActivity() {
                         finalTargetIpsToSave.addAll(scannedIps)
                     }
 
-                    // 5. Build and append the updated Target CDN IPs
                     for ((index, ip) in finalTargetIpsToSave.withIndex()) {
                         val obj = org.json.JSONObject()
                         obj.put("ip", CryptoHelper.encrypt(ip))
-                        obj.put("isChecked", index == 0) // Check the fastest IP for this specific CDN
+                        obj.put("isChecked", index == 0)
 
-                        // Use filteredResults here to get the correct latency
                         val matchedResult = filteredResults.find { it.ip == ip }
                         val latency = matchedResult?.latencyMs ?: existingLatencies[ip] ?: -1
 
                         obj.put("latency", latency)
                         obj.put("cdn", selectedCdn)
+                        obj.put("port", selectedPort)
 
                         finalJsonArray.put(obj)
                     }
 
                     vaultPrefs.edit().putString("vault_ips_json", finalJsonArray.toString()).apply()
 
-                    // 6. Apply fastest IP to the current config ONLY if the CDN matches
                     val fastestIp = scannedIps.firstOrNull() ?: ""
                     if (fastestIp.isNotEmpty() && configId.isNotEmpty()) {
-
-                        // Fetch the currently assigned CDN for this specific config
                         val configCdn = if (isDefaultConfig) {
                             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                                 .getString("${configId}_cdn", "CloudX") ?: "CloudX"
@@ -475,7 +509,6 @@ class CdnScannerActivity : AppCompatActivity() {
                                 .getString("${configId}_cdn", "CloudX") ?: "CloudX"
                         }
 
-                        // Protect against CDN cross-contamination
                         if (configCdn.equals(selectedCdn, ignoreCase = true)) {
                             if (isDefaultConfig) {
                                 getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -505,19 +538,23 @@ class CdnScannerActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // Grab the CDN that was just scanned (ensure this matches your scanner's CDN variable)
-            val scannedCdn = intent.getStringExtra("TARGET_CDN") ?:
-            getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-                .getString("selected_cdn", "CloudX") ?: "CloudX"
+            // Dynamically grab the CDN and Port directly from the spinners so they match exactly what was scanned
+            val scannedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
+            val scannedPort = spinnerPort.selectedItem?.toString() ?: "443"
 
-            // Prepend the human-readable CDN name so the user knows which one to import to
-            val shareText = "Target CDN: $scannedCdn\n\n" + cfResults.joinToString("\n") {
-                CryptoHelper.encrypt(it.ip)
+            // Append BOTH the port and the CDN before encrypting
+            val shareText = "Target CDN: $scannedCdn (Port $scannedPort)\n\n" + cfResults.joinToString("\n") { result ->
+                val addressWithPort = if (result.ip.contains(":")) {
+                    result.ip
+                } else {
+                    "${result.ip}:$scannedPort"
+                }
+                CryptoHelper.encrypt("$addressWithPort:$scannedCdn")
             }
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "$scannedCdn Scanner Results")
+                putExtra(Intent.EXTRA_SUBJECT, "$scannedCdn Scanner Results (Port $scannedPort)")
                 putExtra(Intent.EXTRA_TEXT, shareText)
             }
             startActivity(Intent.createChooser(shareIntent, "Share IPs via"))

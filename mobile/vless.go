@@ -5,7 +5,33 @@ import (
 //	"log"
 )
 
-type VlessWsConfig struct {
+// Global memory state storage for custom user inputs and remote server files
+/*var globalVlessWsIP string
+
+func SetGlobalVlessWsIP(ip string) {
+	globalVlessWsIP = strings.TrimSpace(ip)
+	log.Printf("VAY_DEBUG: globalVlessWsIP is set with IP: %v",globalVlessWsIP)
+}*/
+
+type VlessCdnNode struct {
+	Domain    []string `json:"domain"`
+	CdnDomain []string `json:"cdn_domain"`
+}
+
+type VlessConfig struct {
+	VlessWs          map[string]VlessCdnNode `json:"vless-ws"`
+	VlessXhttp       map[string]VlessCdnNode `json:"vless-xhttp"`
+	VlessGrpc        map[string]VlessCdnNode `json:"vless-grpc"`
+	VlessHttpupgrade map[string]VlessCdnNode `json:"vless-httpupgrade"`
+	
+	WsPath          string `json:"ws_path"`
+	HttpupgradePath string `json:"httpupgrade_path"`
+	XhttpPath       string `json:"xhttp_path"`
+	ServiceName     string `json:"service_name"`
+	ServerName      string `json:"server_name"`
+}
+
+/*type VlessConfig struct {
 	WsDomain string `json:"ws_domain"` 
 	WsPath   string `json:"ws_path"`
 	HttpupgradePath   string `json:"httpupgrade_path"`
@@ -16,15 +42,79 @@ type VlessWsConfig struct {
 	GrpcDomain   string `json:"grpc_domain"`
 	AwsCdnDomain   string `json:"aws_cdn_domain"`
 	AwsDomain   string `json:"aws_domain"`
-	
-}
+	VlessXhttpDomain string `json:"vless_xhttp_domain"`
+	XhttpCdnDomain string `json:"xhttp_cdn_domain"`
+}*/
 
 // =====================================================================
 // VLESS WEBSOCKET SECURE INTERNAL GETTERS
 // =====================================================================
 
+// =====================================================================
+// NEW: DYNAMIC PROTOCOL GETTERS
+// =====================================================================
 
-func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer string, getServerIpFromDomain bool, targetCdn string, runtimeVlessIP string) string {
+// getVlessProtocolMap dynamically fetches the correct map block
+func getVlessProtocolMap(index int64, protocol string) map[string]VlessCdnNode {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return nil
+	}
+	cfg := defaultConfigs[index]
+	switch strings.ToLower(protocol) {
+	case "vless-ws":
+		return cfg.VlessWs
+	case "vless-xhttp":
+		return cfg.VlessXhttp
+	case "vless-grpc":
+		return cfg.VlessGrpc
+	case "vless-httpupgrade":
+		return cfg.VlessHttpupgrade
+	default:
+		return nil
+	}
+}
+
+// GetVlessDomain fetches the strict underlying domain
+func GetVlessDomain(index int64, protocol string, targetCDN string) string {
+	protoMap := getVlessProtocolMap(index, protocol)
+	if protoMap != nil {
+		// Case-insensitive CDN lookup
+		for cdnKey, node := range protoMap {
+			if strings.EqualFold(cdnKey, targetCDN) {
+				if len(node.Domain) > 0 && node.Domain[0] != "" {
+					return node.Domain[0]
+				}
+				break
+			}
+		}
+	}
+	// Global fallback
+	ensureParsed()
+	if index >= 0 && index < int64(len(defaultConfigs)) {
+		return defaultConfigs[index].Domain
+	}
+	return ""
+}
+
+// GetVlessCdnDomain fetches the masked edge CDN domain (used for SNI/DoH resolution)
+func GetVlessCdnDomain(index int64, protocol string, targetCDN string) string {
+	protoMap := getVlessProtocolMap(index, protocol)
+	if protoMap != nil {
+		for cdnKey, node := range protoMap {
+			if strings.EqualFold(cdnKey, targetCDN) {
+				if len(node.CdnDomain) > 0 && node.CdnDomain[0] != "" {
+					return node.CdnDomain[0]
+				}
+				break
+			}
+		}
+	}
+	// Fallback to strict Domain if CDN Domain isn't defined
+	return GetVlessDomain(index, protocol, targetCDN)
+}
+
+/*func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer string, getServerIpFromDomain bool, targetCdn string, runtimeVlessIP string) string {
 	
 
 	if activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade" || activeProtocol == "vless-grpc" || activeProtocol == "vless-xhttp"{
@@ -69,6 +159,33 @@ func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer strin
 	}
 	
 	return getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
+}*/
+
+func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer string, getServerIpFromDomain bool, targetCdn string, runtimeVlessIP string) string {
+	if activeProtocol == "vless-ws" || activeProtocol == "vless-httpupgrade" || activeProtocol == "vless-grpc" || activeProtocol == "vless-xhttp"{
+		
+		if runtimeVlessIP != "" && runtimeVlessIP != "0.0.0.0" {
+			return runtimeVlessIP
+		}
+		
+		// Priority 2: Use the new dynamic unified CDN Domain getter!
+		domainToResolve := GetVlessCdnDomain(configIndex, activeProtocol, targetCdn)
+		
+		resolvedIP := resolveDomainOverDoH(domainToResolve, globalDnsServer)
+		if resolvedIP != "" {
+			return resolvedIP
+		}
+		
+		if targetCdn != "" {
+			if cdnIp := GetCdnVlessWsIP(targetCdn); cdnIp != "" && cdnIp != "0.0.0.0" {
+				return cdnIp
+			}
+		}
+		
+		return domainToResolve 
+	}
+	
+	return getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
 }
 
 func getVlessServerPort(index int64) int {
@@ -83,7 +200,7 @@ func getVlessUUID(index int64) string {
 	return defaultConfigs[index].UUID
 }
 
-func getWsDomain(index int64) string {
+/*func getWsDomain(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
@@ -93,7 +210,7 @@ func getWsDomain(index int64) string {
 	}
 // to be fixed	
 	return defaultConfigs[index].Domain
-}
+}*/
 
 func getWsPath(index int64) string {
 	ensureParsed()
@@ -106,7 +223,7 @@ func getWsPath(index int64) string {
 	return "/vayws"
 }
 
-func getAwsDomain(index int64) string {
+/*func getAwsDomain(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
@@ -116,9 +233,9 @@ func getAwsDomain(index int64) string {
 	}
 // to be fixed	
 	return defaultConfigs[index].Domain
-}
+}*/
 
-func getCloudYCdnDomain(index int64) string {
+/*func getCloudYCdnDomain(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
@@ -128,7 +245,7 @@ func getCloudYCdnDomain(index int64) string {
 	}
 // to be fixed	
 	return defaultConfigs[index].AwsDomain
-}
+}*/
 
 func getHttpupgradeServerName(index int64) string {
 	ensureParsed()
@@ -141,7 +258,7 @@ func getHttpupgradeServerName(index int64) string {
 	return defaultConfigs[index].ServerName
 }
 
-func getHttpupgradeDomain(index int64) string {
+/*func getHttpupgradeDomain(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
@@ -150,9 +267,9 @@ func getHttpupgradeDomain(index int64) string {
 		return defaultConfigs[index].HttpUpgradeDomain
 	}
 	return defaultConfigs[index].HttpUpgradeDomain
-}
+}*/
 
-func getGrpcDomain(index int64) string {
+/*func getGrpcDomain(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
@@ -161,7 +278,7 @@ func getGrpcDomain(index int64) string {
 		return defaultConfigs[index].GrpcDomain
 	}
 	return defaultConfigs[index].GrpcDomain
-}
+}*/
 
 func getXhttpPath(index int64) string {
 	ensureParsed()
@@ -201,6 +318,54 @@ func getGrpcServiceName(index int64) string {
 // =====================================================================
 
 func buildVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
+	CdnIP := runtimeVlessIP
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		CdnIP = GetTargetIP(configIndex, "vless-ws", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
+	}
+	serverPort := getVlessServerPort(configIndex)
+	uuid := getVlessUUID(configIndex)
+	WsDomainName := GetVlessCdnDomain(configIndex, "vless-ws", targetCDN)
+	wsPath := getWsPath(configIndex)
+
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = WsDomainName	
+	}
+	
+	tlsObj := map[string]interface{}{
+		"enabled":     true,
+		"insecure":    false,
+		"server_name": WsDomainName,
+		"alpn": []string{"http/1.1"},
+		"utls": map[string]interface{}{
+			"enabled":     true,
+			"fingerprint": "chrome",
+		},
+	}
+
+	transportObj := map[string]interface{}{
+		"type": "ws",
+		"path": wsPath,
+		"headers": map[string]string{
+			"Host": WsDomainName,
+		},
+	}
+
+	outbound := map[string]interface{}{
+		"type":            "vless",
+		"tag":             "proxy-out",
+		"server":          CdnIP,
+		"server_port":     serverPort,
+		"uuid":            uuid,
+		"packet_encoding": "xudp",
+		"tls":             tlsObj,
+		"transport":       transportObj,
+		"tcp_fast_open":   true,				
+	}
+
+	return outbound
+}
+
+/*func buildVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
 	CdnIP := runtimeVlessIP
 	if CdnIP == "" || CdnIP == "0.0.0.0" {
 		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
@@ -260,13 +425,62 @@ func buildVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIp
 	}
 
 	return outbound
-}
+}*/
 
 // =====================================================================
 // OUTBOUND BUILDER FOR VLESS gRPC (CLOUDFLARE CDN MULTIPLEXING)
 // =====================================================================
 
 func buildVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
+	CdnIP := runtimeVlessIP
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		CdnIP = GetTargetIP(configIndex, "vless-grpc", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
+	}
+	serverPort := getVlessServerPort(configIndex)
+	uuid := getVlessUUID(configIndex)
+	GrpcDomain := GetVlessCdnDomain(configIndex, "vless-grpc", targetCDN)
+
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = GrpcDomain
+	}
+		
+	grpcServiceName := getGrpcServiceName(configIndex)
+	if strings.HasPrefix(grpcServiceName, "/") {
+		grpcServiceName = strings.TrimPrefix(grpcServiceName, "/")
+	}
+	
+	tlsObj := map[string]interface{}{
+		"enabled":     true,
+		"insecure":    false,
+		"server_name": GrpcDomain,
+		"alpn":        []string{"h2"},
+		"utls": map[string]interface{}{
+			"enabled":     true,
+			"fingerprint": "chrome",
+		},
+	}
+
+	transportObj := map[string]interface{}{
+		"type":         "grpc",
+		"service_name": grpcServiceName,
+	}
+
+	outbound := map[string]interface{}{
+		"type":            "vless",
+		"tag":             "proxy-out",
+		"server":          CdnIP,
+		"server_port":     serverPort,
+		"uuid":            uuid,
+		"tls":             tlsObj,
+		"transport":       transportObj,
+		"tcp_fast_open":   true,
+	}
+
+	return outbound
+}
+
+
+/*func buildVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
 	CdnIP := runtimeVlessIP
 	if CdnIP == "" || CdnIP == "0.0.0.0" {
 		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
@@ -324,13 +538,62 @@ func buildVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServer
 	}
 
 	return outbound
-}
+}*/
 
 // =====================================================================
 // OUTBOUND BUILDER FOR VLESS HTTPUPGRADE (MAX HIGH-LATENCY CDN SPEED)
 // =====================================================================
 
 func buildVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
+	CdnIP := runtimeVlessIP
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		CdnIP = GetTargetIP(configIndex, "vless-httpupgrade", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
+	}
+	serverPort := getVlessServerPort(configIndex)
+	uuid := getVlessUUID(configIndex)
+	HttpupgradeServerName := getHttpupgradeServerName(configIndex)
+	HttpupgradeDomain := GetVlessCdnDomain(configIndex, "vless-httpupgrade", targetCDN)
+	HttpupgradePath := getHttpupgradePath(configIndex)
+	
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = HttpupgradeDomain
+	}
+		
+	tlsObj := map[string]interface{}{
+		"enabled":     true,
+		"insecure":    false,
+		"server_name": HttpupgradeServerName,
+		"alpn":        []string{"http/1.1"}, 
+		"utls": map[string]interface{}{
+			"enabled":     true,
+			"fingerprint": "chrome",
+		},
+	}
+
+	transportObj := map[string]interface{}{
+		"type": "httpupgrade",
+		"path": HttpupgradePath,
+		"headers": map[string]string{
+			"Host": HttpupgradeDomain,
+		},
+	}
+
+	outbound := map[string]interface{}{
+		"type":            "vless",
+		"tag":             "proxy-out",
+		"server":          CdnIP,
+		"server_port":     serverPort,
+		"uuid":            uuid,
+		"packet_encoding": "xudp", 
+		"tls":             tlsObj,
+		"transport":       transportObj,
+		"tcp_fast_open":   true,
+	}
+
+	return outbound
+}
+
+/*func buildVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIP string, targetCDN string) map[string]interface{} {
 	CdnIP := runtimeVlessIP
 	if CdnIP == "" || CdnIP == "0.0.0.0" {
 		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
@@ -383,4 +646,4 @@ func buildVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, ge
 	}
 
 	return outbound
-}
+}*/

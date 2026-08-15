@@ -150,6 +150,38 @@
                     app:thumbTint="?attr/colorPrimary"
                     android:layout_marginBottom="16dp" />
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Hysteria Settings"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/cb_use_hysteria_core"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Use Hysteria-Core"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurface"
+                    app:thumbTint="?attr/colorPrimary"
+                    android:layout_marginBottom="16dp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?android:attr/dividerVertical"
+                    android:layout_marginBottom="24dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Reality and Hysteria Settings"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
+
                 <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/cb_block_quic"
                     android:layout_width="match_parent"

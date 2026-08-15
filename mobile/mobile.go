@@ -154,6 +154,7 @@ func StartVpn(
 	blockQuic bool,
 	getServerIpFromDomain bool,
 	sniIndex int64,
+	useHysteriaCore bool,
 	protector SocketProtector,
 ) string {
 
@@ -206,12 +207,16 @@ func StartVpn(
 			engineType = "xray"
 		}
 		
-		// Xray lacks support for Salamander obfuscation, so we force all H2 traffic to Sing-box.
 		if activeProto == "hysteria2" {
-			engineType = "sing-box"
+			if useHysteriaCore {
+				engineType = "hysteria-core"
+			} else {
+				engineType = "sing-box"
+			}
 		}
 				
 	} else {
+	    //To be tested with Xray-core
 		// STRICT GUARDRAIL: 
 		// VayDNS native tunnels require Sing-box to wrap the local proxy.
 		// If the user selected 'Xray' in settings for a VayDNS node, force it back to Sing-box.
@@ -420,16 +425,31 @@ func StartVpn(
 		activeSocksPort = singBoxListenPort
 		mu.Unlock()
 
-		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment, sniIndex)
+		err := startSingBoxEngine(singBoxListenPort, proxyString, configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment, sniIndex, blockQuic)
 		if err != nil {
 			errMsg := fmt.Sprintf("Error: sing-box layer failure: %v", err)
 			log.Println("VAY_DEBUG: FATAL -> " + errMsg)
 			return errMsg
 		}
 		
-		// singBoxProxyString := fmt.Sprintf("socks5://127.0.0.1:%d", singBoxListenPort)
-		// startTun2SocksEngine(wg, newFd, singBoxProxyString, finalMtu)
-	} else if engineType == "xray" {
+	} else if engineType == "xray" && !isDirectMode {
+		
+		// NEW: The Xray Middleware route specifically for VayDNS
+		log.Printf("VAY_DEBUG: Booting Xray Middleware pipeline for VayDNS...")
+		xrayListenPort := 30000 + rand.Intn(20000)
+		
+		mu.Lock()
+		activeSocksPort = xrayListenPort
+		mu.Unlock()
+
+		// Pass the proxyString so Xray knows where the local VayDNS core is listening
+		err := startXrayMiddlewareEngine(xrayListenPort, proxyString, blockQuic)
+		if err != nil {
+			cancel()
+			return fmt.Sprintf("Error starting Xray Middleware: %v", err)
+		}
+		
+	} else if engineType == "xray" && isDirectMode {
 		log.Printf("VAY_DEBUG: Booting cutting-edge Xray processing pipeline (Native TUN)...")
 		
 		// 1. Generate a random local SOCKS port specifically for the Watchdog
@@ -452,8 +472,22 @@ func StartVpn(
 			<-activeCtx.Done()
 		}()
 
-	} else {		
+	} else if engineType == "hysteria-core" {
+		log.Printf("VAY_DEBUG: Booting native Hysteria v2 core pipeline...")
+		
+		hysteriaListenPort := 30000 + rand.Intn(20000) 
+		
+		mu.Lock()
+		activeSocksPort = hysteriaListenPort
+		mu.Unlock()
 
+		err := startHysteriaNativeEngine(hysteriaListenPort, configIndex, globalDnsServer, getServerIpFromDomain)
+		if err != nil {
+			cancel()
+			return fmt.Sprintf("Error starting Hysteria core: %v", err)
+		}
+		
+	} else {		
 		// ADDED: Ensure watchdog knows the final local proxy port if wrapped by SSH/SS
 		if u, err := url.Parse(proxyString); err == nil {
 			if portStr := u.Port(); portStr != "" {
@@ -525,6 +559,7 @@ func StartProxy(
 	blockQuic bool,
 	getServerIpFromDomain bool,
 	sniIndex int64,
+	useHysteriaCore bool,
 ) string {
 
 	mu.Lock()
@@ -600,9 +635,12 @@ func StartProxy(
 			engineType = "xray"
 		}
 		
-		// Xray lacks support for Salamander obfuscation, so we force all H2 traffic to Sing-box.
 		if activeProto == "hysteria2" {
-			engineType = "sing-box"
+			if useHysteriaCore {
+				engineType = "hysteria-core"
+			} else {
+				engineType = "sing-box"
+			}
 		}
 				
 	} else {
@@ -618,11 +656,12 @@ func StartProxy(
 			
 			// We pass 'customPort' directly to Sing-box so it creates a SOCKS5 server on that exact port.
 			// No tun2socks is needed!
-			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment, sniIndex)
+			err := startSingBoxEngine(customPort, "", configType, protocol, configIndex, vlessWsIp, targetCDN, globalDnsServer, getServerIpFromDomain, fragment, sniIndex, blockQuic)
 			
 			if err != nil {
 				return fmt.Sprintf("Error|sing-box proxy failure: %v", err)
 			}
+			
 		} else if engineType == "xray" {
 
 			log.Printf("VAY_DEBUG: Booting cutting-edge Xray in PROXY MODE on port %d", customPort)
@@ -635,6 +674,20 @@ func StartProxy(
 				return errMsg
 			}
 					
+		} else if engineType == "hysteria-core" {
+			log.Printf("VAY_DEBUG: Booting native Hysteria v2 core in PROXY MODE on port %d...", customPort)
+		
+			mu.Lock()
+			activeSocksPort = customPort
+			mu.Unlock()
+
+			// Use customPort here so it binds to the exact port requested by the user
+			err := startHysteriaNativeEngine(customPort, configIndex, globalDnsServer, getServerIpFromDomain)
+			if err != nil {
+				cancel()
+				return fmt.Sprintf("Error|Hysteria core proxy failure: %v", err)
+			}
+		
 		} else {
 			return "Error|Only sing-box is supported for direct proxy mode"
 		}
@@ -1138,7 +1191,7 @@ waitLoop:
 	return finalLatency
 }
 
-func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, targetCDN string, globalDnsServer string, getServerIpFromDomain bool, fragment bool, sniIndex int64) error {
+func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configType string, protocol string, configIndex int64, vlessWsIp string, targetCDN string, globalDnsServer string, getServerIpFromDomain bool, fragment bool, sniIndex int64, blockQuic bool) error {
 
 	var outboundMap map[string]interface{}
 	var upstreamScheme string
@@ -1262,6 +1315,17 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 	outboundBytes, _ := json.Marshal(outboundMap)
 	outboundJson := string(outboundBytes)
 
+	var blockQuicRule string
+	if blockQuic {
+		blockQuicRule = `,
+				{
+					"inbound": ["socks-in"],
+					"network": "udp",
+					"port": [443],
+					"outbound": "block-out"
+				}`
+	}
+	
 	// THE HEISENBUG FIX: 
 	// 1. "level" remains "debug" to preserve the micro-delay that fixes the FakeIP race condition.
 	// 2. "output" is set to "/dev/null" so the logs are instantly destroyed and never reach Logcat.
@@ -1354,13 +1418,7 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 					"inbound": ["socks-in"],
 					"port": [853],
 					"outbound": "block-out"
-				},
-				{
-					"inbound": ["socks-in"],
-					"network": "udp",
-					"port": [443],
-					"outbound": "block-out"
-				},
+				}%s,
 				{
 					"ip_cidr": [
 						"10.0.0.0/8",
@@ -1376,7 +1434,7 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 			"auto_detect_interface": false,
 			"final": "proxy-out"
 		}
-	}`, singBoxListenPort, outboundJson)
+	}`, singBoxListenPort, outboundJson, blockQuicRule)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	registryCtx := box.Context(
@@ -1422,4 +1480,187 @@ func startSingBoxEngine(singBoxListenPort int, upstreamProxyUrl string, configTy
 	return nil
 }
 
+func startXrayMiddlewareEngine(xrayListenPort int, upstreamProxyUrl string, blockQuic bool) error {
+	
+	// 1. Parse the local upstream URL (e.g., Dante proxy / Shadowsocks)
+	u, err := url.Parse(upstreamProxyUrl)
+	if err != nil {
+		return fmt.Errorf("invalid upstream proxy url: %v", err)
+	}
+
+	port, _ := strconv.Atoi(u.Port())
+	host := u.Hostname()
+
+	// 2. Build the Xray Outbound dynamically based on the upstream proxy type
+	outboundMap := map[string]interface{}{
+		"tag": "proxy-out",
+	}
+
+	switch u.Scheme {
+	case "ss", "shadowsocks":
+		outboundMap["protocol"] = "shadowsocks"
+		pwd, _ := u.User.Password()
+		outboundMap["settings"] = map[string]interface{}{
+			"servers": []map[string]interface{}{
+				{
+					"address":  host,
+					"port":     port,
+					"method":   u.User.Username(),
+					"password": pwd,
+				},
+			},
+		}
+	case "http", "https":
+		outboundMap["protocol"] = "http"
+		serverMap := map[string]interface{}{
+			"address": host,
+			"port":    port,
+		}
+		if u.User != nil {
+			pwd, _ := u.User.Password()
+			serverMap["users"] = []map[string]interface{}{
+				{
+					"user": u.User.Username(),
+					"pass": pwd,
+				},
+			}
+		}
+		outboundMap["settings"] = map[string]interface{}{
+			"servers": []map[string]interface{}{serverMap},
+		}
+	default: // socks5
+		outboundMap["protocol"] = "socks"
+		serverMap := map[string]interface{}{
+			"address": host,
+			"port":    port,
+		}
+		if u.User != nil {
+			pwd, _ := u.User.Password()
+			serverMap["users"] = []map[string]interface{}{
+				{
+					"user": u.User.Username(),
+					"pass": pwd,
+				},
+			}
+		}
+		outboundMap["settings"] = map[string]interface{}{
+			"servers": []map[string]interface{}{serverMap},
+		}
+	}
+
+	outboundBytes, _ := json.Marshal(outboundMap)
+	outboundJson := string(outboundBytes)
+
+	// 3. Optional QUIC Blocking Rule
+	var blockQuicRule string
+	if blockQuic {
+		blockQuicRule = `,
+				{
+					"type": "field",
+					"network": "udp",
+					"port": "443",
+					"outboundTag": "block-out"
+				}`
+	}
+
+
+	// 4. Build the complete Xray JSON Configuration
+	rawConfig := fmt.Sprintf(`{
+		"log": {
+			"loglevel": "warning"
+		},
+		"dns": {
+			"servers": [
+				"8.8.8.8",
+				"fakedns"
+			]
+		},
+		"fakedns": [
+			{
+				"ipPool": "198.18.0.0/15",
+				"poolSize": 65535
+			}
+		],
+		"inbounds": [
+			{
+				"tag": "socks-in",
+				"listen": "127.0.0.1",
+				"port": %d,
+				"protocol": "socks",
+				"settings": {
+					"auth": "noauth",
+					"udp": true
+				},
+				"sniffing": {
+					"enabled": true,
+					"destOverride": ["http", "tls", "fakedns"],
+					"routeOnly": false
+				}
+			}
+		],
+		"outbounds": [
+			%s,
+			{
+				"tag": "direct-out",
+				"protocol": "freedom"
+			},
+			{
+				"tag": "block-out",
+				"protocol": "blackhole"
+			},
+			{
+				"tag": "dns-out",
+				"protocol": "dns"
+			}
+		],
+		"routing": {
+			"domainStrategy": "AsIs",
+			"rules": [
+				{
+					"type": "field",
+					"inboundTag": ["socks-in"],
+					"port": "53",
+					"outboundTag": "dns-out"
+				},
+				{
+					"type": "field",
+					"inboundTag": ["socks-in"],
+					"port": "853",
+					"outboundTag": "block-out"
+				}%s,
+				{
+					"type": "field",
+					"ip": [
+						"10.0.0.0/8",
+						"172.16.0.0/12",
+						"192.168.0.0/16",
+						"127.0.0.0/8",
+						"fc00::/7",
+						"fe80::/10"
+					],
+					"outboundTag": "direct-out"
+				},
+				{
+					"type": "field",
+					"network": "tcp,udp",
+					"outboundTag": "proxy-out"
+				}
+			]
+		}
+	}`, xrayListenPort, outboundJson, blockQuicRule)
+
+	// 5. Initialize and Start Xray Core
+	// Note: Replace this with however your app specifically initializes Xray internally
+	// e.g., instance, err := core.StartInstance("json", []byte(rawConfig))
+	
+	
+	err = StartXrayFromConfig([]byte(rawConfig)) 
+	if err != nil {
+		return fmt.Errorf("failed to start xray middleware: %v", err)
+	}
+
+	log.Printf("VAY_DEBUG: Xray Middleware mapped to '%s' upstream on port %d.", u.Scheme, xrayListenPort)
+	
+	return nil
+}
 

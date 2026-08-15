@@ -50,21 +50,30 @@
                 android:hint="My Server 1"
                 android:textColor="?attr/colorOnSurface" />
 
-            <TextView
-                android:id="@+id/tv_tunnel_protocol_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Tunnel Protocol Mode:"
-                android:textColor="?attr/colorOnSurface"
-                android:layout_marginTop="16dp"
-                android:textStyle="bold" />
-
-            <Spinner
-                android:id="@+id/spinner_tunnel_protocol"
+            <LinearLayout
+                android:id="@+id/layout_tunnel_protocol"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:backgroundTint="?attr/colorOnSurface" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:id="@+id/tv_tunnel_protocol_label"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Protocol Mode:"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold" />
+
+                <Spinner
+                    android:id="@+id/spinner_tunnel_protocol"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="?attr/colorOnSurface" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/layout_editor_cdn"
@@ -72,7 +81,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="18dp"
                 android:layout_marginBottom="12dp"
                 android:visibility="gone">
 
@@ -86,6 +95,56 @@
 
                 <Spinner
                     android:id="@+id/spinner_editor_cdn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_vless_protocol"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="12dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Vless-Protocol:"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold" />
+
+                <Spinner
+                    android:id="@+id/spinner_vless_protocol"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_editor_port"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="12dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Target Port:"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold" />
+
+                <Spinner
+                    android:id="@+id/spinner_editor_port"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:backgroundTint="?attr/colorOnSurface" />
@@ -105,21 +164,20 @@
                 android:id="@+id/et_vless_ip"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Leave empty to use Global Setting"
+                android:hint="Leave empty to use the internal IP"
                 android:textColorHint="?android:attr/textColorSecondary"
                 android:textColor="?attr/colorOnSurface"
                 android:inputType="text"
                 android:layout_marginTop="8dp"
                 android:visibility="gone" />
 
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cb_best_cf_ip"
+            <Button
+                android:id="@+id/btn_best_cf_ip"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Get best IP from Global Settings"
-                android:textSize="14sp"
-                android:textColor="?attr/colorOnSurface"
-                app:thumbTint="?attr/colorPrimary"
+                android:text="Get best IP from Vault"
+                android:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
                 android:layout_marginTop="12dp"
                 android:layout_marginBottom="8dp"
                 android:visibility="gone" />

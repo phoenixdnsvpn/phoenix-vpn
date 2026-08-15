@@ -62,6 +62,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
 
     private lateinit var cbUseSniPool: SwitchCompat
     private lateinit var spinnerSniPool: android.widget.Spinner
+    private lateinit var cbUseHysteriaCore: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -99,7 +100,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         rgEngineMode = findViewById(R.id.rg_engine_mode)
         cbUseFragmentation = findViewById(R.id.cb_use_fragmentation)
         cbBlockQuic = findViewById(R.id.cb_block_quic)
-
+        cbUseHysteriaCore = findViewById(R.id.cb_use_hysteria_core)
         cbImportApps = findViewById(R.id.cb_show_import_apps)
         cbExportApps = findViewById(R.id.cb_show_export_apps)
         cbShowBackupRestore = findViewById(R.id.cb_show_backup_restore)
@@ -224,6 +225,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             cdnList.add("CloudX")
             cdnList.add("CloudY")
             cdnList.add("CloudZ")
+            cdnList.add("CloudV")
         }
 
         val cdnAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
@@ -284,6 +286,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbUseFragmentation.isChecked = tunnelPrefs.getBoolean("use_fragmentation", false)
         cbBlockQuic.isChecked = tunnelPrefs.getBoolean("block_quic", true)
         cbGetServerIpFromDomain.isChecked = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
+        cbUseHysteriaCore.isChecked = tunnelPrefs.getBoolean("use_hysteria_core", false)
 
         // Load VLESS IP Fallback
         //etVlessWsIp.setText(tunnelPrefs.getString("vless_ws_ip", ""))
@@ -393,6 +396,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             putString("selected_cdn", selectedCdn)
             putBoolean("use_sni_pool", useSniPool)
             putInt("selected_sni_index", selectedSniIndex)
+            putBoolean("use_hysteria_core", cbUseHysteriaCore.isChecked)
         }.apply()
 
         var unlockedDelay = etUnlockedDelay.text.toString().toLongOrNull() ?: 2000L

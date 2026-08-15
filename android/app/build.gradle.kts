@@ -17,8 +17,8 @@ android {
         applicationId = "net.vaydns.phoenix"
         minSdk = 24
         targetSdk = 36
-        versionCode = 50
-        versionName = "2.5.0"
+        versionCode = 53
+        versionName = "2.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

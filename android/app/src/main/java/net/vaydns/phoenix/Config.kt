@@ -28,6 +28,7 @@ data class Config(
     val useMultiDomains: Boolean = false,
     val tunnelProtocol: String = "vaydns",
     val vlessIp: String = "",
+    val vlessPort: Int = 443,
     val domainIndex: Int = 0,
     var lastLatency: Long = -1L
 )

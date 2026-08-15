@@ -6,7 +6,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import mobile.Mobile
-import mobile.CdnScannerCallback // <-- Required Gomobile Interface Import
+import mobile.CdnScannerCallback
 
 class CdnScannerService : Service() {
 
@@ -26,16 +26,22 @@ class CdnScannerService : Service() {
                 val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "CloudX"
                 val dialTimeout = intent.getIntExtra("DIAL_TIMEOUT", 2000)
                 val readDeadline = intent.getIntExtra("READ_DEADLINE", 1000)
+                val batchDelaySec = intent.getIntExtra("BATCH_DELAY_SEC", 30)
+                val uniformDist = intent.getBooleanExtra("UNIFORM_DIST", true)
+                val targetPort = intent.getIntExtra("TARGET_PORT", 443)
 
                 Thread {
-                    // Start the scanner and pass the callback interface for live updates
+                    // Start the scanner and pass the parameters down to Gomobile
                     val finalResult = Mobile.runCdnScanner(
                         isDefault,
                         configIndex,
                         scanCount.toLong(),
                         targetCdn,
+                        targetPort.toLong(),
                         dialTimeout.toLong(),
                         readDeadline.toLong(),
+                        batchDelaySec.toLong(),
+                        uniformDist,
                         object : CdnScannerCallback {
                             override fun onUpdate(result: String) {
                                 broadcastUpdate(result)

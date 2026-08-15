@@ -214,13 +214,14 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 	// =================================================================
 	if isDefault {
 		if actualProtocol == "hysteria2" || actualProtocol == "vless-grpc" {		
-			log.Printf("VAY_DEBUG: [L7 Ping] Redirecting %s to Layer 4", actualProtocol)
+			log.Printf("VAY_DEBUG: [L7 Ping] Redirecting %s to Layer 4", actualProtocol)			
 			return PingDirectServer(isDefault, configIndex, customIP, configType, protocol, globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
+					
 		} else if actualProtocol == "vless-ws" || actualProtocol == "vless-httpupgrade" || actualProtocol == "vless-xhttp" {
 			targetIP = GetTargetIP(configIndex, actualProtocol, globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 			targetPort = getVlessServerPort(configIndex)
 			
-			// Set the correct SNI based on CDN/Protocol
+			/* // Set the correct SNI based on CDN/Protocol
 			if actualProtocol == "vless-httpupgrade" {
 				sni = getHttpupgradeDomain(configIndex)
 			} else if actualProtocol == "vless-xhttp" {
@@ -228,7 +229,10 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 			} else {
 				sni = getWsDomain(configIndex)
 				if strings.ToLower(targetCDN) == "cloudy" { sni = getCloudYCdnDomain(configIndex) }
-			}
+			}*/
+			
+			sni = GetVlessCdnDomain(configIndex, actualProtocol, targetCDN)
+						
 		} else if actualProtocol == "reality-tcp" {
 			targetIP = getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
 			targetPort = getRealityTcpPort(configIndex)
@@ -467,7 +471,7 @@ func PingBestDirectIP(isDefault bool, configIndex int64, ipList string, configTy
 }
 
 // GetFastestCloudflareIP races a list of IPs using a full Layer 7 (TLS + HTTP/WS) handshake.
-func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, customDomain string, targetCDN string, activeProtocol string) string {
+func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, customDomain string, targetCDN string, targetPort int, activeProtocol string) string {
 	parts := strings.Split(ipList, ",")
 	var cleanIPs []string
 	for _, p := range parts {
@@ -481,7 +485,7 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 	pathToUse := "/"
 	actualProtocol := strings.ToLower(activeProtocol)
 
-	if isDefault {
+	/* if isDefault {
 		if actualProtocol == "vless-grpc" {
 			if strings.ToLower(targetCDN) == "cloudy" {
 				if d := getCloudYCdnDomain(configIndex); d != "" { domainToUse = d }
@@ -514,8 +518,28 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 			}
 			if p := getWsPath(configIndex); p != "" { pathToUse = p }
 		}
-	}
+	}*/
 
+	if isDefault {
+		domainToUse = GetVlessCdnDomain(configIndex, actualProtocol, targetCDN)
+
+		if actualProtocol == "vless-grpc" {
+			serviceName := getGrpcServiceName(configIndex)
+			if !strings.HasPrefix(serviceName, "/") {
+				pathToUse = "/" + serviceName
+			} else {
+				pathToUse = serviceName
+			}
+		} else if actualProtocol == "vless-httpupgrade" {
+			if p := getHttpupgradePath(configIndex); p != "" { pathToUse = p }
+		} else if actualProtocol == "vless-xhttp" {
+			if p := getXhttpPath(configIndex); p != "" { pathToUse = p }
+		} else {
+			// vless-ws (Default)
+			if p := getWsPath(configIndex); p != "" { pathToUse = p }
+		}
+	}
+	
 	if domainToUse == "" { return "" }
 	if strings.Contains(domainToUse, ":") {
 		domainToUse = strings.Split(domainToUse, ":")[0]
@@ -539,7 +563,7 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			address := net.JoinHostPort(targetIP, "443")
+			address := net.JoinHostPort(targetIP, strconv.Itoa(targetPort))
 			start := time.Now()
 
 			dialCtx, dialCancel := context.WithTimeout(ctx, 2000*time.Millisecond)

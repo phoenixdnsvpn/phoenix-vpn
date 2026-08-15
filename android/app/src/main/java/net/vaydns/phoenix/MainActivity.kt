@@ -780,28 +780,37 @@ class MainActivity : AppCompatActivity() {
                 val config = configList.find { it.id == selectedConfigId }
 
                 if (config != null) {
-                    // Fetch the discriminator to see what we are dealing with
-                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
-                    val configType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
-
-                    // GUARDRAIL 1: Block Hysteria in Proxy Mode
-                    //val isDirectMode = configType.lowercase() == "direct"
                     val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-                    val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
-                    val configTypeLower = configType.lowercase()
+                    val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+                    val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-                    val isSupported = when {
-                        configTypeLower == "direct" -> activeProtocol != "vaydns"
-                        configTypeLower == "" -> activeProtocol == "vaydns"
-                        else -> configTypeLower.contains(activeProtocol.lowercase())
+                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+                    val rawConfigType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
+
+                    // ACCURATE PROTOCOL RESOLUTION (Matches startVpnService logic)
+                    val resolvedProtocol = if (config.isDefault && globalOverride) {
+                        globalProtocol
+                    } else if (config.isDefault) {
+                        getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                            .getString("${config.id}_tunnelProtocol", null)
+                            ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
+                    } else {
+                        // Custom user configs bypass overrides and dictate their own protocol
+                        config.protocol
                     }
-                    if (!isSupported) {
-                        Toast.makeText(this@MainActivity, "This config does not support ${activeProtocol.uppercase()}.", Toast.LENGTH_LONG).show()
-                        return@setOnClickListener // Instantly abort the connection attempt
+
+                    // GUARDRAIL 1: Verify Default Configs support the selected protocol
+                    // (Custom configs are skipped here because they inherently support their own protocol)
+                    if (config.isDefault) {
+                        val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
+                        if (!supportedProtocols.contains(resolvedProtocol.lowercase())) {
+                            Toast.makeText(this@MainActivity, "This config does not support ${resolvedProtocol.uppercase()}.", Toast.LENGTH_LONG).show()
+                            return@setOnClickListener // Instantly abort the connection attempt
+                        }
                     }
 
                     // GUARDRAIL 2: Block HTTP in VPN Mode
-                    if (config.protocol.lowercase() == "http" && !isProxyMode) {
+                    if (resolvedProtocol.lowercase() == "http" && !isProxyMode) {
                         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                             .setTitle("VPN Mode Unavailable")
                             // ... your existing HTTP error message ...
@@ -810,6 +819,7 @@ class MainActivity : AppCompatActivity() {
                         return@setOnClickListener // Block connection
                     }
                 }
+
                 // Fetch the preference locally so the if-statement can read it ---
                 val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                 val tunnelAllApps = appPrefs.getBoolean("tunnel_all_apps", false)
@@ -3339,121 +3349,179 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun downloadUpdateInternal(downloadUrl: String, fileName: String, versionStr: String) {
-        Toast.makeText(this, "Starting secure update download inside tunnel...", Toast.LENGTH_SHORT).show()
+    /**
+     * Checks if a file exists in the directory. If it does, appends _1, _2, etc.
+     * Example: PhoenixVpn-v2.5.0-arm64-v8a.apk -> PhoenixVpn-v2.5.0-arm64-v8a_1.apk
+     */
+    private fun getIncrementalFileName(directory: File, baseFileName: String): String {
+        var candidateFile = File(directory, baseFileName)
+        if (!candidateFile.exists()) {
+            return baseFileName
+        }
 
-        // 1. Launch a background thread using your existing Coroutine system
+        val nameWithoutExtension = if (baseFileName.contains(".")) {
+            baseFileName.substringBeforeLast(".")
+        } else {
+            baseFileName
+        }
+
+        val extension = if (baseFileName.contains(".")) {
+            "." + baseFileName.substringAfterLast(".")
+        } else {
+            ""
+        }
+
+        var counter = 1
+        while (candidateFile.exists()) {
+            val newName = "${nameWithoutExtension}_$counter$extension"
+            candidateFile = File(directory, newName)
+            counter++
+        }
+
+        return candidateFile.name
+    }
+
+    private fun downloadUpdateInternal(downloadUrl: String, fileName: String, versionStr: String, releaseType: String) {
+        Toast.makeText(this, "Starting secure update download...", Toast.LENGTH_SHORT).show()
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Build the OkHttp request manually so it executes inside our active VPN process
                 val client = OkHttpClient.Builder()
                     .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                     .build()
 
-                val request = Request.Builder()
-                    .url(downloadUrl)
-                    // Securely pass the required authentication header to Nginx
-                    .addHeader("X-Phoenix-Token", mobile.Mobile.getAppSecretKeyExported())
-                    .build()
+                var successfulResponse: okhttp3.Response? = null
 
-                val response = client.newCall(request).execute()
+                // =======================================================
+                // NETWORK REQUEST FORK
+                // =======================================================
+                if (releaseType.lowercase() == "private") {
 
-                if (!response.isSuccessful) {
+                    // 1. Fetch all failover server URLs from the Go vault
+                    val serverBasesRaw = try {
+                        mobile.Mobile.getUpdateServerURLsExported().split(",").filter { it.isNotBlank() }
+                    } catch (e: Exception) {
+                        val primary = mobile.Mobile.getPrimaryUpdateServer()
+                        if (primary.isNotBlank()) listOf(primary) else emptyList()
+                    }
+
+                    if (serverBasesRaw.isEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Download failed: No update servers available in vault.", Toast.LENGTH_LONG).show()
+                        }
+                        return@launch
+                    }
+
+                    // 2. Loop through failover servers until one succeeds
+                    for (base in serverBasesRaw) {
+                        val cleanBase = base.trim().removeSuffix("/")
+                        if (cleanBase.isEmpty()) continue
+                        val fullUrl = "$cleanBase/assets/$fileName"
+
+                        try {
+                            val request = Request.Builder()
+                                .url(fullUrl)
+                                // Passes secret key to bypass Cloudflare WAF / Nginx
+                                .addHeader("X-Phoenix-Token", mobile.Mobile.getAppSecretKeyExported())
+                                .build()
+
+                            val response = client.newCall(request).execute()
+                            if (response.isSuccessful && response.body != null) {
+                                successfulResponse = response
+                                break // Success! Stop checking secondary mirrors
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Phoenix", "Failover attempt failed for $fullUrl: ${e.message}")
+                        }
+                    }
+
+                } else {
+
+                    // COMMUNITY RELEASE: Standard GitHub Download (No Failover or Headers needed)
+                    try {
+                        val request = Request.Builder()
+                            .url(downloadUrl)
+                            .build()
+
+                        val response = client.newCall(request).execute()
+                        if (response.isSuccessful && response.body != null) {
+                            successfulResponse = response
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Phoenix", "GitHub download attempt failed: ${e.message}")
+                    }
+                }
+
+                if (successfulResponse == null || successfulResponse.body == null) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Server rejected download: Code ${response.code}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Download failed: Update server unreachable.", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }
 
-                val body = response.body
-                if (body == null) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Failed to download: Empty server response.", Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
-                }
-
-                // Scoped Storage Compliant Download ---
-                val inputStream: java.io.InputStream = body.byteStream()
+                // =======================================================
+                // DISK WRITING (SCOPED STORAGE)
+                // =======================================================
+                val body = successfulResponse.body!!
+                val inputStream: InputStream = body.byteStream()
                 val mimeType = "application/vnd.android.package-archive"
 
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs()
+                }
+
+                val targetFileName = getIncrementalFileName(downloadsDir, fileName)
+                var savedSuccessfully = false
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    // Modern Android 10+ (API 29+): Use MediaStore API (No permissions required)
-                    val contentValues = android.content.ContentValues().apply {
-                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                    }
-
-                    val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                    if (uri != null) {
-                        contentResolver.openOutputStream(uri)?.use { outputStream ->
-                            inputStream.copyTo(outputStream) // Elegantly handles buffering and flushing
+                    try {
+                        val contentValues = android.content.ContentValues().apply {
+                            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, targetFileName)
+                            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
                         }
-                    } else {
-                        throw Exception("MediaStore rejected file creation.")
-                    }
-                } else {
-                    // Legacy Android 9 and below: Fallback to direct file paths
-                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                    val outputFile = File(downloadsDir, fileName)
 
-                    java.io.FileOutputStream(outputFile).use { outputStream ->
+                        val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                        if (uri != null) {
+                            contentResolver.openOutputStream(uri)?.use { outputStream ->
+                                inputStream.copyTo(outputStream)
+                            }
+                            savedSuccessfully = true
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Phoenix", "MediaStore insert failed, falling back to legacy storage: ${e.message}")
+                    }
+                }
+
+                // Fallback for Android 9 or if MediaStore insertion fails
+                if (!savedSuccessfully) {
+                    val outputFile = File(downloadsDir, targetFileName)
+
+                    FileOutputStream(outputFile).use { outputStream ->
                         inputStream.copyTo(outputStream)
                     }
 
-                    // Manually scan the file so it appears in the user's File Manager immediately
                     android.media.MediaScannerConnection.scanFile(
                         this@MainActivity,
                         arrayOf(outputFile.absolutePath),
-                        arrayOf(mimeType)
-                    ) { _, uri ->
-                        android.util.Log.i("Phoenix", "Update APK scanned into MediaStore: $uri")
-                    }
-                }
-                inputStream.close()
-
-                // Target the public Downloads directory on the device storage
-                /**val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val outputFile = File(downloadsDir, fileName)
-
-                // Stream data block-by-block from the network to disk memory
-                val inputStream: InputStream = body.byteStream()
-                val outputStream = FileOutputStream(outputFile)
-                val buffer = ByteArray(4096)
-                var bytesRead: Int
-
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    outputStream.write(buffer, 0, bytesRead)
+                        arrayOf(mimeType),
+                        null
+                    )
                 }
 
-                outputStream.flush()
-                outputStream.close()
                 inputStream.close()
-
-                android.media.MediaScannerConnection.scanFile(
-                    this@MainActivity,
-                    arrayOf(outputFile.absolutePath),
-                    arrayOf("application/vnd.android.package-archive") // APK MIME type
-                ) { path, uri ->
-                    android.util.Log.i("Phoenix", "Update APK scanned into MediaStore: $uri")
-                }*/
-
-                // 2. Return to the main UI thread to notify the user
 
                 withContext(Dispatchers.Main) {
-
-                    // Format the message using HTML tags for bolding and color
-                    val dialogMessage = "The update file '$fileName' has been safely downloaded into your local Downloads directory.<br><br>" +
+                    val dialogMessage = "The update file '$targetFileName' has been safely downloaded into your Downloads directory.<br><br>" +
                             "Please open your file manager to install it manually.<br><br>" +
                             "<b><font color='#F9A825'>Please note you must uninstall the current version before installing the downloaded version.</font></b><br><br>" +
-                            "فایل آپدیت با موفقیت در پوشه Downloads ذخیره شد. لطفاً برای نصب دستی آن، فایل منیجر گوشی خود را باز کنید.<br><br>" +
+                            "فایل آپدیت با موفقیت با نام '$targetFileName' در پوشه Downloads ذخیره شد. لطفاً برای نصب دستی آن، فایل منیجر گوشی خود را باز کنید.<br><br>" +
                             "<b><font color='#F9A825'>توجه داشته باشید که قبل از نصب نسخه جدید، باید نسخه فعلی را حذف (Uninstall) کنید.</font></b>"
 
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle("Download Complete / دانلود کامل شد")
-                        // Convert the HTML string into a formatted CharSequence that Android can render
                         .setMessage(androidx.core.text.HtmlCompat.fromHtml(dialogMessage, androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY))
                         .setPositiveButton("OK", null)
                         .show()
@@ -3462,7 +3530,7 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Download failed inside tunnel: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "Download error: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -3566,7 +3634,6 @@ class MainActivity : AppCompatActivity() {
         return false
     }
 
-// Changed signature to accept the releaseType
     private fun showUpdateDialog(newVersion: String, releaseType: String = "community") {
         runOnUiThread {
             // 1. Detect Android Architecture
@@ -3592,7 +3659,6 @@ class MainActivity : AppCompatActivity() {
                     serverBase = serverBase.replace("http://", "https://", ignoreCase = true)
                 }
                 "$serverBase/assets/$fileName"
-
             } else {
                 "https://github.com/phoenixdnsvpn/phoenix-vpn/releases/download/$versionStr/$fileName"
             }
@@ -3605,19 +3671,9 @@ class MainActivity : AppCompatActivity() {
                         "توجه: این فایل کاملاً امن است. اگر پیشرفت دانلود نمایش داده نشد، لطفاً پنل اعلان‌ها (Notifications) یا پوشه دانلودهای خود را بررسی کنید.")
                 .setPositiveButton("Download") { _, _ ->
 
-                    if (releaseType.lowercase() == "private") {
-                        // =========================================================
-                        // SECURE PRIVATE DOWNLOAD (Background DownloadManager)
-                        // =========================================================
-                        downloadUpdateInternal(downloadUrl, fileName, versionStr)
+                    // UNIFIED DOWNLOADER: Handles both Private Failover and Community GitHub
+                    downloadUpdateInternal(downloadUrl, fileName, versionStr, releaseType)
 
-                    } else {
-                        // =========================================================
-                        // COMMUNITY GITHUB DOWNLOAD (Browser Intent)
-                        // =========================================================
-                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl))
-                        startActivity(intent)
-                    }
                 }
                 .setNegativeButton("Later", null)
                 .setIcon(R.mipmap.ic_launcher_round)
@@ -3685,6 +3741,7 @@ class MainActivity : AppCompatActivity() {
         val useSniPool = tunnelPrefs.getBoolean("use_sni_pool", false)
         val selectedSniIndex = tunnelPrefs.getInt("selected_sni_index", -1)
         val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
+        val useHysteriaCore = tunnelPrefs.getBoolean("use_hysteria_core", false)
 
         var activeProtocol = if (config.isDefault && globalOverride) {
             globalProtocol
@@ -3858,6 +3915,7 @@ class MainActivity : AppCompatActivity() {
                 putExtra("BLOCK_QUIC", blockQuic)
                 putExtra("GET_SERVER_IP_FROM_DOMAIN", getServerIpFromDomain)
                 putExtra("SNI_INDEX", sniIndex)
+                putExtra("USE_HYSTERIA_CORE", useHysteriaCore)
             }
 
             if (isProxyMode) {

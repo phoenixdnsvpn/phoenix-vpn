@@ -66,7 +66,6 @@ class ConfigEditorActivity : AppCompatActivity() {
     private lateinit var layoutMultipathControls: LinearLayout
     private lateinit var tvMultipathLabel: TextView
     private lateinit var tvMultipathDesc: TextView
-    private lateinit var cbBestCfIp: SwitchCompat
 
     private fun updateDomainRadioGroup() {
         val domains = if (editingConfigId?.startsWith("default_") == true) {
@@ -165,20 +164,139 @@ class ConfigEditorActivity : AppCompatActivity() {
         tvMultipathLabel = findViewById(R.id.tv_multipath_label)
         tvMultipathDesc = findViewById(R.id.tv_multipath_desc)
 
-        cbBestCfIp = findViewById(R.id.cb_best_cf_ip)
+        val btnBestCfIp = findViewById<Button>(R.id.btn_best_cf_ip)
 
-        cbBestCfIp.setOnCheckedChangeListener { buttonView, isChecked ->
+        btnBestCfIp.setOnClickListener { buttonView ->
+            val btn = buttonView as Button
+            btn.text = "Scanning ..."
+            btn.isEnabled = false
+
+            // Grab the currently selected CDN and Tunnel Protocol from the Editor
+            val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "CloudX"
+            val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
+            val selectedTunnelProtocol = spinnerTunnelProtocol?.selectedItem?.toString() ?: "vaydns"
+
+            val spinnerEditorPort = findViewById<Spinner>(R.id.spinner_editor_port)
+            val selectedPortStr = spinnerEditorPort?.selectedItem?.toString() ?: "443"
+            val selectedPort = selectedPortStr.toLongOrNull() ?: 443L
+
+            // GUARDRAIL 1 & 2: Check if CDN supports both the selected VLESS protocol AND the selected port
+            if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
+                val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
+                if (!supported) {
+                    Toast.makeText(this, "CDN '$selectedCdn' does not support protocol '$selectedTunnelProtocol'!", Toast.LENGTH_LONG).show()
+                    btn.text = "Get best IP from Vault"
+                    btn.isEnabled = true
+                    return@setOnClickListener
+                }
+
+                val portSupported = Mobile.cdnSupportsPort(selectedCdn, selectedPort)
+                if (!portSupported) {
+                    Toast.makeText(this, "CDN '$selectedCdn' does not support port '$selectedPortStr'!", Toast.LENGTH_LONG).show()
+                    btn.text = "Get best IP from Vault"
+                    btn.isEnabled = true
+                    return@setOnClickListener
+                }
+            }
+
+            // Fetch ALL IPs from the JSON Vault for the Layer 7 scanner
+            val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
+            val jsonString = prefs.getString("vault_ips_json", "[]") ?: "[]"
+            val allIpsList = mutableListOf<String>()
+
+            try {
+                val jsonArray = org.json.JSONArray(jsonString)
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val ipCdn = obj.optString("cdn", "CloudX")
+
+                    // FILTER: Only race IPs that belong to the Target CDN
+                    if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
+                        val rawIp = obj.getString("ip")
+                        val decryptedIp = CryptoHelper.decrypt(rawIp)
+                        if (decryptedIp.isNotBlank()) {
+                            allIpsList.add(decryptedIp)
+                        }
+                    }
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+
+            val savedIps = allIpsList.joinToString(",")
+
+            if (savedIps.isBlank()) {
+                Toast.makeText(this, "No IPs found for $selectedCdn in Global Settings!", Toast.LENGTH_SHORT).show()
+                btn.text = "Get best IP from Vault"
+                btn.isEnabled = true
+                return@setOnClickListener
+            }
+
+            Toast.makeText(this, "Racing $selectedCdn IPs in background...", Toast.LENGTH_SHORT).show()
+
+            // Layer 7 latency measurement
+            Thread {
+                val isDefault = editingConfigId?.startsWith("default_") == true
+                val cIndex = if (isDefault) editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: -1L else -1L
+
+                // Grab the domain currently typed into the editor
+                val etDomain = findViewById<EditText>(R.id.et_domain)
+                val currentDomain = etDomain?.text?.toString()?.trim() ?: ""
+
+                // Call the NEW Layer 7 Scanner
+                val result = Mobile.getFastestCloudflareIP(
+                    isDefault,
+                    cIndex,
+                    savedIps,
+                    currentDomain,
+                    selectedCdn,
+                    selectedPort.toLong(),
+                    selectedTunnelProtocol
+                )
+
+                runOnUiThread {
+                    // Restore button text and state instantly
+                    btn.text = "Get best IP from Vault"
+                    btn.isEnabled = true
+
+                    if (result.isNotEmpty() && result.contains("|")) {
+                        val parts = result.split("|")
+                        val bestIp = parts[0]
+                        val latency = parts[1]
+
+                        val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
+                        realVlessIp = bestIp
+                        val mappedWinner = mobile.Mobile.encryptIP(bestIp)
+                        etVlessIp.setText(mappedWinner)
+                        Toast.makeText(this@ConfigEditorActivity, "Winner: $mappedWinner (${latency}ms)", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this@ConfigEditorActivity, "All IPs failed the Layer 7 Handshake.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.start()
+        }
+
+        /**cbBestCfIp.setOnCheckedChangeListener { buttonView, isChecked ->
             if (isChecked) {
                 // Grab the currently selected CDN and Tunnel Protocol from the Editor
                 val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "CloudX"
                 val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
                 val selectedTunnelProtocol = spinnerTunnelProtocol?.selectedItem?.toString() ?: "vaydns"
 
-                // GUARDRAIL 1: Check if CDN supports the selected VLESS protocol
+                val spinnerEditorPort = findViewById<Spinner>(R.id.spinner_editor_port)
+                val selectedPortStr = spinnerEditorPort?.selectedItem?.toString() ?: "443"
+                val selectedPort = selectedPortStr.toLongOrNull() ?: 443L
+
+                // GUARDRAIL 1 & 2: Check if CDN supports both the selected VLESS protocol AND the selected port
                 if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
                     val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
                     if (!supported) {
                         Toast.makeText(this, "CDN '$selectedCdn' does not support protocol '$selectedTunnelProtocol'!", Toast.LENGTH_LONG).show()
+                        buttonView.isChecked = false
+                        return@setOnCheckedChangeListener
+                    }
+
+                    val portSupported = Mobile.cdnSupportsPort(selectedCdn, selectedPort)
+                    if (!portSupported) {
+                        Toast.makeText(this, "CDN '$selectedCdn' does not support port '$selectedPortStr'!", Toast.LENGTH_LONG).show()
                         buttonView.isChecked = false
                         return@setOnCheckedChangeListener
                     }
@@ -226,7 +344,15 @@ class ConfigEditorActivity : AppCompatActivity() {
                     val currentDomain = etDomain?.text?.toString()?.trim() ?: ""
 
                     // Call the NEW Layer 7 Scanner
-                    val result = Mobile.getFastestCloudflareIP(isDefault, cIndex, savedIps, currentDomain, selectedCdn, selectedTunnelProtocol)
+                    val result = Mobile.getFastestCloudflareIP(
+                        isDefault,
+                        cIndex,
+                        savedIps,
+                        currentDomain,
+                        selectedCdn,
+                        selectedPort.toLong(),
+                        selectedTunnelProtocol
+                    )
 
                     runOnUiThread {
                         buttonView.isEnabled = true
@@ -248,35 +374,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                         }
                     }
                 }.start()
-
-                // Layer 4 latency measurement
-                /*Thread {
-                    val isDefault = editingConfigId?.startsWith("default_") == true
-                    val cIndex = if (isDefault) editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: -1L else -1L
-
-                    // Call our new native Go scanner
-                    val result = Mobile.pingBestDirectIP(isDefault, cIndex, savedIps, "direct", "vless-ws", globalDnsServer, getServerIpFromDomain, selectedCdn)
-
-                    runOnUiThread {
-                        buttonView.isEnabled = true
-                        buttonView.isChecked = false // Reset toggle
-
-                        if (result.isNotEmpty() && result.contains("|")) {
-                            val parts = result.split("|")
-                            val bestIp = parts[0]
-                            val latency = parts[1]
-
-                            // TARGET THE CORRECT EDIT TEXT
-                            val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
-                            etVlessIp.setText(bestIp)
-                            Toast.makeText(this@ConfigEditorActivity, "Winner: $bestIp (${latency}ms)", Toast.LENGTH_LONG).show()
-                        } else {
-                            Toast.makeText(this@ConfigEditorActivity, "All Global IPs failed to respond.", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }.start()*/
             }
-        }
+        }*/
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
 
@@ -698,9 +797,11 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
+        val spinnerVlessProtocol = findViewById<Spinner>(R.id.spinner_vless_protocol)
+        val layoutVlessProtocol = findViewById<LinearLayout>(R.id.layout_vless_protocol)
 
         // 1. Determine which protocols this specific config is allowed to use
-        val supportedProtocols = if (isDefault) {
+        val baseSupportedProtocols = if (isDefault) {
             val nativeIndex = editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: 0L
             val types = mobile.Mobile.getDefaultConfigType(nativeIndex).split(",").map { it.trim().lowercase() }
             if (types.isEmpty() || types[0] == "") listOf("vaydns") else types
@@ -708,22 +809,44 @@ class ConfigEditorActivity : AppCompatActivity() {
             listOf("vaydns")
         }
 
-        val tpAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, supportedProtocols)
+        // 2. Load Master Spinner universally (NO CDN filtering here)
+        val tpAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, baseSupportedProtocols)
         tpAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerTunnelProtocol.adapter = tpAdapter
 
-        // 2. Load the currently saved value
         val currentProtocol = if (isDefault) {
             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                .getString("${editingConfigId}_tunnelProtocol", null) ?: supportedProtocols.firstOrNull() ?: "vaydns"
+                .getString("${editingConfigId}_tunnelProtocol", null) ?: baseSupportedProtocols.firstOrNull() ?: "vaydns"
         } else {
             val configs = loadAllConfigs(this)
             val config = configs.find { it.id == editingConfigId }
             config?.tunnelProtocol ?: "vaydns"
         }
 
-        val pIndex = supportedProtocols.indexOf(currentProtocol)
+        val pIndex = baseSupportedProtocols.indexOf(currentProtocol)
         if (pIndex >= 0) spinnerTunnelProtocol.setSelection(pIndex)
+
+        // 3. Helper function to synchronize VLESS Protocols dynamically
+        fun updateVlessProtocolSpinner(selectedCdn: String): Boolean {
+            val vlessProtosInConfig = baseSupportedProtocols.filter { it.startsWith("vless") }
+            val supportedByCdn = vlessProtosInConfig.filter { mobile.Mobile.cdnSupportsProtocol(selectedCdn, it) }
+
+            if (supportedByCdn.isEmpty()) return false
+
+            val currentVlessProto = spinnerVlessProtocol.selectedItem?.toString() ?: currentProtocol
+            val vlessAdapter = ArrayAdapter(this@ConfigEditorActivity, android.R.layout.simple_spinner_item, supportedByCdn)
+            vlessAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            spinnerVlessProtocol.adapter = vlessAdapter
+
+            if (supportedByCdn.contains(currentVlessProto)) {
+                spinnerVlessProtocol.setSelection(supportedByCdn.indexOf(currentVlessProto))
+            } else if (supportedByCdn.contains(currentProtocol)) {
+                spinnerVlessProtocol.setSelection(supportedByCdn.indexOf(currentProtocol))
+            } else {
+                spinnerVlessProtocol.setSelection(0)
+            }
+            return true
+        }
 
         val tvVlessIpLabel = findViewById<TextView>(R.id.tv_vless_ip_label)
         val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
@@ -744,21 +867,45 @@ class ConfigEditorActivity : AppCompatActivity() {
         // Setup Target CDN Spinner ---
         val spinnerEditorCdn = findViewById<Spinner>(R.id.spinner_editor_cdn)
         val layoutEditorCdn = findViewById<LinearLayout>(R.id.layout_editor_cdn)
+        val spinnerEditorPort = findViewById<Spinner>(R.id.spinner_editor_port)
+        val layoutEditorPort = findViewById<LinearLayout>(R.id.layout_editor_port)
 
         val cdnList = mutableListOf<String>()
-        val cdnCount = mobile.Mobile.getCdnCount()
-        for (i in 0 until cdnCount) {
-            val name = mobile.Mobile.getCdnName(i)
-            if (name.isNotEmpty()) cdnList.add(name)
+        // 1. If it's a default config, fetch its explicitly allowed CDNs
+        if (isDefault) {
+            val nativeIndex = editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: 0L
+            val configCloudsStr = mobile.Mobile.getDefaultConfigClouds(nativeIndex)
+            if (configCloudsStr.isNotEmpty()) {
+                cdnList.addAll(configCloudsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+            }
+        }
+
+        // 2. Fallback: If it's a Custom Config (or the JSON didn't have the "clouds" array), load the Global list
+        if (cdnList.isEmpty()) {
+            val cdnCount = mobile.Mobile.getCdnCount()
+            for (i in 0 until cdnCount) {
+                val name = mobile.Mobile.getCdnName(i)
+                if (name.isNotEmpty()) cdnList.add(name)
+            }
         }
         if (cdnList.isEmpty()) {
             cdnList.add("CloudX")
             cdnList.add("CloudY")
             cdnList.add("CloudZ")
+            cdnList.add("CloudV")
         }
         val cdnAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
         cdnAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerEditorCdn.adapter = cdnAdapter
+
+        val currentConfigPort = if (isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getInt("${editingConfigId}_vlessPort", 443)
+        } else {
+            val configs = loadAllConfigs(this)
+            val config = configs.find { it.id == editingConfigId }
+            config?.vlessPort ?: 443
+        }
 
         // Load Global Override settings
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
@@ -774,27 +921,79 @@ class ConfigEditorActivity : AppCompatActivity() {
                 .getString("${editingConfigId}_cdn", "CloudX") ?: "CloudX"
         }
 
+        // Helper function to populate port spinner
+        fun updatePortSpinner(selectedCdn: String, targetPort: Int) {
+            val portsCsv = mobile.Mobile.getCdnPortsCsv(selectedCdn)
+            val cdnFilteredPorts = if (portsCsv.isNotEmpty()) {
+                portsCsv.split(",").map { it.trim() }
+            } else {
+                listOf("443")
+            }
+
+            val portAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnFilteredPorts)
+            portAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            spinnerEditorPort.adapter = portAdapter
+
+            val targetPortStr = targetPort.toString()
+            if (cdnFilteredPorts.contains(targetPortStr)) {
+                spinnerEditorPort.setSelection(cdnFilteredPorts.indexOf(targetPortStr))
+            } else if (cdnFilteredPorts.contains("443")) {
+                spinnerEditorPort.setSelection(cdnFilteredPorts.indexOf("443"))
+            } else {
+                spinnerEditorPort.setSelection(0)
+            }
+        }
+
         // Apply Logic: If Global Override is ON, force it to the Global setting initially
         val cdnToSelect = if (globalOverride) globalCdn else currentConfigCdn
-        val cdnIndex = cdnList.indexOf(cdnToSelect)
+        var cdnIndex = cdnList.indexOf(cdnToSelect)
+
+        // Safety: If their previously saved CDN isn't in this config's allowed 'clouds' array, force it to the first available one
+        if (cdnIndex < 0 && cdnList.isNotEmpty()) {
+            cdnIndex = 0
+        }
+
         if (cdnIndex >= 0) spinnerEditorCdn.setSelection(cdnIndex)
 
-        // Fetch the Top IP from Disk on CDN Change <---
+        // Initialize sub-spinners safely
+        updateVlessProtocolSpinner(cdnToSelect)
+        // Initialize port spinner with initial CDN
+        updatePortSpinner(cdnToSelect, currentConfigPort)
+
         var isInitialCdnSetup = true
 
         spinnerEditorCdn.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>, view: View?, position: Int, id: Long) {
-                // Ignore the very first trigger when Android builds the UI
+                val selectedCdn = parent.getItemAtPosition(position).toString()
+
+                // 1. Synchronize Vless-Protocol with newly selected CDN
+                val masterProto = spinnerTunnelProtocol.selectedItem?.toString()?.lowercase()?.trim() ?: ""
+                if (masterProto.startsWith("vless")) {
+                    val success = updateVlessProtocolSpinner(selectedCdn)
+                    if (!success) {
+                        Toast.makeText(this@ConfigEditorActivity, "CDN '$selectedCdn' does not support any VLESS protocols for this config. Reverting to CloudX.", Toast.LENGTH_LONG).show()
+                        val cloudXIndex = cdnList.indexOf("CloudX")
+                        if (cloudXIndex >= 0 && selectedCdn != "CloudX") {
+                            spinnerEditorCdn.setSelection(cloudXIndex)
+                        }
+                        return
+                    }
+                }
+
+                // 2. Update ports available for the newly selected CDN
+                val currentSelectedPort = spinnerEditorPort.selectedItem?.toString()?.toIntOrNull() ?: currentConfigPort
+                updatePortSpinner(selectedCdn, currentSelectedPort)
+
+                // Ignore the IP clearing logic on initial view rendering
                 if (isInitialCdnSetup) {
                     isInitialCdnSetup = false
                     return
                 }
 
-                // 1. Instantly clear the existing IP to prevent a CDN/IP mismatch
+                // Instantly clear the existing IP to prevent a CDN/IP mismatch
                 realVlessIp = ""
                 etVlessIp.setText("")
 
-                val selectedCdn = parent.getItemAtPosition(position).toString()
                 val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
                 val jsonString = prefs.getString("vault_ips_json", "[]") ?: "[]"
                 var firstIp = ""
@@ -815,14 +1014,12 @@ class ConfigEditorActivity : AppCompatActivity() {
                     e.printStackTrace()
                 }
 
-                // 2. Replace with the retrieved IP (if one was found)
+                // Replace with the retrieved IP (if one was found)
                 if (firstIp.isNotEmpty()) {
                     realVlessIp = firstIp
                     etVlessIp.setText(mobile.Mobile.encryptIP(firstIp))
                 }
 
-                // Uncheck the scanner toggle so it's ready if they decide to scan later
-                cbBestCfIp.isChecked = false
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
         }
@@ -854,25 +1051,46 @@ class ConfigEditorActivity : AppCompatActivity() {
             tvVlessIpLabel.visibility = View.GONE
             etVlessIp.visibility = View.GONE
         }
-// 2. Add Listener to toggle visibility and states dynamically
+
+        // 2. Add Listener to toggle visibility and states dynamically
         spinnerTunnelProtocol.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>, view: View?, position: Int, id: Long) {
                 val selected = parent.getItemAtPosition(position).toString().lowercase().trim()
                 val isVaydns = selected == "vaydns"
                 val visibilityState = if (isVaydns) View.VISIBLE else View.GONE
+                val isVless = selected.startsWith("vless")
 
-                // 1. Handle Vless IP visibility universally
-                if (selected == "vless-ws" || selected == "vless-httpupgrade" || selected == "vless-grpc" || selected == "vless-xhttp") {
+                // 1. Handle Vless Block universally
+                if (isVless) {
                     tvVlessIpLabel.visibility = View.VISIBLE
                     etVlessIp.visibility = View.VISIBLE
-                    cbBestCfIp.visibility = View.VISIBLE
+                    btnBestCfIp.visibility = View.VISIBLE
                     layoutEditorCdn.visibility = View.VISIBLE
+                    layoutVlessProtocol.visibility = View.VISIBLE
+                    layoutEditorPort.visibility = View.VISIBLE
+
+                    // Fallback to CloudX if the current CDN is invalid for the VLESS block
+                    val selectedCdn = spinnerEditorCdn.selectedItem?.toString() ?: "CloudX"
+                    val success = updateVlessProtocolSpinner(selectedCdn)
+                    if (!success) {
+                        val cloudXIndex = cdnList.indexOf("CloudX")
+                        if (cloudXIndex >= 0) spinnerEditorCdn.setSelection(cloudXIndex)
+                    }
+
+                    if (isDefault) {
+                        etVlessIp.isEnabled = false
+                        etVlessIp.alpha = 0.5f
+                    } else {
+                        etVlessIp.isEnabled = true
+                        etVlessIp.alpha = 1.0f
+                    }
                 } else {
                     tvVlessIpLabel.visibility = View.GONE
                     etVlessIp.visibility = View.GONE
-                    cbBestCfIp.visibility = View.GONE
-                    cbBestCfIp.isChecked = false
+                    btnBestCfIp.visibility = View.GONE
                     layoutEditorCdn.visibility = View.GONE
+                    layoutVlessProtocol.visibility = View.GONE
+                    layoutEditorPort.visibility = View.GONE
                 }
 
                 if (!isDefault) {
@@ -997,14 +1215,29 @@ class ConfigEditorActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            val selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
-            val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "CloudX"
+            var selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
 
-            // GUARDRAIL 2: Check protocol compatibility before saving
+            // OVERRIDE master protocol with VLESS Protocol spinner if applicable
+            if (selectedTunnelProtocol.lowercase().startsWith("vless")) {
+                selectedTunnelProtocol = spinnerVlessProtocol.selectedItem?.toString() ?: selectedTunnelProtocol
+            }
+
+            val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "CloudX"
+            val selectedPortStr = spinnerEditorPort.selectedItem?.toString() ?: "443"
+            val selectedPort = selectedPortStr.toLongOrNull() ?: 443L
+
+            // GUARDRAIL 1: Protocol compatibility
             if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
                 val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
                 if (!supported) {
                     Toast.makeText(this, "Cannot Save: CDN '$selectedCdn' does not support protocol '$selectedTunnelProtocol'!", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+
+                // GUARDRAIL 2: Port compatibility
+                val portSupported = Mobile.cdnSupportsPort(selectedCdn, selectedPort)
+                if (!portSupported) {
+                    Toast.makeText(this, "Cannot Save: CDN '$selectedCdn' does not support port '$selectedPortStr'!", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
             }
@@ -1106,7 +1339,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 name, domain, pubkey, dns, mode, rt, idle, keep,
                 clientIdSize, mtu,dnstt, useAuth, useSshKey, proxyProtocol,
                 authProtocol, ssMethod, user, pass, useMultiDomains, selectedTunnelProtocol,
-                selectedVlessIp, selectedDomainIndex, selectedCdn
+                selectedVlessIp, selectedDomainIndex, selectedCdn, selectedPort.toInt()
             )
             finish()
 
@@ -1388,7 +1621,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean,
         useSshKey: Boolean, proxyProtocolValue: String, authProtocolValue: String,
         ssMethod: String, user: String, pass: String, useMultiDomains: Boolean,
-        tunnelProtocol: String, vlessIp: String, domainIndex: Int
+        tunnelProtocol: String, vlessIp: String, domainIndex: Int, vlessPort: Int
     ) {
         obj.put("name", name)
         obj.put("domain", domain)
@@ -1412,6 +1645,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("domainIndex", domainIndex)
         obj.put("tunnelProtocol", tunnelProtocol)
         obj.put("vlessIp", vlessIp)
+        obj.put("vlessPort", vlessPort)
     }
 
     private fun saveOrUpdateConfig(
@@ -1438,7 +1672,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         tunnelProtocol: String,
         selectedVlessIp: String,
         domainIndex: Int,
-        selectedCdn: String
+        selectedCdn: String,
+        selectedPort: Int
     ) {
         if (editingConfigId?.startsWith("default_") == true) {
             val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -1452,6 +1687,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putString("${editingConfigId}_vlessIp", CryptoHelper.encrypt(selectedVlessIp))
                 putInt("${editingConfigId}_domainIndex", domainIndex)
                 putString("${editingConfigId}_cdn", selectedCdn)
+                putInt("${editingConfigId}_vlessPort", selectedPort)
             }.apply()
             finish()
             return
@@ -1472,7 +1708,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
                         idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
                         useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass,
-                        useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex)
+                        useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort)
                     break
                 }
             }
@@ -1484,7 +1720,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
                 idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
                 useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass,
-                useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex)
+                useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort)
             jsonArray.put(newObj)
 
             // File remapping targets now point to finalAssignedId, not temp placeholders!
@@ -1506,6 +1742,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         sharedPref.edit().putString("configs", jsonArray.toString()).apply()
         sharedPref.edit().putString("${finalAssignedId}_cdn", selectedCdn).apply()
+        sharedPref.edit().putInt("${finalAssignedId}_vlessPort", selectedPort).apply()
     }
 
     override fun onResume() {
@@ -1554,6 +1791,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         tunnelProtocol = obj.optString("tunnelProtocol", "vaydns"),
                         // vlessIp = obj.optString("vlessIp", ""),
                         vlessIp = CryptoHelper.decrypt(obj.optString("vlessIp", "")),
+                        vlessPort = obj.optInt("vlessPort", 443),
                         isDefault = false // User configs are never default
                     )
                 )
@@ -1595,6 +1833,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("tunnelProtocol", config.tunnelProtocol)
                         // put("vlessIp", config.vlessIp)
                         put("vlessIp", CryptoHelper.encrypt(config.vlessIp))
+                        put("vlessPort", config.vlessPort)
                         put("domainIndex", config.domainIndex)
                     }
                     array.put(obj)

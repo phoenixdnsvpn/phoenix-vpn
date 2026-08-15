@@ -354,6 +354,7 @@ class VayProxyService : Service() {
                 val blockQuic = intent?.getBooleanExtra("BLOCK_QUIC", true) ?: true
                 val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
                 val sniIndex = intent.getLongExtra("SNI_INDEX", -1L)
+                val useHysteriaCore = intent.getBooleanExtra("USE_HYSTERIA_CORE", false)
 
                 // RESTORED: Exact, working parameter list matching your native Go layout
                 val result = Mobile.startProxy(
@@ -389,7 +390,8 @@ class VayProxyService : Service() {
                     fragment,
                     blockQuic,
                     getServerIpFromDomain,
-                    sniIndex
+                    sniIndex,
+                    useHysteriaCore
                 )
 
                 if (result.startsWith("Success")) {

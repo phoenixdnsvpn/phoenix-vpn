@@ -57,7 +57,8 @@ class ConfigAdapter(
         val config = configs[position]
 
         holder.name.text = config.name
-        holder.name.setTypeface(null, android.graphics.Typeface.BOLD)
+        // holder.name.setTypeface(null, android.graphics.Typeface.BOLD)
+        holder.name.setTypeface(null, android.graphics.Typeface.NORMAL)
         val isSelected = config.id == selectedId
 
         // Extract Active Protocol and Colorize Config Name
@@ -95,16 +96,41 @@ class ConfigAdapter(
             android.graphics.Color.BLACK
         )
 
+        val targetCdn = if (globalOverride) {
+            context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                .getString("selected_cdn", "CloudX") ?: "CloudX"
+        } else if (isDefault) {
+            context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
+        } else {
+            context.getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
+        }
+
         // Assign striking Material colors based on the protocol
         val protocolColor = when (activeProtocol.lowercase().trim()) {
             "hysteria2" -> android.graphics.Color.parseColor("#2E7D32") // Teal
             "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
-            "vless-ws"              -> android.graphics.Color.parseColor("#7B1FA2") // Strong Blue
+            //"vless-ws"              -> android.graphics.Color.parseColor("#7B1FA2") // Strong Blue
             "vless-httpupgrade"     -> android.graphics.Color.parseColor("#00B7EB") // Deep Purple 5E35B1
             "reality-xhttp"         -> android.graphics.Color.parseColor("#F9A825") // Golden
             "vless-grpc"            -> android.graphics.Color.parseColor("#D98C8C") // Sausage
-            //"vless-xhttp"           -> android.graphics.Color.parseColor("#D98C8C") // Sausage
             "vless-xhttp"           -> android.graphics.Color.parseColor("#BCA38A") // Creame
+            "vless-ws" -> {
+                // DYNAMIC CDN COLORING FOR VLESS-WS
+                when (targetCdn.trim().lowercase()) {
+                    "cloudy" -> android.graphics.Color.parseColor("#CE93D8") // CloudY Color
+                    "cloudv" -> android.graphics.Color.parseColor("#D98C8C") // CloudV Color
+                    else -> android.graphics.Color.parseColor("#7B1FA2")     // Default / CloudX Color
+                }
+                /**if (targetCdn.equals("CloudX", ignoreCase = true)) {
+                    android.graphics.Color.parseColor("#7B1FA2")
+                } else if (targetCdn.equals("CloudY", ignoreCase = true)) {
+                       android.graphics.Color.parseColor("#CE93D8")
+                } else {
+                    android.graphics.Color.parseColor("#D98C8C")
+                }*/
+            }
             else                    -> defaultTextColor // Phoenix (Native Black/White)
         }
 

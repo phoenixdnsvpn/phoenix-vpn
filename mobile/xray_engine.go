@@ -20,8 +20,8 @@ var (
 
 type XhttpRealityConfig struct {
 	XhttpPort string `json:"xhttp_port"`
-	VlessXhttpDomain string `json:"vless_xhttp_domain"`
-	XhttpCdnDomain string `json:"xhttp_cdn_domain"`
+//	VlessXhttpDomain string `json:"vless_xhttp_domain"`
+//	XhttpCdnDomain string `json:"xhttp_cdn_domain"`
 //	XhttpPath string `json:"xhttp_path"`
 }
 
@@ -43,22 +43,6 @@ func getXhttpPort(index int64) int {
 	}
 	
 	return port
-}
-
-func getVlessXhttpDomain(index int64) string {
-	ensureParsed()
-	if index < 0 || index >= int64(len(defaultConfigs)) {
-		return ""
-	}
-	return defaultConfigs[index].VlessXhttpDomain
-}
-
-func getXhttpCdnDomain(index int64) string {
-	ensureParsed()
-	if index < 0 || index >= int64(len(defaultConfigs)) {
-		return ""
-	}
-	return defaultConfigs[index].XhttpCdnDomain
 }
 
 // StartXrayEngine generates the Xray JSON config and boots the core for either VPN or Proxy mode.
@@ -219,7 +203,8 @@ func StartXrayEngine(configIndex int64, globalDnsServer string, getServerIpFromD
 			}
 		]
 	}`, logLevel, quicBlockRuleJSON, inboundsJSON, outboundJSON, fragmentOutboundJSON)
-				
+	
+			
 	// Decode the JSON into Xray's internal Protobuf structure
 	jsonReader := bytes.NewReader([]byte(rawConfig))
 	conf, err := serial.DecodeJSONConfig(jsonReader)
@@ -316,6 +301,7 @@ func buildXrayHysteria2Outbound(configIndex int64, globalDnsServer string, getSe
 // =====================================================================
 // VLESS-XHTTP OUTBOUND (TLS)
 // =====================================================================
+
 func buildXrayVlessXhttpOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
 	
 	CdnIP := runtimeVlessIp
@@ -325,10 +311,9 @@ func buildXrayVlessXhttpOutbound(configIndex int64, globalDnsServer string, getS
 
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
-	domain := getXhttpCdnDomain(configIndex)		
+	domain := GetVlessCdnDomain(configIndex, "vless-xhttp", targetCDN)		
 	path := getXhttpPath(configIndex)
 
-	// Strict Matched-Domain Fallback Logic
 	if CdnIP == "" || CdnIP == "0.0.0.0" {
 		CdnIP = domain	
 	}
@@ -366,30 +351,23 @@ func buildXrayVlessXhttpOutbound(configIndex int64, globalDnsServer string, getS
 // =====================================================================
 // OUTBOUND BUILDER FOR VLESS gRPC (XRAY-CORE FORMAT)
 // =====================================================================
+
 func buildXrayVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
 
 	CdnIP := runtimeVlessIp
 	if CdnIP == "" || CdnIP == "0.0.0.0" {
-		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
 		CdnIP = GetTargetIP(configIndex, "vless-grpc", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
 	}	
 	
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
-	GrpcDomain := getGrpcDomain(configIndex)
+	GrpcDomain := GetVlessCdnDomain(configIndex, "vless-grpc", targetCDN)
 
-	if strings.ToLower(targetCDN) == "cloudy" {
-		GrpcDomain = getCloudYCdnDomain(configIndex)
-	}
-	
-	// Strict Matched-Domain Fallback Logic
 	if CdnIP == "" || CdnIP == "0.0.0.0"{
 		CdnIP = GrpcDomain	
 	}
-	// We use the path variable to store the gRPC Service Name (e.g., "vaygrpc")
 	grpcServiceName := getGrpcServiceName(configIndex)
 
-	// Xray-core, like sing-box, expects the serviceName without a leading slash
 	if strings.HasPrefix(grpcServiceName, "/") {
 		grpcServiceName = strings.TrimPrefix(grpcServiceName, "/")
 	}
@@ -426,35 +404,22 @@ func buildXrayVlessGrpcOutbound(configIndex int64, globalDnsServer string, getSe
 	}`, CdnIP, serverPort, uuid, GrpcDomain, grpcServiceName)
 }
 
-//			"sockopt": {
-//				"tcpFastOpen": true
-//			}
-			
+		
 // =====================================================================
 // VLESS WEBSOCKET OUTBOUND
 // =====================================================================
+
 func buildXrayVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
-	// Uses the exact same fallback logic for Cloudflare Anycast IP as Sing-box
-	
 	CdnIP := runtimeVlessIp
 	if CdnIP == "" || CdnIP == "0.0.0.0" {
-		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
 		CdnIP = GetTargetIP(configIndex, "vless-ws", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
 	}
 		
-//	log.Printf("VAY_DEBUG: Cloudflare IP: %v", CdnIP)
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
-	wsDomain := getWsDomain(configIndex)
-	
-	if strings.ToLower(targetCDN) == "cloudy" {
-		wsDomain = getCloudYCdnDomain(configIndex)
-	}
-		
-//	log.Printf("VAY_DEBUG: Cloudflare WS Domain: %v", wsDomain)
+	wsDomain := GetVlessCdnDomain(configIndex, "vless-ws", targetCDN)
 	wsPath := getWsPath(configIndex)
 
-	// Strict Matched-Domain Fallback Logic
 	if CdnIP == "" || CdnIP == "0.0.0.0"{
 		CdnIP = wsDomain	
 	}
@@ -493,21 +458,19 @@ func buildXrayVlessWsOutbound(configIndex int64, globalDnsServer string, getServ
 // =====================================================================
 // VLESS HTTP-UPGRADE OUTBOUND
 // =====================================================================
-func buildXrayVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
 
+func buildXrayVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
 	CdnIP := runtimeVlessIp
 	if CdnIP == "" || CdnIP == "0.0.0.0" {
-		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
 		CdnIP = GetTargetIP(configIndex, "vless-httpupgrade", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
 	}
 
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
 	serverName := getHttpupgradeServerName(configIndex)
-	httpUpgradeDomain := getHttpupgradeDomain(configIndex)
+	httpUpgradeDomain := GetVlessCdnDomain(configIndex, "vless-httpupgrade", targetCDN)
 	httpUpgradePath := getHttpupgradePath(configIndex)
 
-	// Strict Matched-Domain Fallback Logic
 	if CdnIP == "" || CdnIP == "0.0.0.0"{
 		CdnIP = httpUpgradeDomain
 	}
@@ -654,6 +617,7 @@ func buildXrayRealityTCPOutbound(configIndex int64, globalDnsServer string, getS
 		}
 	}`, serverIP, serverPort, uuid, sockoptJSON, targetHost, publicKey, shortId)
 		
+	
 }
 
 // StopXrayEngine safely terminates the active Xray instance.
@@ -663,4 +627,38 @@ func StopXrayEngine() {
 		activeXrayServer = nil
 		log.Printf("VAY_DEBUG: Shutting down Xray core...")
 	}
+}
+
+// StartXrayFromConfig decodes a raw JSON configuration byte slice and starts the Xray core instance.
+func StartXrayFromConfig(jsonConfig []byte) error {
+	// Ensure no orphaned instance is running
+	StopXrayEngine()
+
+	jsonReader := bytes.NewReader(jsonConfig)
+	conf, err := serial.DecodeJSONConfig(jsonReader)
+	if err != nil {
+		return fmt.Errorf("failed to parse Xray JSON config: %v", err)
+	}
+
+	pbConfig, err := conf.Build()
+	if err != nil {
+		return fmt.Errorf("failed to build Xray Protobuf config: %v", err)
+	}
+
+	// Initialize the core instance
+	server, err := core.New(pbConfig)
+	if err != nil {
+		return fmt.Errorf("failed to initialize Xray core: %v", err)
+	}
+
+	// Start the engine
+	if err := server.Start(); err != nil {
+		return fmt.Errorf("failed to start Xray core: %v", err)
+	}
+
+	// Store the instance globally so we can shut it down later via StopXrayEngine()
+	activeXrayServer = server
+
+	log.Printf("VAY_DEBUG: Xray Middleware core started successfully from config.")
+	return nil
 }

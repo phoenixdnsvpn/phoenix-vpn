@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 //	"fmt"
@@ -41,6 +42,7 @@ var RuntimeResolvers []byte
 type DefaultConfig struct {
 	ConfigType      string `json:"config_type"`
 	Name            string `json:"name"`
+	Clouds          []string `json:"clouds"`
 	Domain          string `json:"domain"`
 	Pubkey          string `json:"pubkey"`
 	RecordType      string `json:"recordType"`
@@ -61,12 +63,15 @@ type DefaultConfig struct {
 	// Go will seamlessly unmarshal flat JSON into this!
 	HysteriaConfig
 	RealityConfig
-	VlessWsConfig
+	VlessConfig
 	XhttpRealityConfig
 }
 
 type CDNSettings struct {
+	Name      string   `json:"name"`
+	Code      string   `json:"code"`
 	Protocols []string `json:"protocols"`
+	Ports     []int    `json:"ports"`
 	VlessWsIP string   `json:"vless_ws_ip"`
 }
 
@@ -456,6 +461,11 @@ func getUpdateServerURLs() []string {
 	return currentServerURLs
 }
 
+func GetUpdateServerURLsExported() string {
+	ensureParsed()
+	return strings.Join(currentServerURLs, ",")
+}
+
 func getDefaultConfigDomain(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
@@ -724,6 +734,42 @@ func GetCdnVlessWsIP(cdnName string) string {
 	return ""
 }
 
+// GetCdnVendorName safely returns the internal matching name for the selected CDN
+func getCdnVendorName(cdnName string) string {
+	ensureParsed()
+	if currentCDN == nil {
+		return ""
+	}
+	if settings, ok := currentCDN[cdnName]; ok {
+		return settings.Name
+	}
+	return ""
+}
+
+// GetCdnMatchCode safely returns the exact HTTP response validation code for the selected CDN
+func getCdnMatchCode(cdnName string) string {
+	ensureParsed()
+	if currentCDN == nil {
+		return ""
+	}
+	if settings, ok := currentCDN[cdnName]; ok {
+		return settings.Code
+	}
+	return ""
+}
+
+// GetDefaultConfigClouds returns a comma-separated string of supported CDNs for a specific config
+func GetDefaultConfigClouds(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	if len(defaultConfigs[index].Clouds) == 0 {
+		return ""
+	}
+	return strings.Join(defaultConfigs[index].Clouds, ",")
+}
+
 // CdnSupportsProtocol checks if a specific CDN supports the requested protocol mode
 func CdnSupportsProtocol(cdnName string, protocol string) bool {
 	ensureParsed()
@@ -744,6 +790,70 @@ func CdnSupportsProtocol(cdnName string, protocol string) bool {
 		}
 	}
 	return false
+}
+
+// GetCdnPortsCount returns the number of supported ports for a given CDN.
+func GetCdnPortsCount(cdnName string) int64 {
+	ensureParsed()
+	if currentCDN == nil {
+		return 0
+	}
+	if settings, ok := currentCDN[cdnName]; ok {
+		return int64(len(settings.Ports))
+	}
+	return 0
+}
+
+// GetCdnPort fetches a specific port by index for Kotlin JNI iteration.
+func GetCdnPort(cdnName string, index int64) int64 {
+	ensureParsed()
+	if currentCDN == nil {
+		return 443
+	}
+	if settings, ok := currentCDN[cdnName]; ok {
+		if index >= 0 && index < int64(len(settings.Ports)) {
+			return int64(settings.Ports[index])
+		}
+	}
+	return 443
+}
+
+// CdnSupportsPort checks if a specific CDN supports a given target port.
+func CdnSupportsPort(cdnName string, port int) bool {
+	ensureParsed()
+	if currentCDN == nil {
+		return true // Fallback to true if config hasn't loaded yet
+	}
+	settings, ok := currentCDN[cdnName]
+	if !ok {
+		return true
+	}
+	if len(settings.Ports) == 0 {
+		return true
+	}
+	for _, p := range settings.Ports {
+		if p == port {
+			return true
+		}
+	}
+	return false
+}
+
+// GetCdnPortsCsv returns a comma-separated string of ports (e.g. "443,2053,2083") for Kotlin UI spinners/dialogs.
+func GetCdnPortsCsv(cdnName string) string {
+	ensureParsed()
+	if currentCDN == nil {
+		return "443"
+	}
+	settings, ok := currentCDN[cdnName]
+	if !ok || len(settings.Ports) == 0 {
+		return "443"
+	}
+	var ports []string
+	for _, p := range settings.Ports {
+		ports = append(ports, strconv.Itoa(p))
+	}
+	return strings.Join(ports, ",")
 }
 
 // GetSniPoolCount returns the number of SNIs in the pool to Android JNI

@@ -329,6 +329,7 @@ class VayVpnService : VpnService() {
                     val blockQuic = intent.getBooleanExtra("BLOCK_QUIC", true)
                     val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
                     val sniIndex = intent.getLongExtra("SNI_INDEX", -1L)
+                    val useHysteriaCore = intent.getBooleanExtra("USE_HYSTERIA_CORE", false)
                     sessionOsRx = 0L
                     sessionOsTx = 0L
 
@@ -535,6 +536,7 @@ class VayVpnService : VpnService() {
                             blockQuic,
                             getServerIpFromDomain,
                             sniIndex,
+                            useHysteriaCore,
                             protector
                         )
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")
