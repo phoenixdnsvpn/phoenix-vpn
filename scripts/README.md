@@ -31,7 +31,7 @@ Before running this script, you must have the following prepared. **Do not run t
 
 ## ⚠️ Critical: Cloud Edge Firewalls
 
-The setup script automatically configures the internal Linux OS firewalls (`firewalld` or `ufw`). However, it **cannot** control external cloud firewalls.
+The setup script automatically configures the internal Linux OS firewalls (`firewalld` or `iptables`). However, it **cannot** control external cloud firewalls.
 
 If your server is hosted on a provider with an external web-dashboard firewall (such as **OVH Network Security, AWS Security Groups, Oracle Cloud, or DigitalOcean Cloud Firewalls**), you **MUST manually allow Inbound UDP Port 53**.
 
