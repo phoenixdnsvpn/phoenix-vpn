@@ -46,7 +46,8 @@ def get_current_vaydns_params(ssh, user, password):
         'keepalive': '2s',
         'vaydns_port': '5300',
         'dante_port': '8000',
-        'mtu': '1232'
+        'mtu': '1232',
+        'dnstt_compat': False
     }
     
     if not out:
@@ -77,6 +78,8 @@ def get_current_vaydns_params(ssh, user, password):
                         params['dante_port'] = upstream_str.split(':')[1]
                 elif part == '-mtu' and i+1 < len(parts):
                     params['mtu'] = parts[i+1]
+                elif part == '-dnstt-compat' and i+1 < len(parts) and parts[i+1] == 'true':
+                    params['dnstt_compat'] = True
             break
             
     return params
@@ -150,11 +153,28 @@ def update_vaydns(ssh, user, password, is_ubuntu, dante_service, dante_config_pa
     # Other parameters
     c_rt = curr_params['record_type']
     record_type = input(f"Record type (caa, null, txt) [default: {c_rt}]: ").strip().lower() or c_rt
+
+    # DNSTT compatibility
+    c_dnstt = curr_params['dnstt_compat']
+    dnstt_prompt_default = 'yes' if c_dnstt else 'no'
+    dnstt_input = input(f"Enable DNSTT compatibility? (y/n) [default: {dnstt_prompt_default}]: ").strip().lower()
     
-    c_it = curr_params['idle_timeout']
+    if not dnstt_input:
+        dnstt_compat = c_dnstt
+    else:
+        dnstt_compat = dnstt_input in ['y', 'yes']
+
+    # Dynamically set idle, keepalive, and record-type based on DNSTT choice
+    if dnstt_compat:
+        c_it = "2m"
+        c_ka = "10s"
+        record_type = "txt"
+        print("[*] DNSTT compatibility enabled: Auto-enforcing 'txt' record type.")
+    else:
+        c_it = "10s"
+        c_ka = "2s"
+    
     idle_timeout = input(f"Idle timeout [default: {c_it}]: ").strip() or c_it
-    
-    c_ka = curr_params['keepalive']
     keepalive = input(f"Keepalive [default: {c_ka}]: ").strip() or c_ka
     
     c_vp = curr_params['vaydns_port']
@@ -181,6 +201,8 @@ def update_vaydns(ssh, user, password, is_ubuntu, dante_service, dante_config_pa
         run_cmd(ssh, "systemctl stop vaydns-server", user, password)
 
     print_step("Updating Systemd Service Parameters")
+    dnstt_flag = "-dnstt-compat true " if dnstt_compat else ""
+    
     vaydns_service_content = f"""[Unit]
 Description=VayDNS Tunnel Server
 After=network.target
@@ -192,7 +214,7 @@ User=vaydns
 Group=vaydns
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-ExecStart=/usr/local/bin/vaydns-server -udp :{vaydns_port} -privkey-file /etc/vaydns/server.key -mtu {mtu} -record-type {record_type} -idle-timeout {idle_timeout} -keepalive {keepalive} -domain {domain} -upstream 127.0.0.1:{dante_port}
+ExecStart=/usr/local/bin/vaydns-server -udp :{vaydns_port} -privkey-file /etc/vaydns/server.key -mtu {mtu} -record-type {record_type} {dnstt_flag}-idle-timeout {idle_timeout} -keepalive {keepalive} -domain {domain} -upstream 127.0.0.1:{dante_port}
 Restart=always
 RestartSec=5
 KillMode=mixed
@@ -355,6 +377,21 @@ def main():
     domain = input("Tunnel domain name(s) (comma-separated for multiple, e.g., t1.example.com,t2.example.com): ").strip()
     record_type = input("Record type (caa, null, txt) [default: caa]: ").strip().lower() or "caa"
 
+    # Evaluate DNSTT compatibility
+    dnstt_input = input("Enable DNSTT compatibility? (y/N) [default: no]: ").strip().lower()
+    dnstt_compat = dnstt_input in ['y', 'yes']
+
+    if dnstt_compat:
+        idle_timeout = "2m"
+        keepalive = "10s"
+        dnstt_flag = "-dnstt-compat true "
+        record_type = "txt"
+        print("[*] DNSTT compatibility enabled: Auto-enforcing 'txt' record type.")
+    else:
+        idle_timeout = "10s"
+        keepalive = "2s"
+        dnstt_flag = ""
+
     print("\n--- DNS Configuration ---")
     print("Note: Replacing the existing DNS servers with Google (8.8.8.8) and Cloudflare (1.1.1.1) may improve latency.")
     replace_dns = input("Do you want to replace the existing DNS servers? (Y/n) [default: yes]: ").strip().lower()
@@ -509,7 +546,7 @@ User=vaydns
 Group=vaydns
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-ExecStart=/usr/local/bin/vaydns-server -udp :5300 -privkey-file /etc/vaydns/server.key -mtu 1232 -record-type {record_type} -idle-timeout 10s -keepalive 2s -domain {domain} -upstream 127.0.0.1:8000
+ExecStart=/usr/local/bin/vaydns-server -udp :5300 -privkey-file /etc/vaydns/server.key -mtu 1232 -record-type {record_type} {dnstt_flag}-idle-timeout {idle_timeout} -keepalive {keepalive} -domain {domain} -upstream 127.0.0.1:8000
 Restart=always
 RestartSec=5
 KillMode=mixed
@@ -574,7 +611,7 @@ socks pass {{
     run_cmd(ssh, "systemctl start vnstat", user, password)
     run_cmd(ssh, "systemctl enable vnstat", user, password)
 
-    # 8. Modify SSH Daemon Port
+    # 8. Modify SSH Daemon Port (Safe Update & SELinux Config)
     if current_ssh_port != new_ssh_port:
         print_step(f"Changing SSH port from {current_ssh_port} to {new_ssh_port}")
         config_path = "/etc/ssh/sshd_config"
@@ -583,27 +620,37 @@ socks pass {{
             _, selinux_check, _ = run_cmd(ssh, "getenforce", user, password, hide_output=True)
             if "Disabled" not in selinux_check:
                 print("[*] SELinux is active. Updating policy for new SSH port...")
-                run_cmd(ssh, f"semanage port -a -t ssh_port_t -p tcp {new_ssh_port} || true", user, password)
+                run_cmd(ssh, "which semanage || dnf install -y policycoreutils-python-utils", user, password)
+                run_cmd(ssh, f"semanage port -a -t ssh_port_t -p tcp {new_ssh_port} || semanage port -m -t ssh_port_t -p tcp {new_ssh_port}", user, password)
                 
-        if is_ubuntu:
-            run_cmd(ssh, f"iptables -D INPUT -p tcp --dport {current_ssh_port} -j ACCEPT || true", user, password)
-            run_cmd(ssh, "netfilter-persistent save", user, password)
-        else:
-            if current_ssh_port == 22:
-                run_cmd(ssh, "firewall-cmd --permanent --remove-service=ssh", user, password)
-            else:
-                run_cmd(ssh, f"firewall-cmd --permanent --remove-port={current_ssh_port}/tcp", user, password)
-            run_cmd(ssh, "firewall-cmd --reload", user, password)
-            
+        # Update sshd_config with the new port
         sed_cmd = f"sed -i 's/^#\\?Port .*/Port {new_ssh_port}/' {config_path} && if ! grep -q '^Port {new_ssh_port}' {config_path}; then echo 'Port {new_ssh_port}' >> {config_path}; fi"
         run_cmd(ssh, sed_cmd, user, password, hide_output=True)
         
-        if is_ubuntu:
-            run_cmd(ssh, "systemctl restart ssh", user, password)
+        # Validate SSH configuration syntax before attempting a restart or removing firewall rules
+        exit_code, _, err_out = run_cmd(ssh, "sshd -t", user, password, hide_output=True)
+        if exit_code != 0:
+            print(f"[!] Warning: SSH configuration test failed: {err_out}. Reverting SSH port back to {current_ssh_port}.")
+            run_cmd(ssh, f"sed -i 's/^#\\?Port .*/Port {current_ssh_port}/' {config_path}", user, password, hide_output=True)
         else:
-            run_cmd(ssh, "systemctl restart sshd", user, password)
+            # Restart SSH Daemon based on distro
+            if is_ubuntu:
+                run_cmd(ssh, "systemctl daemon-reload && (systemctl restart ssh.socket || systemctl restart ssh)", user, password)
+            else:
+                run_cmd(ssh, "systemctl restart sshd", user, password)
+
+            # Cleanup old firewall rule only AFTER new configuration succeeds
+            if is_ubuntu:
+                run_cmd(ssh, f"iptables -D INPUT -p tcp --dport {current_ssh_port} -j ACCEPT || true", user, password)
+                run_cmd(ssh, "netfilter-persistent save", user, password)
+            else:
+                if current_ssh_port == 22:
+                    run_cmd(ssh, "firewall-cmd --permanent --remove-service=ssh || true", user, password)
+                else:
+                    run_cmd(ssh, f"firewall-cmd --permanent --remove-port={current_ssh_port}/tcp || true", user, password)
+                run_cmd(ssh, "firewall-cmd --reload", user, password)
             
-        print(f"[+] SSH daemon successfully updated to listen on port {new_ssh_port}.")
+            print(f"[+] SSH daemon successfully updated to listen on port {new_ssh_port}.")
     
     # 9. Retrieve Data
     print_step("Fetching generation keys and diagnostics reports from deployment")
@@ -639,7 +686,7 @@ socks pass {{
     print("\n--- YOUR VAYDNS ANDROID READY STRINGS ---")
     domains_list = [d.strip() for d in domain.split(',') if d.strip()]
     for d in domains_list:
-        client_config_url = f"dnst://{d}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive=2s&idle-timeout=10s#vaydns"
+        client_config_url = f"dnst://{d}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive={keepalive}&idle-timeout={idle_timeout}#vaydns"
         print(client_config_url)
 
     print("\nImport Method:")
@@ -648,4 +695,4 @@ socks pass {{
     print("3. Choose 'Import' and commit these string layouts onto your configuration profile engine.")
 
 if __name__ == "__main__":
-    main()
+    main()nnnnnnnn
