@@ -51,8 +51,6 @@ import android.os.Environment
 
 private lateinit var rgMode: RadioGroup   // kept only for editor (we don't use it here anymore)
 private lateinit var tvStatus: TextView
-//private lateinit var btnStart: Button
-//private lateinit var btnStop: Button
 private lateinit var btnToggle: Button
 private var isVpnConnected = false // Track state locally for the toggle logic
 private lateinit var recyclerConfigs: RecyclerView
@@ -2355,18 +2353,6 @@ class MainActivity : AppCompatActivity() {
                 resolverFilePickerLauncher.launch(intent)
                 true
             }
-
-            //R.id.action_upload_configs -> {
-            //    configFilePickerLauncher.launch(arrayOf("*/*"))
-            //    true
-            //}
-
-            //R.id.action_upload_resolvers -> {
-                // Using "*/*" because Android's SAF can be extremely strict
-                // about selecting custom extensions like .bin
-            //    resolverFilePickerLauncher.launch(arrayOf("*/*"))
-            //    true
-            //}
 
             R.id.action_my_dns -> {
                 showCurrentDnsDialog()

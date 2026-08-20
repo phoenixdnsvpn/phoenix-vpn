@@ -233,7 +233,6 @@ func StartVpn(
 	// ==========================================
 	var finalMtu int
 	if isDirectMode {
-//		finalMtu = 9000 // High-speed unfragmented pipe for tun2socks -> sing-box
 		finalMtu = 1420 // High-speed unfragmented pipe for tun2socks -> sing-box
 	} else {
 		finalMtu = 1232 // Safe pipe for tun2socks -> VayDNS engine
