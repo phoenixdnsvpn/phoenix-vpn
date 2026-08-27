@@ -17,7 +17,8 @@ Phoenix VPN is a high-performance hybrid DNS-based & direct protocol tunneling s
 - **vaydns**: The "DNS Tunnel" backbone. Serving as the foundational technology for extreme censorship evasion, it encapsulates data into DNS queries (DoH, DoT, TCP, or UDP) to seamlessly bypass strict firewalls and deep packet inspection (DPI) when standard internet access is entirely blocked.
 - **Xray-core**: The "Native Direct" engine. Integrated for bleeding-edge protocol support, Xray handles our high-speed direct connections natively. By pulling raw IP traffic directly from the Android TUN interface, it powers next-generation connections like REALITY-TCP (with xtls-rprx-vision flow control) and XHTTP with zero fragmentation and maximum throughput.
 - **sing-box**: The "Universal Protocol" engine. Acting as our highly versatile secondary core, sing-box provides unmatched routing logic and supports advanced censorship-resistant protocols like Hysteria2, Reality-tcp, Reality-Xhttp, VLESS-WS, VLESS-HTTPUpgrade, and vless-gRPC.
-- **Hysteria-core**: he "Native QUIC" engine. Integrated for raw, unfiltered protocol performance, this official Apernet core bypasses intermediate wrappers to handle our high-speed UDP connections natively. By routing traffic directly from the OS TUN interface and C-Tunnel into a lightweight, dedicated proxy pipeline, it powers Hysteria v2 connections with native Salamander obfuscation and brutal congestion control, delivering unparalleled throughput and resilience in heavily censored networks.
+- **Hysteria-core**: The "Native QUIC" engine. Integrated for raw, unfiltered protocol performance, this official Apernet core bypasses intermediate wrappers to handle our high-speed UDP connections natively. By routing traffic directly from the OS TUN interface and C-Tunnel into a lightweight, dedicated proxy pipeline, it powers Hysteria v2 connections with native Salamander obfuscation and brutal congestion control, delivering unparalleled throughput and resilience in heavily censored networks.
+- **amneziawg-go**:The "Stealth WireGuard" engine. Built upon the blazing-fast WireGuard protocol, this core modifies packet headers, handshakes, and junk data parameters to completely mask its traffic profile. It delivers the lightweight performance of native WireGuard while seamlessly slipping past Deep Packet Inspection (DPI) firewalls designed to block standard VPNs.
 - **hev-socks-tunnel**: The "Network Bridge" layer. Because vaydns and sing-box excel at complex proxy logic rather than raw device routing, hev-socks-tunnel acts as a high-performance, lightweight native C bridge. It captures all full-device IP traffic from the Android TUN interface and transparently feeds it into those engines.
 - **f35**: The "E2E Scanner" layer. A highly concurrent network probing tool embedded directly in the client. It is used to rapidly measure the latency, TLS handshake validity, and true reliability of global DNS resolvers and direct edge nodes across a restricted network.
 
@@ -31,7 +32,9 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 
 - **XHTTP Multiplexing:** Unlocked bleeding-edge XHTTP protocol support through our native Xray pipeline. By multiplexing streams, it eliminates head-of-line blocking on high-latency routes, unleashing massive throughput on the most restricted networks.
 
-- **Hysteria2 (QUIC/HTTP3):** ntroduced full support for Hysteria2. Powered by custom UDP/QUIC transport layers with "Salamander" obfuscation and precise bandwidth flow controls, it effortlessly punches through aggressively throttled networks for brute-force speed.
+- **Hysteria2 (QUIC/HTTP3):** Introduced full support for Hysteria2. Powered by custom UDP/QUIC transport layers with "Salamander" obfuscation and precise bandwidth flow controls, it effortlessly punches through aggressively throttled networks for brute-force speed.
+
+- **AmneziaWG (Stealth WireGuard):** Integrated the highly obfuscated AmneziaWG protocol to revive WireGuard on heavily censored networks.
 
 - **VLESS over WebSockets (WS) & gRPC:** VLESS over WebSockets (WS) & gRPC: Added seamless support for VLESS-WS and high-speed gRPC (HTTP/2-based transport), allowing traffic to be routed and hidden behind massive, trusted Edge networks and CDNs (like Cloudflare and Amazon CloudFront) to keep connections alive even when direct server IPs are heavily blacklisted.
 
@@ -250,6 +253,8 @@ This project would not be possible without the incredible work of the following 
 -   **[dnst-url-spec](https://github.com/net2share/dnst-url-spec)**: A standard URL format for sharing DNS-tunneled proxy configurations across clients and apps.
 
 -   **[Hysteria2](https://github.com/apernet/hysteria)**: For the powerful, UDP-optimized transport protocol that delivers incredible speeds over unreliable and heavily censored networks.
+
+-   **[amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go)**: For the heavily obfuscated WireGuard implementation, enabling stealthy, high-speed UDP tunnels that effortlessly bypass deep packet inspection.
 
 -   **[REALITY](https://github.com/XTLS/REALITY)**: For the innovative stealth protocol that flawlessly masks proxy traffic without requiring a dedicated domain or standard TLS certificate.
 
