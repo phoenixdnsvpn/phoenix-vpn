@@ -110,6 +110,7 @@ class ConfigAdapter(
         // Assign striking Material colors based on the protocol
         val protocolColor = when (activeProtocol.lowercase().trim()) {
             "hysteria2" -> android.graphics.Color.parseColor("#2E7D32") // Teal
+            "amneziawg" -> android.graphics.Color.parseColor("#E91E63") // Pink
             "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
             //"vless-ws"              -> android.graphics.Color.parseColor("#7B1FA2") // Strong Blue
             "vless-httpupgrade"     -> android.graphics.Color.parseColor("#00B7EB") // Deep Purple 5E35B1

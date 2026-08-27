@@ -45,6 +45,34 @@ func getXhttpPort(index int64) int {
 	return port
 }
 
+/* func getVlessXhttpDomain(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	return defaultConfigs[index].VlessXhttpDomain
+}
+
+func getXhttpCdnDomain(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	return defaultConfigs[index].XhttpCdnDomain
+}*/
+
+/*
+func getXhttpPath(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return "/xhttp"
+	}
+	if defaultConfigs[index].XhttpPath != "" {
+		return defaultConfigs[index].XhttpPath
+	}
+	return "/xhttp"
+}*/
+
 // StartXrayEngine generates the Xray JSON config and boots the core for either VPN or Proxy mode.
 func StartXrayEngine(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, CdnIP string, targetCDN string, isProxyMode bool, localPort int, vpnMtu int, protocol string, debug bool, fragment bool, blockQuic bool, sniIndex int64) error {
 
@@ -116,6 +144,8 @@ func StartXrayEngine(configIndex int64, globalDnsServer string, getServerIpFromD
 		outboundJSON = buildXrayVlessGrpcOutbound(configIndex, globalDnsServer, getServerIpFromDomain, CdnIP, targetCDN)			
 	case "hysteria2":
 		outboundJSON = buildXrayHysteria2Outbound(configIndex, globalDnsServer, getServerIpFromDomain)
+	case "wireguard":
+		outboundJSON = buildXrayWireguardOutbound(configIndex, globalDnsServer, getServerIpFromDomain)		
 	default:
 		return fmt.Errorf("unsupported Xray protocol: %s", protocol)
 	}
@@ -125,6 +155,39 @@ func StartXrayEngine(configIndex int64, globalDnsServer string, getServerIpFromD
 	if debug {
 		logLevel = "info"
 	}
+
+	// 3. Build the final unified JSON config with the UDP/443 Blocking Rules
+	/*rawConfig := fmt.Sprintf(`{
+		"log": {
+			"loglevel": "%s"
+		},
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [
+				{
+					"type": "field",
+					"network": "udp",
+					"port": "443",
+					"outboundTag": "block"
+				},
+				{
+					"type": "field",
+					"network": "tcp,udp",
+					"outboundTag": "proxy"
+				}
+			]
+		},
+		"inbounds": [
+			%s
+		],
+		"outbounds": [
+			%s,
+			{
+				"protocol": "blackhole",
+				"tag": "block"
+			}
+		]
+	}`, logLevel, inboundsJSON, outboundJSON)*/
 
 	// 1. Dynamically build the fragmentation outbound ONLY if requested
 	fragmentOutboundJSON := ""
@@ -204,6 +267,95 @@ func StartXrayEngine(configIndex int64, globalDnsServer string, getServerIpFromD
 		]
 	}`, logLevel, quicBlockRuleJSON, inboundsJSON, outboundJSON, fragmentOutboundJSON)
 	
+/*
+	// 3. Build the final unified JSON config with dynamic rule and outbound injection
+	rawConfig := fmt.Sprintf(`{
+		"log": {
+			"loglevel": "%s"
+		},
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [%s
+				{
+					"type": "field",
+					"network": "tcp,udp",
+					"outboundTag": "proxy"
+				}
+			]
+		},
+		"inbounds": [
+			%s
+		],
+		"outbounds": [
+			%s%s,
+			{
+				"protocol": "blackhole",
+				"tag": "block"
+			}
+		]
+	}`, logLevel, quicBlockRuleJSON, inboundsJSON, outboundJSON, fragmentOutboundJSON)
+		
+*/
+	// 2. Build the final unified JSON config with dynamic outbound injection
+	// Imrpoved Instagram but blocked youtube
+	/*rawConfig := fmt.Sprintf(`{
+		"log": {
+			"loglevel": "%s"
+		},
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [
+				{
+					"type": "field",
+					"network": "tcp,udp",
+					"outboundTag": "proxy"
+				}
+			]
+		},
+		"inbounds": [
+			%s
+		],
+		"outbounds": [
+			%s%s,
+			{
+				"protocol": "blackhole",
+				"tag": "block"
+			}
+		]
+	}`, logLevel, inboundsJSON, outboundJSON, fragmentOutboundJSON)*/
+	
+// pass the youtube	and instagram but has intermittent delays
+	/*rawConfig := fmt.Sprintf(`{
+		"log": {
+			"loglevel": "%s"
+		},
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [
+				{
+					"type": "field",
+					"network": "udp",
+					"port": "443",
+					"outboundTag": "block"
+				},
+				{
+					"type": "field",
+					"network": "tcp,udp",
+					"outboundTag": "proxy"
+				}
+			]
+		},
+		"inbounds": [
+			%s
+		],
+		"outbounds": [
+			%s%s,
+			{
+				"protocol": "blackhole",
+				"tag": "block"
+			}
+		]
+	}`, logLevel, inboundsJSON, outboundJSON, fragmentOutboundJSON)*/
 			
 	// Decode the JSON into Xray's internal Protobuf structure
 	jsonReader := bytes.NewReader([]byte(rawConfig))
@@ -348,6 +500,53 @@ func buildXrayVlessXhttpOutbound(configIndex int64, globalDnsServer string, getS
 	}`, CdnIP, serverPort, uuid, domain, path, domain)
 }
 
+/* func buildXrayVlessXhttpOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
+	
+	CdnIP := runtimeVlessIp
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		CdnIP = GetTargetIP(configIndex, "vless-xhttp", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
+	}
+
+	serverPort := getVlessServerPort(configIndex)
+	uuid := getVlessUUID(configIndex)
+	domain := getXhttpCdnDomain(configIndex)		
+	path := getXhttpPath(configIndex)
+
+	// Strict Matched-Domain Fallback Logic
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		CdnIP = domain	
+	}
+	
+	return fmt.Sprintf(`{
+		"tag": "proxy",
+		"protocol": "vless",
+		"settings": {
+			"vnext": [{
+				"address": "%s",
+				"port": %d,
+				"users": [{
+					"id": "%s",
+					"encryption": "none",
+					"flow": ""
+				}]
+			}]
+		},
+		"streamSettings": {
+			"network": "xhttp",
+			"security": "tls",
+			"tlsSettings": {
+				"serverName": "%s",
+				"alpn": ["h2", "http/1.1"]
+			},
+			"xhttpSettings": {
+				"path": "%s",
+				"host": "%s",
+				"mode": "auto"
+			}
+		}
+	}`, CdnIP, serverPort, uuid, domain, path, domain)
+}*/
+
 // =====================================================================
 // OUTBOUND BUILDER FOR VLESS gRPC (XRAY-CORE FORMAT)
 // =====================================================================
@@ -404,7 +603,71 @@ func buildXrayVlessGrpcOutbound(configIndex int64, globalDnsServer string, getSe
 	}`, CdnIP, serverPort, uuid, GrpcDomain, grpcServiceName)
 }
 
-		
+
+/* func buildXrayVlessGrpcOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
+
+	CdnIP := runtimeVlessIp
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
+		CdnIP = GetTargetIP(configIndex, "vless-grpc", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
+	}	
+	
+	serverPort := getVlessServerPort(configIndex)
+	uuid := getVlessUUID(configIndex)
+	GrpcDomain := getGrpcDomain(configIndex)
+
+	if strings.ToLower(targetCDN) == "cloudy" {
+		GrpcDomain = getCloudYCdnDomain(configIndex)
+	}
+	
+	// Strict Matched-Domain Fallback Logic
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = GrpcDomain	
+	}
+	// We use the path variable to store the gRPC Service Name (e.g., "vaygrpc")
+	grpcServiceName := getGrpcServiceName(configIndex)
+
+	// Xray-core, like sing-box, expects the serviceName without a leading slash
+	if strings.HasPrefix(grpcServiceName, "/") {
+		grpcServiceName = strings.TrimPrefix(grpcServiceName, "/")
+	}
+
+	return fmt.Sprintf(`{
+		"tag": "proxy",
+		"protocol": "vless",
+		"settings": {
+			"vnext": [{
+				"address": "%s",
+				"port": %d,
+				"users": [{
+					"id": "%s",
+					"encryption": "none",
+					"flow": ""
+				}]
+			}]
+		},
+		"streamSettings": {
+			"network": "grpc",
+			"security": "tls",
+			"tlsSettings": {
+				"serverName": "%s",
+				"alpn": ["h2"],
+				"fingerprint": "chrome"
+			},
+			"grpcSettings": {
+				"serviceName": "%s"
+			},
+			"sockopt": {
+				"tcpFastOpen": true
+			}
+		}
+	}`, CdnIP, serverPort, uuid, GrpcDomain, grpcServiceName)
+}
+
+//			"sockopt": {
+//				"tcpFastOpen": true
+//			}
+*/			
 // =====================================================================
 // VLESS WEBSOCKET OUTBOUND
 // =====================================================================
@@ -455,6 +718,63 @@ func buildXrayVlessWsOutbound(configIndex int64, globalDnsServer string, getServ
 	}`, CdnIP, serverPort, uuid, wsDomain, wsPath, wsDomain)
 }
 
+/* func buildXrayVlessWsOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
+	// Uses the exact same fallback logic for Cloudflare Anycast IP as Sing-box
+	
+	CdnIP := runtimeVlessIp
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
+		CdnIP = GetTargetIP(configIndex, "vless-ws", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
+	}
+		
+//	log.Printf("VAY_DEBUG: Cloudflare IP: %v", CdnIP)
+	serverPort := getVlessServerPort(configIndex)
+	uuid := getVlessUUID(configIndex)
+	wsDomain := getWsDomain(configIndex)
+	
+	if strings.ToLower(targetCDN) == "cloudy" {
+		wsDomain = getCloudYCdnDomain(configIndex)
+	}
+		
+//	log.Printf("VAY_DEBUG: Cloudflare WS Domain: %v", wsDomain)
+	wsPath := getWsPath(configIndex)
+
+	// Strict Matched-Domain Fallback Logic
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = wsDomain	
+	}
+	
+	return fmt.Sprintf(`{
+		"tag": "proxy",
+		"protocol": "vless",
+		"settings": {
+			"vnext": [{
+				"address": "%s",
+				"port": %d,
+				"users": [{
+					"id": "%s",
+					"encryption": "none",
+					"flow": ""
+				}]
+			}]
+		},
+		"streamSettings": {
+			"network": "ws",
+			"security": "tls",
+			"tlsSettings": {
+				"serverName": "%s",
+				"alpn": ["http/1.1"]
+			},
+			"wsSettings": {
+				"path": "%s",
+				"headers": {
+					"Host": "%s"
+				}
+			}
+		}
+	}`, CdnIP, serverPort, uuid, wsDomain, wsPath, wsDomain)
+}*/
+
 // =====================================================================
 // VLESS HTTP-UPGRADE OUTBOUND
 // =====================================================================
@@ -467,7 +787,8 @@ func buildXrayVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string
 
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
-	serverName := getHttpupgradeServerName(configIndex)
+//	serverName := getHttpupgradeServerName(configIndex)
+	serverName := getHttpupgradeServerName(configIndex, "vless-httpupgrade", targetCDN)
 	httpUpgradeDomain := GetVlessCdnDomain(configIndex, "vless-httpupgrade", targetCDN)
 	httpUpgradePath := getHttpupgradePath(configIndex)
 
@@ -503,6 +824,54 @@ func buildXrayVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string
 		}
 	}`, CdnIP, serverPort, uuid, serverName, httpUpgradePath, httpUpgradeDomain)
 }
+
+/* func buildXrayVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool, runtimeVlessIp string, targetCDN string) string {
+
+	CdnIP := runtimeVlessIp
+	if CdnIP == "" || CdnIP == "0.0.0.0" {
+		// CdnIP = getCdnFallbackIP(configIndex, targetCDN)
+		CdnIP = GetTargetIP(configIndex, "vless-httpupgrade", globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIp)
+	}
+
+	serverPort := getVlessServerPort(configIndex)
+	uuid := getVlessUUID(configIndex)
+	serverName := getHttpupgradeServerName(configIndex)
+	httpUpgradeDomain := getHttpupgradeDomain(configIndex)
+	httpUpgradePath := getHttpupgradePath(configIndex)
+
+	// Strict Matched-Domain Fallback Logic
+	if CdnIP == "" || CdnIP == "0.0.0.0"{
+		CdnIP = httpUpgradeDomain
+	}
+	
+	return fmt.Sprintf(`{
+		"tag": "proxy",
+		"protocol": "vless",
+		"settings": {
+			"vnext": [{
+				"address": "%s",
+				"port": %d,
+				"users": [{
+					"id": "%s",
+					"encryption": "none",
+					"flow": ""
+				}]
+			}]
+		},
+		"streamSettings": {
+			"network": "httpupgrade",
+			"security": "tls",
+			"tlsSettings": {
+				"serverName": "%s",
+				"alpn": ["http/1.1"]
+			},
+			"httpupgradeSettings": {
+				"path": "%s",
+				"host": "%s"
+			}
+		}
+	}`, CdnIP, serverPort, uuid, serverName, httpUpgradePath, httpUpgradeDomain)
+}*/
 
 // =====================================================================
 // REALITY-XHTTP OUTBOUND
@@ -617,6 +986,33 @@ func buildXrayRealityTCPOutbound(configIndex int64, globalDnsServer string, getS
 		}
 	}`, serverIP, serverPort, uuid, sockoptJSON, targetHost, publicKey, shortId)
 		
+	// Note the addition of "xtls-rprx-vision" - this is Xray's flagship optimization for Reality-TCP!
+	/*return fmt.Sprintf(`{
+		"tag": "proxy",
+		"protocol": "vless",
+		"settings": {
+			"vnext": [{
+				"address": "%s",
+				"port": %d,
+				"users": [{
+					"id": "%s",
+					"encryption": "none",
+					"flow": "xtls-rprx-vision"
+				}]
+			}]
+		},
+		"streamSettings": {
+			"network": "tcp",
+			"security": "reality",
+			"realitySettings": {
+				"fingerprint": "chrome",
+				"serverName": "%s",
+				"publicKey": "%s",
+				"shortId": "%s",
+				"spiderX": "/"
+			}
+		}
+	}`, serverIP, serverPort, uuid, targetHost, publicKey, shortId)*/
 	
 }
 
@@ -661,4 +1057,33 @@ func StartXrayFromConfig(jsonConfig []byte) error {
 
 	log.Printf("VAY_DEBUG: Xray Middleware core started successfully from config.")
 	return nil
+}
+
+// =====================================================================
+// WIREGUARD OUTBOUND (XRAY-CORE)
+// =====================================================================
+func buildXrayWireguardOutbound(configIndex int64, globalDnsServer string, getServerIpFromDomain bool) string {
+	serverIP := getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
+	serverPort := getWgPort(configIndex)
+	secretKey := getWgSecretKey(configIndex)
+	localAddr := getWgLocalAddress(configIndex)
+	
+	// Reusing the Reality Public Key as the WireGuard Peer Public Key
+	peerPubKey := getRealityPubKey(configIndex)
+
+	return fmt.Sprintf(`{
+		"tag": "proxy",
+		"protocol": "wireguard",
+		"settings": {
+			"secretKey": "%s",
+			"address": ["%s"],
+			"peers": [
+				{
+					"publicKey": "%s",
+					"endpoint": "%s:%d"
+				}
+			],
+			"mtu": 1420
+		}
+	}`, secretKey, localAddr, peerPubKey, serverIP, serverPort)
 }

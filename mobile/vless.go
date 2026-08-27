@@ -2,20 +2,15 @@ package mobile
 
 import (
 	"strings"
-//	"log"
+	"math/rand"
+	"time"	
+	// "log"
 )
 
-// Global memory state storage for custom user inputs and remote server files
-/*var globalVlessWsIP string
-
-func SetGlobalVlessWsIP(ip string) {
-	globalVlessWsIP = strings.TrimSpace(ip)
-	log.Printf("VAY_DEBUG: globalVlessWsIP is set with IP: %v",globalVlessWsIP)
-}*/
-
 type VlessCdnNode struct {
-	Domain    []string `json:"domain"`
-	CdnDomain []string `json:"cdn_domain"`
+	Domain     []string `json:"domain"`
+	CdnDomain  []string `json:"cdn_domain"`
+	ServerName []string `json:"server_name"`
 }
 
 type VlessConfig struct {
@@ -28,23 +23,11 @@ type VlessConfig struct {
 	HttpupgradePath string `json:"httpupgrade_path"`
 	XhttpPath       string `json:"xhttp_path"`
 	ServiceName     string `json:"service_name"`
-	ServerName      string `json:"server_name"`
+//	ServerName      string `json:"server_name"`
 }
 
-/*type VlessConfig struct {
-	WsDomain string `json:"ws_domain"` 
-	WsPath   string `json:"ws_path"`
-	HttpupgradePath   string `json:"httpupgrade_path"`
-	XhttpPath   string `json:"xhttp_path"`
-	ServiceName   string `json:"service_name"`
-	ServerName   string `json:"server_name"`
-	HttpUpgradeDomain   string `json:"httpupgrade_domain"`
-	GrpcDomain   string `json:"grpc_domain"`
-	AwsCdnDomain   string `json:"aws_cdn_domain"`
-	AwsDomain   string `json:"aws_domain"`
-	VlessXhttpDomain string `json:"vless_xhttp_domain"`
-	XhttpCdnDomain string `json:"xhttp_cdn_domain"`
-}*/
+// Global state for synchronized random domain selection
+var GlobalDomainSeed int = 0
 
 // =====================================================================
 // VLESS WEBSOCKET SECURE INTERNAL GETTERS
@@ -75,8 +58,101 @@ func getVlessProtocolMap(index int64, protocol string) map[string]VlessCdnNode {
 	}
 }
 
-// GetVlessDomain fetches the strict underlying domain
+// RollDomainIndex MUST be called before building the Xray JSON config
+func RollDomainIndex() {
+	rand.Seed(time.Now().UnixNano())
+	GlobalDomainSeed = rand.Intn(1000000) // Generate a massive pool number to use as a modulus base
+}
+
+// GetVlessDomain fetches the strict underlying domain safely
 func GetVlessDomain(index int64, protocol string, targetCDN string) string {
+	protoMap := getVlessProtocolMap(index, protocol)
+	if protoMap != nil {
+		for cdnKey, node := range protoMap {
+			if strings.EqualFold(cdnKey, targetCDN) {
+				length := len(node.Domain)
+				if length > 0 {
+					var targetIndex int
+					// Explicitly reset to zero if there is only 1 member
+					if length <= 1 {
+						targetIndex = 0
+					} else {
+						// Use modulus math to automatically scale the seed to the array length
+						targetIndex = GlobalDomainSeed % length
+					}
+					return node.Domain[targetIndex]
+				}
+				break
+			}
+		}
+	}
+	// Global fallback
+	ensureParsed()
+	if index >= 0 && index < int64(len(defaultConfigs)) {
+		return defaultConfigs[index].Domain
+	}
+	return ""
+}
+
+// GetVlessCdnDomain fetches the masked edge CDN domain safely
+func GetVlessCdnDomain(index int64, protocol string, targetCDN string) string {
+	protoMap := getVlessProtocolMap(index, protocol)
+	if protoMap != nil {
+		for cdnKey, node := range protoMap {
+			if strings.EqualFold(cdnKey, targetCDN) {
+				length := len(node.CdnDomain)
+				if length > 0 {
+					var targetIndex int
+					// Explicitly reset to zero if there is only 1 member
+					if length <= 1 {
+						targetIndex = 0
+					} else {
+						targetIndex = GlobalDomainSeed % length
+					}
+
+					return node.CdnDomain[targetIndex]
+				}
+				break
+			}
+		}
+	}
+
+	// Fallback to strict Domain if CDN Domain isn't defined
+	return GetVlessDomain(index, protocol, targetCDN)
+}
+
+// getHttpupgradeServerName fetches the strict underlying ServerName safely
+func getHttpupgradeServerName(index int64, protocol string, targetCDN string) string {
+	protoMap := getVlessProtocolMap(index, protocol)
+	if protoMap != nil {
+		for cdnKey, node := range protoMap {
+			if strings.EqualFold(cdnKey, targetCDN) {
+				length := len(node.ServerName)
+				if length > 0 {
+					var targetIndex int
+					// Explicitly reset to zero if there is only 1 member
+					if length <= 1 {
+						targetIndex = 0
+					} else {
+						// Use modulus math to automatically scale the seed to the array length
+						targetIndex = GlobalDomainSeed % length
+					}
+					return node.ServerName[targetIndex]
+				}
+				break
+			}
+		}
+	}
+	// Global fallback
+	ensureParsed()
+	if index >= 0 && index < int64(len(defaultConfigs)) {
+		return defaultConfigs[index].Domain
+	}
+	return ""
+}
+
+// GetVlessDomain fetches the strict underlying domain
+/*func GetVlessDomain(index int64, protocol string, targetCDN string) string {
 	protoMap := getVlessProtocolMap(index, protocol)
 	if protoMap != nil {
 		// Case-insensitive CDN lookup
@@ -112,7 +188,7 @@ func GetVlessCdnDomain(index int64, protocol string, targetCDN string) string {
 	}
 	// Fallback to strict Domain if CDN Domain isn't defined
 	return GetVlessDomain(index, protocol, targetCDN)
-}
+}*/
 
 /*func GetTargetIP(configIndex int64, activeProtocol string, globalDnsServer string, getServerIpFromDomain bool, targetCdn string, runtimeVlessIP string) string {
 	
@@ -247,7 +323,7 @@ func getWsPath(index int64) string {
 	return defaultConfigs[index].AwsDomain
 }*/
 
-func getHttpupgradeServerName(index int64) string {
+/*func getHttpupgradeServerName(index int64) string {
 	ensureParsed()
 	if index < 0 || index >= int64(len(defaultConfigs)) {
 		return ""
@@ -256,7 +332,7 @@ func getHttpupgradeServerName(index int64) string {
 		return defaultConfigs[index].ServerName
 	}
 	return defaultConfigs[index].ServerName
-}
+}*/
 
 /*func getHttpupgradeDomain(index int64) string {
 	ensureParsed()
@@ -551,7 +627,8 @@ func buildVlessHttpUpgradeOutbound(configIndex int64, globalDnsServer string, ge
 	}
 	serverPort := getVlessServerPort(configIndex)
 	uuid := getVlessUUID(configIndex)
-	HttpupgradeServerName := getHttpupgradeServerName(configIndex)
+//	HttpupgradeServerName := getHttpupgradeServerName(configIndex)
+	HttpupgradeServerName := getHttpupgradeServerName(configIndex, "vless-httpupgrade", targetCDN)
 	HttpupgradeDomain := GetVlessCdnDomain(configIndex, "vless-httpupgrade", targetCDN)
 	HttpupgradePath := getHttpupgradePath(configIndex)
 	

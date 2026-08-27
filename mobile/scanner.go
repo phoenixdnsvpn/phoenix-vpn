@@ -151,7 +151,7 @@ func generateIPs(count int, targetCDN string, uniformDistribution bool) []string
 
 	// --- Resolve target CIDR list for CloudX or CloudY ---
 	var cidrs []string
-	switch cdnLower {
+	switch cdnLower {	
 	case "cloudy":
 		cidrs = TargetCDNs.CloudYCIDRs
 	case "cloudx":
@@ -274,6 +274,8 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 
 	defer StopCdnScanner()
 
+	RollDomainIndex()
+	
 	// 1. Resolve SNI & Path
 	domainToUse := ""
 	pathToUse := "/"
@@ -400,6 +402,7 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 
 				var reqStr string
 				if isWebsocket {
+//					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
 					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)
 				} else {
 					reqStr = fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\nUser-Agent: Mozilla/5.0\r\n\r\n", pathToUse, domainToUse)					
@@ -465,7 +468,38 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 				}else{
 				    // log.Printf("VAY_DEBUG: [Scanner] %s -> Read Timeout or Empty Response: %v", targetIP, readErr)
    		        }
+				/*if readErr == nil && n > 0 {
+				    resp := string(buf[:n])
+				    respLower := strings.ToLower(resp)
 
+				    // 1. Verify the response is ACTUALLY coming from Cloudflare, not a local DPI middlebox
+				    isGenuineCloudflare := strings.Contains(respLower, "server: cloudflare") || strings.Contains(respLower, "cf-ray:")
+
+				    if isGenuineCloudflare {
+				        // 2. Accept valid Cloudflare edge status codes
+				        isValidStatus := strings.Contains(resp, "HTTP/1.1 101") ||
+				        strings.Contains(resp, "HTTP/1.1 400") ||
+			            strings.Contains(resp, "HTTP/1.1 426") ||
+			            strings.Contains(resp, "HTTP/1.1 200") ||
+			            strings.Contains(resp, "HTTP/1.1 404")
+
+				        if isValidStatus {
+            				lat := time.Since(start).Milliseconds()
+				            atomic.AddInt32(&foundCount, 1)
+				            resultsChan <- scanRes{ip: targetIP, latency: lat}
+				        }
+				    }
+				}*/
+
+				/**if readErr == nil && n > 0 {
+					resp := string(buf[:n])
+
+					if strings.Contains(resp, "HTTP/1.1 400") || strings.Contains(resp, "HTTP/1.1 101") || strings.Contains(resp, "HTTP/1.1 200") || strings.Contains(resp, "HTTP/1.1 403") || strings.Contains(resp, "HTTP/1.1 404") {
+						lat := time.Since(start).Milliseconds()
+						atomic.AddInt32(&foundCount, 1)
+						resultsChan <- scanRes{ip: targetIP, latency: lat}
+					}
+				}*/
 				tlsConn.Close()
 			}(ip)
 		}
@@ -514,7 +548,6 @@ func RunCdnScanner(isDefault bool, configIndex int64, requestedCount int64, targ
 
 	return ""
 }
-
 
 // resolveDomainOverDoH safely queries a list of domains using encrypted HTTPS.
 func resolveDomainOverDoH(rawDomains string, customDohServer string) string {
@@ -694,7 +727,7 @@ func GetCloudIPCounts() string {
 		"cloudx": countCIDRIPs(TargetCDNs.CloudXCIDRs),
 		"cloudy": countCIDRIPs(TargetCDNs.CloudYCIDRs),
 		"cloudz": int64(len(uniqueCloudZ)),
-		"cloudv": int64(len(uniqueCloudV)),		
+		"cloudv": int64(len(uniqueCloudV)),
 	}
 
 	// Convert to a JSON string for the Kotlin frontend

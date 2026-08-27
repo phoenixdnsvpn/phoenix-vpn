@@ -86,7 +86,23 @@ func getRealityDomain(index int64, sniIndex int64) string {
 	// Priority 3: Fallback to the standard domain
 	return defaultConfigs[index].Domain
 }
-
+/*
+// NEW: Smart Getter for Reality SNI
+func getRealityDomain(index int64, sniIndex int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	
+	// If a specific Reality SNI is provided, use it.
+	if defaultConfigs[index].RealityDomain != "" {
+		return defaultConfigs[index].RealityDomain
+	}
+	
+	// Fallback to the standard domain if reality_domain is missing
+	return defaultConfigs[index].Domain
+}
+*/
 // =====================================================================
 // OUTBOUND BUILDER
 // =====================================================================

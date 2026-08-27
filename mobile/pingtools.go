@@ -42,8 +42,37 @@ func PingDirectServer(isDefault bool, configIndex int64, customIP string, config
 			// Priority 2: Trust the global routing hierarchy
 			targetIP = GetTargetIP(configIndex, actualProtocol, globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 						
-			targetPort = getVlessServerPort(configIndex)			
-		} else {
+			targetPort = getVlessServerPort(configIndex)
+		} else if actualProtocol == "amneziawg" {
+			log.Printf("VAY_DEBUG: [Native Ping] Detected amneziawg protocol")
+			
+			// Extract static defaults
+			targetIP = getServerIP(configIndex, globalDnsServer, getServerIpFromDomain)
+			targetPort = getWgPort(configIndex)
+			// log.Printf("VAY_DEBUG: [Native Ping] AWG Static Fallback Initialized -> IP: %s, Port: %d", targetIP, targetPort)
+			
+			// APPLY DYNAMIC OVERRIDES: Ensure we ping the dynamic API server instead of the static fallback!
+			dynamicKeys := getDynamicAWGKeys()
+			if dynamicKeys != nil {
+				log.Printf("VAY_DEBUG: [Native Ping] AWG Dynamic Keys FOUND in Vault. Attempting override...")
+				if dynamicKeys.ServerIP != "" {
+					targetIP = dynamicKeys.ServerIP
+					// log.Printf("VAY_DEBUG: [Native Ping] AWG Target IP Overridden -> %s", targetIP)
+				}
+				if dynamicKeys.WgPort != "" {
+					if p, err := strconv.Atoi(dynamicKeys.WgPort); err == nil {
+						targetPort = p
+						log.Printf("VAY_DEBUG: [Native Ping] AWG Target Port Overridden -> %d", targetPort)
+					}
+				} else if dynamicKeys.ServerIP != "" {
+					targetPort = 443 
+					log.Printf("VAY_DEBUG: [Native Ping] AWG Target Port Defaults to 443")
+				}
+			} else {
+				log.Printf("VAY_DEBUG: [Native Ping] AWG Dynamic Keys NOT found (or decryption failed). Using static fallback.")
+			}
+			// log.Printf("VAY_DEBUG: [Native Ping] Final AWG Ping Target -> %s:%d", targetIP, targetPort)
+		} else {			
 			return -1
 		}
 	} else {
@@ -58,9 +87,10 @@ func PingDirectServer(isDefault bool, configIndex int64, customIP string, config
 	}
 
 	if targetIP == "" {
+		log.Printf("VAY_DEBUG: [Native Ping] ERROR: Target IP is empty. Aborting.")
 		return -1
 	}
-
+	// log.Printf("VAY_DEBUG: [Native Ping] Initiating TCP Race to %s (Ports: %d, 443, 80, 22)...", targetIP, targetPort)
 	// =========================================================
 	// METHOD 1: Multi-Port TCP Racing
 	// =========================================================
@@ -118,6 +148,7 @@ func PingDirectServer(isDefault bool, configIndex int64, customIP string, config
 		return bestLatency
 	}
 
+	// log.Printf("VAY_DEBUG: [Native Ping] TCP Race failed for %s. Falling back to ICMP...", targetIP)
 	// =========================================================
 	// METHOD 2: ICMP Ping Fallback
 	// =========================================================
@@ -143,6 +174,7 @@ func PingDirectServer(isDefault bool, configIndex int64, customIP string, config
 			}
 		}
 	}
+	// log.Printf("VAY_DEBUG: [Native Ping] ERROR: All Ping Methods Failed for %s", targetIP)
 	return -1
 }
 
@@ -206,6 +238,8 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 	var targetPort int = 443
 	var sni string
 
+	RollDomainIndex()
+
 	actualProtocol := strings.ToLower(protocol)
 	log.Printf("VAY_DEBUG: [L7 Ping] START -> Protocol: %s, isDefault: %v, Index: %d, CustomIP: %s, CustomSNI: %s, CDN: %s", actualProtocol, isDefault, configIndex, customIP, customSni, targetCDN)
 
@@ -213,7 +247,7 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 	// 1. EXTRACTION & ROUTING
 	// =================================================================
 	if isDefault {
-		if actualProtocol == "hysteria2" || actualProtocol == "vless-grpc" {		
+		if actualProtocol == "hysteria2" || actualProtocol == "vless-grpc" || actualProtocol == "amneziawg" {
 			log.Printf("VAY_DEBUG: [L7 Ping] Redirecting %s to Layer 4", actualProtocol)			
 			return PingDirectServer(isDefault, configIndex, customIP, configType, protocol, globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 					
@@ -258,7 +292,7 @@ func PingDirectServerLayer7(isDefault bool, configIndex int64, customIP string, 
 			if p, err := strconv.Atoi(parts[1]); err == nil { targetPort = p }
 		}
 		sni = customSni
-		if actualProtocol == "hysteria2" || actualProtocol == "vless-grpc" {		
+		if actualProtocol == "hysteria2" || actualProtocol == "vless-grpc" || actualProtocol == "amneziawg" {
 			log.Printf("VAY_DEBUG: [L7 Ping] Redirecting Custom direct protocol to Layer 4")
 			return PingDirectServer(isDefault, configIndex, customIP, configType, protocol, globalDnsServer, getServerIpFromDomain, targetCDN, runtimeVlessIP)
 		}
@@ -480,6 +514,8 @@ func GetFastestCloudflareIP(isDefault bool, configIndex int64, ipList string, cu
 	}
 
 	if len(cleanIPs) == 0 { return "" }
+
+	RollDomainIndex()
 
 	domainToUse := customDomain
 	pathToUse := "/"

@@ -19,13 +19,15 @@ class VayRowPingService : Service() {
             return START_NOT_STICKY
         }
 
+        mobile.Mobile.initVault(filesDir.absolutePath)
+
         val configId = intent.getStringExtra("CONFIG_ID") ?: return START_NOT_STICKY
         val configType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
         val protocol = intent.getStringExtra("PROTOCOL") ?: ""
 
         // ARCHITECTURAL FORK: Check if it is a direct connection by verifying the active protocol string
         val isDirectMode = !configType.lowercase().contains("vaydns") ||
-                protocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp")
+                protocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp", "amneziawg")
 
         // ARCHITECTURAL FORK: Check if it is a direct connection
         //val isDirectMode = configType.lowercase() == "direct"

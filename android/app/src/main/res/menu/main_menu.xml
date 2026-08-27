@@ -91,6 +91,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_get_awg_keys"
+        android:title="Get AmneziaWG Keys"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_my_dns"
         android:title="My DNS Server"
         app:showAsAction="never" />

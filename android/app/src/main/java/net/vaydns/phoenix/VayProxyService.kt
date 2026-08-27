@@ -164,7 +164,6 @@ class VayProxyService : Service() {
 
                     if (currentTime - lastUiUpdateTime >= notifUpdateMs) {
                         val isDirectMode = activeConfigType.lowercase() == "direct"
-
                         val displayRxSpeed = if (isDirectMode) osRxSpeed else rxSpeed
                         val displayTxSpeed = if (isDirectMode) osTxSpeed else txSpeed
                         val displayTotalRx = if (isDirectMode) sessionOsRx else currentRx
@@ -246,6 +245,26 @@ class VayProxyService : Service() {
 
         if (intent == null || intent.action == "ACTION_STOP_VPN") {
             cleanupAndStop()
+            return START_NOT_STICKY
+        }
+
+        val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
+        val lowerProtocol = protocol.lowercase()
+
+        if (lowerProtocol == "amneziawg") {
+
+            android.util.Log.e("VAY_PROXY", "Attempted to start AmneziaWG in Proxy Mode. Aborting early.")
+
+            // Send error directly to MainActivity UI
+            sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                putExtra("status", "ERROR")
+                putExtra("message", "AmneziaWG does not support Proxy Mode. Please switch to VPN Mode.")
+                setPackage(packageName)
+            })
+
+            // Safely exit before acquiring WakeLocks or showing notifications
+            isServiceAlive = false
+            stopSelf()
             return START_NOT_STICKY
         }
 

@@ -16,6 +16,7 @@ import android.net.VpnService
 import android.net.ConnectivityManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
 import android.net.Uri
@@ -38,19 +39,23 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.security.MessageDigest
 import net.vaydns.phoenix.ConfigEditorActivity.Companion.loadAllConfigs
 import net.vaydns.phoenix.ConfigEditorActivity.Companion.saveAllConfigs
 import kotlinx.coroutines.*
 import kotlin.coroutines.resume
-import java.io.File
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.FileOutputStream
-import java.io.InputStream
-import android.os.Environment
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 private lateinit var rgMode: RadioGroup   // kept only for editor (we don't use it here anymore)
 private lateinit var tvStatus: TextView
+//private lateinit var btnStart: Button
+//private lateinit var btnStop: Button
 private lateinit var btnToggle: Button
 private var isVpnConnected = false // Track state locally for the toggle logic
 private lateinit var recyclerConfigs: RecyclerView
@@ -346,6 +351,126 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // 1. Device ID Hash Generator
+    private fun getDeviceHash(context: Context): String {
+        val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "default_device_id"
+        val bytes = MessageDigest.getInstance("SHA-256").digest(androidId.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    // 2. Network Call and Key Provisioning
+    private fun fetchAndAllocateAmneziaKeys() {
+        Toast.makeText(this, "Requesting AmneziaWG keys from server...", Toast.LENGTH_SHORT).show()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val deviceHash = getDeviceHash(this@MainActivity)
+                val jsonPayload = org.json.JSONObject().apply {
+                    put("device_id_hash", deviceHash)
+                }
+
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                // Fetch failover servers from Go Vault
+                val serverBasesRaw = try {
+                    mobile.Mobile.getUpdateServerURLsExported().split(",").filter { it.isNotBlank() }
+                } catch (e: Exception) {
+                    val primary = mobile.Mobile.getPrimaryUpdateServer()
+                    if (primary.isNotBlank()) listOf(primary) else emptyList()
+                }
+
+                if (serverBasesRaw.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Allocation failed: No server URLs configured in vault.", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+
+                var successfulResponse: okhttp3.Response? = null
+                var responseBodyString = ""
+
+                val requestBody = jsonPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+
+                for (base in serverBasesRaw) {
+                    var cleanBase = base.trim().removeSuffix("/")
+                    if (cleanBase.startsWith("http://", ignoreCase = true)) {
+                        cleanBase = cleanBase.replace("http://", "https://", ignoreCase = true)
+                    }
+                    val fullUrl = "$cleanBase/api/v1/awg/allocate"
+
+                    try {
+                        val request = Request.Builder()
+                            .url(fullUrl)
+                            .post(requestBody)
+                            .addHeader("X-Phoenix-Token", mobile.Mobile.getAppSecretKeyExported())
+                            .addHeader("Content-Type", "application/json")
+                            .build()
+
+                        val response = client.newCall(request).execute()
+                        if (response.isSuccessful && response.body != null) {
+                            responseBodyString = response.body!!.string()
+                            successfulResponse = response
+                            break
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Phoenix", "Failover attempt failed for $fullUrl: ${e.message}")
+                    }
+                }
+
+                if (successfulResponse == null || responseBodyString.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Failed to retrieve keys: Server unreachable.", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+
+                // Parse returned JSON entries
+                val respJson = org.json.JSONObject(responseBodyString)
+                val serverIp = respJson.optString("server_ip")
+                val serverPubKey = respJson.optString("server_public_key")
+                val clientPrivKey = respJson.optString("client_private_key")
+                val internalIp = respJson.optString("internal_ip")
+
+                // Overwrite stored preferences
+                val prefs = getSharedPreferences("AmneziaKeysPrefs", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("server_ip", serverIp)
+                    .putString("internal_ip", internalIp)
+                    .putString("device_hash", deviceHash)
+                    .putString("server_public_key", mobile.Mobile.encryptText(serverPubKey))
+                    .putString("client_private_key", mobile.Mobile.encryptText(clientPrivKey))
+                    .apply()
+
+                val keyFile = java.io.File(filesDir, "amneziawg_keys.json")
+                val encryptedJson = mobile.Mobile.encryptText(responseBodyString)
+                keyFile.writeText(encryptedJson)
+                // ---------------------------------------------------
+                withContext(Dispatchers.Main) {
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("AmneziaWG Keys Allocated")
+                        .setMessage(
+                            "Your device keys have been successfully provisioned and saved!\n\n" +
+                                    // "• Server IP: $serverIp\n" +
+                                    "• Internal IP: $internalIp\n" +
+                                    "• Keys: Saved & Ready\n\n" +
+                                    "کلیدهای اختصاصی AmneziaWG با موفقیت دریافت و ذخیره شدند."
+                        )
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Error allocating keys: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     // Launcher for the native "Save JSON Backup to File" dialog
     private val createBackupFileLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -589,6 +714,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.action_daily_traffic -> {
                     showDailyTrafficDialog()
                 }
+
                 R.id.action_tunnel_settings -> {
                     startActivity(Intent(this, TunnelSettingsActivity::class.java))
                 }
@@ -1900,11 +2026,13 @@ class MainActivity : AppCompatActivity() {
             menu.findItem(R.id.action_cf_scanner)?.isVisible = false
             menu.findItem(R.id.action_global_dns_scanner)?.isVisible = false
             menu.findItem(R.id.action_check_sni)?.isVisible = false
+            menu.findItem(R.id.action_get_awg_keys)?.isVisible = false
         } else {
             // HYBRID VAULT MODE: Keep App Verification visible, but filter out sync tools if configs are omitted
             menu.findItem(R.id.action_cf_scanner)?.isVisible = true
             menu.findItem(R.id.action_global_dns_scanner)?.isVisible = true
             menu.findItem(R.id.action_check_sni)?.isVisible = true
+            menu.findItem(R.id.action_get_awg_keys)?.isVisible = true
 
             if (configCount == 0L) {
                 menu.findItem(R.id.action_quick_scanner)?.isVisible = false
@@ -2124,6 +2252,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         return when (item.itemId) {
+
+            R.id.action_get_awg_keys -> {
+                fetchAndAllocateAmneziaKeys()
+                true
+            }
 
             R.id.action_app_update -> {
                 if (latestApkVersion.isNotEmpty()) {
@@ -2353,6 +2486,18 @@ class MainActivity : AppCompatActivity() {
                 resolverFilePickerLauncher.launch(intent)
                 true
             }
+
+            //R.id.action_upload_configs -> {
+            //    configFilePickerLauncher.launch(arrayOf("*/*"))
+            //    true
+            //}
+
+            //R.id.action_upload_resolvers -> {
+                // Using "*/*" because Android's SAF can be extremely strict
+                // about selecting custom extensions like .bin
+            //    resolverFilePickerLauncher.launch(arrayOf("*/*"))
+            //    true
+            //}
 
             R.id.action_my_dns -> {
                 showCurrentDnsDialog()

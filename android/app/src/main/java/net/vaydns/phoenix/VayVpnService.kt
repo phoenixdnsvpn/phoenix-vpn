@@ -48,7 +48,7 @@ class VayVpnService : VpnService() {
     private var absoluteDailyOsTx = 0L
     private var activeConfigType = "vaydns"
     private var activeEngineType = "sing-box"
-
+    private var currentProtocol = "socks5"
     private var sessionOsRx = 0L
     private var sessionOsTx = 0L
     private var lastStatsRunTime = 0L
@@ -277,6 +277,30 @@ class VayVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
+        // =========================================================
+        // AMNEZIAWG MISSING KEYS INTERCEPTOR
+        // =========================================================
+        val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
+        if (protocol.lowercase() == "amneziawg") {
+            val keyFile = java.io.File(filesDir, "amneziawg_keys.json")
+            if (!keyFile.exists()) {
+                // 1. Show the Toast message
+                val warningText = "AmneziaWG keys missing! Please tap 'Get AmneziaWG Keys' from the menu first."
+
+                // 2. Broadcast error so MainActivity resets the "CONNECTING..." button
+                sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                    putExtra("status", "ERROR")
+                    putExtra("message", warningText)
+                    setPackage(packageName)
+                })
+
+                // 3. Abort the service connection
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        }
+        // =========================================================
+
         val notification = Notification.Builder(this, "VAY_CHANNEL_ACTIVE")
             .setContentTitle("Phoenix Tunnel Active")
             .setContentText("Connecting to server...")
@@ -315,6 +339,7 @@ class VayVpnService : VpnService() {
                     val useMultiDomains = intent.getBooleanExtra("USE_MULTI_DOMAINS", false)
                     val useAuth = intent.getBooleanExtra("USE_AUTH", false)
                     val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
+                    currentProtocol = protocol
                     val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                     val ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
                     val user = intent.getStringExtra("USER") ?: ""
@@ -334,11 +359,12 @@ class VayVpnService : VpnService() {
                     sessionOsTx = 0L
 
                     val lowerConfig = configType.lowercase()
-
+                    val lowerProto = protocol.lowercase()
                     val finalMtu = if (lowerConfig == "direct" ||
-                        lowerConfig == "hysteria2" || lowerConfig == "reality-tcp" || lowerConfig == "reality-xhttp" ||
-                        lowerConfig == "vless-httpupgrade" || lowerConfig == "vless-ws" || lowerConfig == "vless-grpc" || lowerConfig == "vless-xhttp") {
-                        1420
+                        lowerProto == "hysteria2" || lowerProto == "reality-tcp" || lowerProto == "reality-xhttp" ||
+                        lowerProto == "vless-httpupgrade" || lowerProto == "vless-ws" || lowerProto == "vless-grpc" || lowerProto == "vless-xhttp" ||
+                        lowerProto == "amneziawg" || lowerProto == "warp") {
+                        if (lowerProto == "amneziawg" || lowerProto == "warp") 1280 else 1420
                     } else {
                         1232
                     }
@@ -359,10 +385,31 @@ class VayVpnService : VpnService() {
                     val serverIp = try {
                         InetAddress.getByName(domain).hostAddress
                     } catch (e: Exception) { null }
+                    // =========================================================
+                    // 1. DYNAMIC AMNEZIAWG PARAMETER EXTRACTION
+                    // =========================================================
+                    var awgDynamicServerIp = ""
+                    var awgLocalIp = "10.0.0.2"
+                    var awgLocalPrefix = 24
+
+                    if (protocol.lowercase() == "amneziawg") {
+                        val prefs = getSharedPreferences("AmneziaKeysPrefs", Context.MODE_PRIVATE)
+                        awgDynamicServerIp = prefs.getString("server_ip", "") ?: ""
+
+                        val fullLocal = prefs.getString("internal_ip", "10.0.0.2/32") ?: "10.0.0.2/32"
+                        if (fullLocal.contains("/")) {
+                            awgLocalIp = fullLocal.substringBefore("/")
+                            awgLocalPrefix = fullLocal.substringAfter("/").toIntOrNull() ?: 32
+                        } else {
+                            awgLocalIp = fullLocal
+                            awgLocalPrefix = 32
+                        }
+                    }
 
                     builder = Builder()
                     builder.setSession("Phoenix Tunnel Active")
-                        .addAddress("10.0.0.2", 24)
+                        // .addAddress("10.0.0.2", 24)
+                        .addAddress(awgLocalIp, awgLocalPrefix)
                         .addDnsServer("1.1.1.1") // Primary public DNS
                         .addDnsServer("8.8.8.8") // Secondary public DNS
                         .setMtu(finalMtu)
@@ -384,14 +431,30 @@ class VayVpnService : VpnService() {
                     var primaryBypassIp = serverIp
                     val isDirectMode = activeProtocol.lowercase() != "vaydns"
 
-                    if (isDirectMode){
+                    // =========================================================
+                    // 3. EXCLUDE THE CORRECT DYNAMIC SERVER IP FROM VPN ROUTING
+                    // =========================================================
+                    if (isDirectMode) {
+                        if (protocol.lowercase() == "amneziawg" && awgDynamicServerIp.isNotEmpty()) {
+                            primaryBypassIp = awgDynamicServerIp
+                        } else {
+                            val targetIp = mobile.Mobile.getTargetIP(configIndex, activeProtocol, globalDnsServer, getServerIpFromDomain, targetCdn, vlessWsIp)
+                            try {
+                                primaryBypassIp = InetAddress.getByName(targetIp).hostAddress
+                            } catch (e: Exception) {
+                                primaryBypassIp = targetIp
+                            }
+                        }
+                    }
+
+                    /**if (isDirectMode){
                         val targetIp = mobile.Mobile.getTargetIP(configIndex, activeProtocol, globalDnsServer, getServerIpFromDomain, targetCdn, vlessWsIp)
                         try {
                             primaryBypassIp = InetAddress.getByName(targetIp).hostAddress
                         } catch (e: Exception) {
                             primaryBypassIp = targetIp
                         }
-                    }
+                    }*/
 
                     if (primaryBypassIp != null && isValidIp(primaryBypassIp)) {
                         Log.i("VAY_DEBUG", "Excluding Proxy IP from VPN Routing Table: $primaryBypassIp")
@@ -423,17 +486,6 @@ class VayVpnService : VpnService() {
                             } catch (e: Exception) {}
                         }
                     }
-
-                    /**if (isValidIp(bypassIp)) {
-                        Log.i("VAY_DEBUG", "Excluding DNS IP from VPN Routing Table: $bypassIp")
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            try {
-                                val inetAddress = InetAddress.getByName(bypassIp)
-                                val ipPrefix = android.net.IpPrefix(inetAddress, 32)
-                                builder.excludeRoute(ipPrefix)
-                            } catch (e: Exception) {}
-                        }
-                    }*/
 
                     val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                     val isDebugEnabled = sharedPrefs.getBoolean("debug_logs_enabled", false)
@@ -542,46 +594,48 @@ class VayVpnService : VpnService() {
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")
 
                         if (result.contains("Success")) {
+                            val isNativeTun = protocol.lowercase() == "amneziawg"
 
-                            // ===============================================
-                            // C-TUNNEL INTERCEPTOR HANDOFF
-                            // ===============================================
+                            if (!isNativeTun) {
+                                // ===============================================
+                                // C-TUNNEL INTERCEPTOR HANDOFF (Proxy Protocols)
+                                // ===============================================
+                                val portStr = if (result.contains("|")) {
+                                    result.split("|").getOrNull(1)?.trim()
+                                } else {
+                                    result.substringAfterLast(":").trim()
+                                }
 
-                            // DYNAMIC PORT HANDOFF
-                            // ===============================================
-                            val portStr = if (result.contains("|")) {
-                                result.split("|").getOrNull(1)?.trim()
+                                val socksPort = portStr?.toIntOrNull() ?: 35795
+                                Log.i("Phoenix", "Handoff to C-Tunnel using verified SOCKS Port $socksPort...")
+
+                                try {
+                                    val hevConfig = """
+                                        tunnel:
+                                          name: tun0
+                                          mtu: $finalMtu
+                                          ipv4: '10.0.0.2'
+                                          ipv6: ''
+                                        socks5:
+                                          address: '127.0.0.1'
+                                          port: $socksPort
+                                          udp: 'udp'
+                                        misc:
+                                          task-stack-size: 8192
+                                          connect-timeout: 5000
+                                          read-write-timeout: 60000
+                                    """.trimIndent()
+
+                                    val configFile = java.io.File(cacheDir, "hev_config.yml")
+                                    configFile.writeText(hevConfig)
+
+                                    hev.htproxy.TProxyService.TProxyStartService(configFile.absolutePath, fd)
+                                    Log.i("Phoenix", "HEV C-Tunnel Started successfully on port $socksPort.")
+                                } catch (e: Exception) {
+                                    Log.e("Phoenix", "Failed to start HEV C-Tunnel: ${e.message}")
+                                }
                             } else {
-                                result.substringAfterLast(":").trim()
-                            }
-
-                            val socksPort = portStr?.toIntOrNull() ?: 35795
-                            Log.i("Phoenix", "Handoff to C-Tunnel using verified SOCKS Port $socksPort...")
-
-                            try {
-                                val hevConfig = """
-                                    tunnel:
-                                      name: tun0
-                                      mtu: $finalMtu
-                                      ipv4: '10.0.0.2'
-                                      ipv6: ''
-                                    socks5:
-                                      address: '127.0.0.1'
-                                      port: $socksPort
-                                      udp: 'udp'
-                                    misc:
-                                      task-stack-size: 8192
-                                      connect-timeout: 5000
-                                      read-write-timeout: 60000
-                                """.trimIndent()
-
-                                val configFile = java.io.File(cacheDir, "hev_config.yml")
-                                configFile.writeText(hevConfig)
-
-                                hev.htproxy.TProxyService.TProxyStartService(configFile.absolutePath, fd)
-                                Log.i("Phoenix", "HEV C-Tunnel Started successfully on port $socksPort.")
-                            } catch (e: Exception) {
-                                Log.e("Phoenix", "Failed to start HEV C-Tunnel: ${e.message}")
+                                Log.i("Phoenix", "Native TUN interface bound directly to Go Core ($protocol). Skipping C-Tunnel.")
                             }
 
                             runVerificationLogic()
@@ -744,35 +798,38 @@ class VayVpnService : VpnService() {
     }
 
     private fun getTunInterfaceStats(): Pair<Long, Long> {
-        // 1. PURE NATIVE STATS: Ask the C-Tunnel directly for exact TUN interface traffic
+        val isNativeTun = currentProtocol.lowercase() == "amneziawg"
+
+        // 1. PURE NATIVE STATS: Pull directly from Go's injected atomic counters
+        if (isNativeTun) {
+            try {
+                val stats = mobile.Mobile.getProxyStats().split("|")
+                if (stats.size == 2) {
+                    return Pair(stats[0].toLong(), stats[1].toLong())
+                }
+            } catch (e: Exception) {}
+        }
+
+        // 2. C-TUNNEL STATS: For proxy protocols (Hysteria2, VLESS, etc.)
         if (activeConfigType.lowercase() != "vaydns") {
             try {
-                // The C-engine returns an array where index 0 is TX, and index 1 is RX
                 val cStats = hev.htproxy.TProxyService.TProxyGetStats()
                 if (cStats != null && cStats.size >= 4) {
-                    val downloadBytes = cStats[3] // tx_bytes: Transmitted by tunnel to OS
-                    val uploadBytes = cStats[1]   // rx_bytes: Received by tunnel from OS
-                //    Log.i("Phoenix", "Hev Traffic (MB): Download ${downloadBytes / (1024 * 1024)} MB | Upload ${uploadBytes / (1024 * 1024)} MB")
-                    // Return Pair(RX, TX) to match the rest of the app's logic
+                    val downloadBytes = cStats[3]
+                    val uploadBytes = cStats[1]
                     return Pair(downloadBytes, uploadBytes)
                 }
             } catch (e: Exception) {
                 // Silently fallback if the C-engine isn't fully booted yet
             }
         }
-        // Log.i("Phoenix", "Android was used for Traffic")
-        // 2. FALLBACK: Legacy Android UID TrafficStats for VayDNS mode
+
+        // 3. FALLBACK: Legacy Android UID TrafficStats
         val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
         val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
 
         if (uidRx > 0 || uidTx > 0) {
             return Pair(uidRx, uidTx)
-            /*val finalRx = if (activeConfigType.lowercase() != "vaydns" && activeEngineType.lowercase() == "sing-box") {
-                uidRx / 2
-            } else {
-                uidRx
-            }
-            return Pair(finalRx, uidTx / 2)*/
         }
 
         return Pair(0L, 0L)

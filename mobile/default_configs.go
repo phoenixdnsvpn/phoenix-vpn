@@ -65,6 +65,7 @@ type DefaultConfig struct {
 	RealityConfig
 	VlessConfig
 	XhttpRealityConfig
+	WireguardConfig
 }
 
 type CDNSettings struct {
@@ -1038,3 +1039,48 @@ func DecryptIP(ipStr string) string {
 	binary.BigEndian.PutUint32(decryptedIP, (uint32(left)<<16)|uint32(right))
 	return decryptedIP.String()
 }
+
+func getWgPublicKey(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	return defaultConfigs[index].ServerPublicKey
+}
+
+func getWgSecretKey(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return ""
+	}
+	return defaultConfigs[index].ClientPrivateKey
+}
+
+func getWgLocalAddress(index int64) string {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return "10.0.0.2/32"
+	}
+	if defaultConfigs[index].InternalIP == "" {
+		return "10.0.0.2/32" // WireGuard requires a local internal IP
+	}
+	return defaultConfigs[index].InternalIP
+}
+
+func getWgPort(index int64) int {
+	ensureParsed()
+	if index < 0 || index >= int64(len(defaultConfigs)) {
+		return 51820
+	}
+	portStr := defaultConfigs[index].WgPort
+	if portStr == "" {
+		// Fallback: If wg_port is empty, reuse the Reality/Vless port!
+		return getRealityTcpPort(index) 
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 51820
+	}
+	return port
+}
+

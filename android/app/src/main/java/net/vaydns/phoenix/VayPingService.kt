@@ -18,6 +18,8 @@ class VayPingService : Service() {
             return START_NOT_STICKY
         }
 
+        mobile.Mobile.initVault(filesDir.absolutePath)
+
         val tasksJson = intent.getStringExtra("TASKS_JSON") ?: "[]"
         val workers = intent.getLongExtra("WORKERS", 20L)
         val tunnelWait = intent.getLongExtra("TUNNEL_WAIT", 3000L)
