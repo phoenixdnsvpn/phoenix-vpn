@@ -2173,39 +2173,6 @@ class MainActivity : AppCompatActivity() {
             // Only show if an update exists AND the tunnel is active
             updateItem.isVisible = (isUpdateAvailable && isVpnConnected)
         }
-
-        // COLORIZE: Get AmneziaWG Keys menu title to #E91E63
-        /**val awgItem = menu.findItem(R.id.action_get_awg_keys)
-        if (awgItem != null) {
-            val title = awgItem.title?.toString() ?: "Get AmneziaWG Keys"
-            val spannableTitle = android.text.SpannableString(title).apply {
-                setSpan(
-                    android.text.style.ForegroundColorSpan(Color.parseColor("#E91E63")),
-                    0,
-                    length,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
-            awgItem.title = spannableTitle
-        }*/
-        
-        // COLORIZE: WARP IP Scanner menu title to #00897B
-        /**val warpItem = menu.findItem(R.id.action_warp_scanner)
-        if (warpItem != null) {
-            val title = warpItem.title?.toString() ?: "WARP IP Scanner"
-            val spannableTitle = android.text.SpannableString(title).apply {
-                setSpan(
-                    android.text.style.ForegroundColorSpan(Color.parseColor("#00897B")),
-                    0,
-                    length,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
-            warpItem.title = spannableTitle
-
-            // Optional: If you add an icon for this item later, tint it too!
-            // warpItem.icon?.mutate()?.setTint(Color.parseColor("#00897B"))
-        }*/
             
         return super.onPrepareOptionsMenu(menu)
     }
