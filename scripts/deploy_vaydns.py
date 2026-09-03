@@ -3,9 +3,16 @@ import subprocess
 import paramiko
 import getpass
 import sys
+import random
+import string
 
 def print_step(msg):
     print(f"\n[*] {msg}...")
+
+def generate_password(length=12):
+    """Generates a secure 12-character alphanumeric password."""
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
 
 def run_cmd(ssh, cmd, user, password, hide_output=False):
     """Executes a command over SSH. Handles sudo securely via stdin if not root."""
@@ -45,7 +52,7 @@ def get_current_vaydns_params(ssh, user, password):
         'idle_timeout': '10s',
         'keepalive': '2s',
         'vaydns_port': '5300',
-        'dante_port': '8000',
+        'upstream_port': '8000',
         'mtu': '1232',
         'dnstt_compat': False
     }
@@ -75,10 +82,10 @@ def get_current_vaydns_params(ssh, user, password):
                 elif part == '-upstream' and i+1 < len(parts):
                     upstream_str = parts[i+1]
                     if ':' in upstream_str:
-                        params['dante_port'] = upstream_str.split(':')[1]
+                        params['upstream_port'] = upstream_str.split(':')[1]
                 elif part == '-mtu' and i+1 < len(parts):
                     params['mtu'] = parts[i+1]
-                elif part == '-dnstt-compat' and i+1 < len(parts) and parts[i+1] == 'true':
+                elif part == '-dnstt-compat':
                     params['dnstt_compat'] = True
             break
             
@@ -90,47 +97,40 @@ def uninstall_vaydns(ssh, user, password, is_ubuntu, dante_service):
     print("                  UNINSTALLATION PROCESS")
     print("===================================================================")
     
-    # Prompt for user deletion preference locally before running commands
-    remove_user_input = input("Do you want to delete the 'vaydns' system user? (y/N) [default: no]: ").strip().lower()
+    remove_user_input = input("Do you want to delete the 'vaydns' and proxy system users? (y/N) [default: no]: ").strip().lower()
     remove_user = remove_user_input in ['y', 'yes']
 
-    # 1. Stop and disable services
-    print_step("Stopping and disabling VayDNS and Dante services")
-    run_cmd(ssh, "systemctl stop vaydns-server || true", user, password)
-    run_cmd(ssh, "systemctl disable vaydns-server || true", user, password)
-    run_cmd(ssh, f"systemctl stop {dante_service} || true", user, password)
-    run_cmd(ssh, f"systemctl disable {dante_service} || true", user, password)
+    print_step("Stopping and disabling VayDNS and Proxy services")
+    run_cmd(ssh, "systemctl stop vaydns-server danted sockd shadowsocks || true", user, password)
+    run_cmd(ssh, "systemctl disable vaydns-server danted sockd shadowsocks || true", user, password)
 
-    # 2. Remove systemd service file, binaries, and configuration directories
-    print_step("Removing VayDNS systemd service, binaries, and configurations")
-    run_cmd(ssh, "rm -f /etc/systemd/system/vaydns-server.service", user, password)
+    print_step("Removing systemd service files, binaries, and configurations")
+    run_cmd(ssh, "rm -f /etc/systemd/system/vaydns-server.service /etc/systemd/system/shadowsocks.service", user, password)
     run_cmd(ssh, "systemctl daemon-reload", user, password)
-    run_cmd(ssh, "rm -rf /etc/vaydns", user, password)
-    run_cmd(ssh, "rm -f /usr/local/bin/vaydns-server", user, password)
+    run_cmd(ssh, "rm -rf /etc/vaydns /etc/shadowsocks", user, password)
+    run_cmd(ssh, "rm -f /usr/local/bin/vaydns-server /usr/local/bin/ssserver", user, password)
 
-    # 3. Optional: Delete system user
     if remove_user:
-        print_step("Deleting system user 'vaydns'")
+        print_step("Deleting system users")
         run_cmd(ssh, "userdel vaydns || true", user, password)
-        print("[+] User 'vaydns' removed.")
+        run_cmd(ssh, "userdel proxyuser || true", user, password)
+        run_cmd(ssh, "userdel -r sshproxy || true", user, password)
+        print("[+] Users removed.")
     else:
-        print("[*] Preserving system user 'vaydns'.")
+        print("[*] Preserving system users.")
 
-    # 4. Remove port forwarding rules in firewall (Do NOT touch SSH)
     print_step("Removing DNS port forwarding firewall rules")
     if is_ubuntu:
-        # Remove iptables NAT rule
         run_cmd(ssh, "iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 5300 || true", user, password)
         run_cmd(ssh, "netfilter-persistent save || true", user, password)
         print("[+] Removed iptables UDP 53 port redirection.")
     else:
-        # Remove firewalld forward port
         run_cmd(ssh, "firewall-cmd --permanent --remove-forward-port=port=53:proto=udp:toport=5300 || true", user, password)
         run_cmd(ssh, "firewall-cmd --reload || true", user, password)
         print("[+] Removed firewalld UDP 53 port redirection.")
 
     print("\n===================================================================")
-    print("✅ VayDNS and Dante proxy have been successfully uninstalled!")
+    print("✅ VayDNS and all associated proxies have been successfully uninstalled!")
     print("ℹ️  Note: SSH configurations and ports were untouched.")
     print("===================================================================")
 
@@ -143,48 +143,48 @@ def update_vaydns(ssh, user, password, is_ubuntu, dante_service, dante_config_pa
     print_step("Fetching current configuration from server")
     curr_params = get_current_vaydns_params(ssh, user, password)
     
-    # Domain
     c_domain = curr_params['domain']
-    domain_prompt = f"Tunnel domain name(s) (comma-separated) [{c_domain}]: " if c_domain else "Tunnel domain name(s) (comma-separated, e.g., t1.com,t2.com): "
+    domain_prompt = f"Tunnel domain name(s) (comma-separated) [{c_domain}]: " if c_domain else "Tunnel domain name(s) (comma-separated): "
     domain = input(domain_prompt).strip() or c_domain
     while not domain:
         domain = input("Domain is required: ").strip()
         
-    # Other parameters
-    c_rt = curr_params['record_type']
-    record_type = input(f"Record type (caa, null, txt) [default: {c_rt}]: ").strip().lower() or c_rt
-
-    # DNSTT compatibility
     c_dnstt = curr_params['dnstt_compat']
     dnstt_prompt_default = 'yes' if c_dnstt else 'no'
     dnstt_input = input(f"Enable DNSTT compatibility? (y/n) [default: {dnstt_prompt_default}]: ").strip().lower()
-    
-    if not dnstt_input:
-        dnstt_compat = c_dnstt
-    else:
-        dnstt_compat = dnstt_input in ['y', 'yes']
+    dnstt_compat = True if dnstt_input in ['y', 'yes'] else (False if dnstt_input in ['n', 'no'] else c_dnstt)
 
-    # Dynamically set idle, keepalive, and record-type based on DNSTT choice
+    # Contextual defaults based on DNSTT
     if dnstt_compat:
-        c_it = "2m"
-        c_ka = "10s"
-        record_type = "txt"
-        print("[*] DNSTT compatibility enabled: Auto-enforcing 'txt' record type.")
+        def_it = "2m"
+        def_ka = "10s"
+        def_rt = "txt"
+        dnstt_flag = "-dnstt-compat "
+        print("[*] DNSTT compatibility enabled: Auto-defaulting to 'txt' record type.")
     else:
-        c_it = "10s"
-        c_ka = "2s"
-    
-    idle_timeout = input(f"Idle timeout [default: {c_it}]: ").strip() or c_it
-    keepalive = input(f"Keepalive [default: {c_ka}]: ").strip() or c_ka
+        def_rt = curr_params['record_type']
+        def_it = curr_params['idle_timeout']
+        def_ka = curr_params['keepalive']
+        dnstt_flag = ""
+
+    # Extra parameters (Record Type, Timeouts, MTU)
+    record_type = input(f"Record type (caa, null, txt, cname, a, aaaa, mx, ns, srv) [default: {def_rt}]: ").strip().lower() or def_rt
+    idle_timeout = input(f"Idle timeout [default: {def_it}]: ").strip() or def_it
+    keepalive = input(f"Keepalive [default: {def_ka}]: ").strip() or def_ka
     
     c_vp = curr_params['vaydns_port']
     vaydns_port = input(f"VayDNS port [default: {c_vp}]: ").strip() or c_vp
     
-    c_dp = curr_params['dante_port']
-    dante_port = input(f"Dante upstream port [default: {c_dp}]: ").strip() or c_dp
+    c_up = curr_params['upstream_port']
+    upstream_port = input(f"Upstream Proxy Port (e.g. 8000 for Dante, 8388 for SS) [default: {c_up}]: ").strip() or c_up
     
     c_mtu = curr_params['mtu']
-    mtu = input(f"MTU [default: {c_mtu}]: ").strip() or c_mtu
+    mtu_input = input(f"MTU (512-1452) [default: {c_mtu}]: ").strip() or c_mtu
+    try:
+        mtu_val = int(mtu_input)
+        mtu = str(mtu_val) if 512 <= mtu_val <= 1452 else "1232"
+    except ValueError:
+        mtu = "1232"
     
     gen_keys = input("Generate new key pairs? (y/N) [default: no]: ").strip().lower() in ['y', 'yes']
 
@@ -201,8 +201,6 @@ def update_vaydns(ssh, user, password, is_ubuntu, dante_service, dante_config_pa
         run_cmd(ssh, "systemctl stop vaydns-server", user, password)
 
     print_step("Updating Systemd Service Parameters")
-    dnstt_flag = "-dnstt-compat true " if dnstt_compat else ""
-    
     vaydns_service_content = f"""[Unit]
 Description=VayDNS Tunnel Server
 After=network.target
@@ -214,7 +212,7 @@ User=vaydns
 Group=vaydns
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-ExecStart=/usr/local/bin/vaydns-server -udp :{vaydns_port} -privkey-file /etc/vaydns/server.key -mtu {mtu} -record-type {record_type} {dnstt_flag}-idle-timeout {idle_timeout} -keepalive {keepalive} -domain {domain} -upstream 127.0.0.1:{dante_port}
+ExecStart=/usr/local/bin/vaydns-server -udp :{vaydns_port} -privkey-file /etc/vaydns/server.key -mtu {mtu} -record-type {record_type} {dnstt_flag}-idle-timeout {idle_timeout} -keepalive {keepalive} -domain {domain} -upstream 127.0.0.1:{upstream_port}
 Restart=always
 RestartSec=5
 KillMode=mixed
@@ -235,13 +233,15 @@ ProtectControlGroups=true
 WantedBy=multi-user.target"""
     write_file_remote(ssh, "/etc/systemd/system/vaydns-server.service", vaydns_service_content, user, password)
 
-    print_step("Updating Dante Proxy Configuration")
-    _, primary_interface, _ = run_cmd(ssh, "ip route | awk '/default/ {print $5}' | head -n1", user, password, hide_output=True)
-    if not primary_interface:
-        primary_interface = "eth0"
-        
-    sockd_content = f"""logoutput: stderr
-internal: 127.0.0.1 port = {dante_port}
+    # Only update Dante if the upstream port points to Dante (8000)
+    if upstream_port == "8000":
+        print_step("Updating Dante Proxy Configuration")
+        _, primary_interface, _ = run_cmd(ssh, "ip route | awk '/default/ {print $5}' | head -n1", user, password, hide_output=True)
+        if not primary_interface:
+            primary_interface = "eth0"
+            
+        sockd_content = f"""logoutput: stderr
+internal: 127.0.0.1 port = {upstream_port}
 external: {primary_interface}
 socksmethod: none
 clientmethod: none
@@ -256,7 +256,8 @@ socks pass {{
         protocol: tcp udp
         log: connect error
 }}"""
-    write_file_remote(ssh, dante_config_path, sockd_content, user, password)
+        write_file_remote(ssh, dante_config_path, sockd_content, user, password)
+        run_cmd(ssh, f"systemctl restart {dante_service}", user, password)
 
     print_step("Updating Firewall Routing Rules")
     if is_ubuntu:
@@ -269,9 +270,8 @@ socks pass {{
         run_cmd(ssh, f"firewall-cmd --permanent --add-forward-port=port=53:proto=udp:toport={vaydns_port}", user, password)
         run_cmd(ssh, "firewall-cmd --reload", user, password)
 
-    print_step("Restarting Services")
+    print_step("Restarting VayDNS Service")
     run_cmd(ssh, "systemctl daemon-reload", user, password)
-    run_cmd(ssh, f"systemctl restart {dante_service}", user, password)
     run_cmd(ssh, "systemctl start vaydns-server", user, password)
 
     print_step("Fetching Updated Keys and Generating Links")
@@ -281,9 +281,10 @@ socks pass {{
     print("\n✅ CONFIGURATION UPDATE SUCCESSFUL!")
     print("\n--- YOUR NEW VAYDNS ANDROID READY STRINGS ---")
     
+    dnstt_url_flag = "true" if dnstt_compat else "false"
     domains_list = [d.strip() for d in domain.split(',') if d.strip()]
     for d in domains_list:
-        client_config_url = f"dnst://{d}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive={keepalive}&idle-timeout={idle_timeout}#vaydns"
+        client_config_url = f"dnst://{d}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive={keepalive}&idle-timeout={idle_timeout}&dnstt-compat={dnstt_url_flag}#vaydns"
         print(client_config_url)
 
 def main():
@@ -332,21 +333,39 @@ def main():
         print(f"[-] SSH Connection failed: {e}")
         sys.exit(1)
 
-    # Detect Remote Operating System
-    print_step("Detecting remote operating system architecture")
+    # Detect Remote Operating System and Version
+    print_step("Detecting remote operating system architecture and version")
     _, os_info, _ = run_cmd(ssh, "cat /etc/os-release", user, password, hide_output=True)
     os_info_lower = os_info.lower()
     
     is_ubuntu = "ubuntu" in os_info_lower or "debian" in os_info_lower
-    
+
+    version_id = ""
+    for line in os_info.splitlines():
+        if line.startswith("VERSION_ID="):
+            version_id = line.split("=")[1].strip('"').strip("'")
+            break
+    major_ver = version_id.split('.')[0] if version_id else ""
+
+    # Determine Shadowsocks version based on distribution and major version
+    # RHEL 9 & Ubuntu 22 -> v1.17.1
+    # RHEL 10 & Ubuntu 24/26 -> v1.25.0
     if is_ubuntu:
-        print("[+] Detected Environment: Ubuntu/Debian Base")
+        if major_ver == "22" or version_id.startswith("22"):
+            ss_version = "v1.17.1"
+        else:
+            ss_version = "v1.25.0"
         dante_config_path = "/etc/danted.conf"
         dante_service = "danted"
+        print(f"[+] Detected Environment: Ubuntu/Debian (Version: {version_id or 'Unknown'}) -> Target SS: {ss_version}")
     else:
-        print("[+] Detected Environment: RHEL/Rocky/Alma Base")
+        if major_ver == "9" or version_id.startswith("9"):
+            ss_version = "v1.17.1"
+        else:
+            ss_version = "v1.25.0"
         dante_config_path = "/etc/sockd.conf"
         dante_service = "sockd"
+        print(f"[+] Detected Environment: RHEL/Rocky/Alma (Version: {version_id or 'Unknown'}) -> Target SS: {ss_version}")
 
     # =========================================================================
     # BRANCH TO UNINSTALL
@@ -368,29 +387,64 @@ def main():
     # INSTALLATION FLOW
     # =========================================================================
     change_ssh_port = input("\nDo you want to change the SSH port? (y/N) [default: no]: ").strip().lower()
-    if change_ssh_port == 'y':
-        new_ssh_port_input = input("Enter new SSH port [default: 2222]: ").strip()
-        new_ssh_port = int(new_ssh_port_input) if new_ssh_port_input.isdigit() else 2222
+    if change_ssh_port in ['y', 'yes']:
+        new_ssh_port_input = input("Enter new SSH port [default: 2122]: ").strip()
+        new_ssh_port = int(new_ssh_port_input) if new_ssh_port_input.isdigit() else 2122
     else:
         new_ssh_port = current_ssh_port
 
     domain = input("Tunnel domain name(s) (comma-separated for multiple, e.g., t1.example.com,t2.example.com): ").strip()
-    record_type = input("Record type (caa, null, txt) [default: caa]: ").strip().lower() or "caa"
-
+    
     # Evaluate DNSTT compatibility
     dnstt_input = input("Enable DNSTT compatibility? (y/N) [default: no]: ").strip().lower()
     dnstt_compat = dnstt_input in ['y', 'yes']
 
     if dnstt_compat:
-        idle_timeout = "2m"
-        keepalive = "10s"
-        dnstt_flag = "-dnstt-compat true "
-        record_type = "txt"
-        print("[*] DNSTT compatibility enabled: Auto-enforcing 'txt' record type.")
+        def_it = "2m"
+        def_ka = "10s"
+        def_rt = "txt"
+        dnstt_flag = "-dnstt-compat "
+        print("[*] DNSTT compatibility enabled: Auto-defaulting to 'txt' record type.")
     else:
-        idle_timeout = "10s"
-        keepalive = "2s"
+        def_it = "10s"
+        def_ka = "2s"
+        def_rt = "caa"
         dnstt_flag = ""
+
+    # Extra parameters (Record Type, Timeouts, MTU)
+    record_type = input(f"Record type (caa, null, txt, cname, a, aaaa, mx, ns, srv) [default: {def_rt}]: ").strip().lower() or def_rt
+    idle_timeout = input(f"Idle timeout [default: {def_it}]: ").strip() or def_it
+    keepalive = input(f"Keepalive [default: {def_ka}]: ").strip() or def_ka
+
+    mtu_input = input("MTU (512-1452) [default: 1232]: ").strip() or "1232"
+    try:
+        mtu_val = int(mtu_input)
+        mtu = str(mtu_val) if 512 <= mtu_val <= 1452 else "1232"
+    except ValueError:
+        mtu = "1232"
+
+    # =========================================================================
+    # AUTHENTICATION / PROXY PROMPTS
+    # =========================================================================
+    print("\nSelect Proxy Method:")
+    print("1. SOCKS5 (Default)")
+    print("2. SSH")
+    print("3. Shadowsocks")
+    auth_choice = input("Enter choice (1/2/3) [default: 1]: ").strip()
+    
+    proxy_type = 'socks5'
+    use_socks_auth = False
+    upstream_port = 8000 # Default Dante port
+    
+    if auth_choice == '2':
+        proxy_type = 'ssh'
+        upstream_port = new_ssh_port # Tunnel points natively to SSH port
+    elif auth_choice == '3':
+        proxy_type = 'shadowsocks'
+        upstream_port = 8388 # Default SS port
+    else:
+        ans_socks_auth = input("Enable SOCKS5 user/password authentication? (y/N) [default: no]: ").strip().lower()
+        use_socks_auth = ans_socks_auth in ['y', 'yes']
 
     print("\n--- DNS Configuration ---")
     print("Note: Replacing the existing DNS servers with Google (8.8.8.8) and Cloudflare (1.1.1.1) may improve latency.")
@@ -447,11 +501,11 @@ def main():
     print("[*] Note: Updating system packages may take up to 10 minutes depending on server updates.")
     if is_ubuntu: 
         run_cmd(ssh, "export DEBIAN_FRONTEND=noninteractive && apt-get update -y", user, password)
-        run_cmd(ssh, "export DEBIAN_FRONTEND=noninteractive && apt-get install tar dante-server iptables iptables-persistent curl vnstat sed tcpdump net-tools bind9-dnsutils policycoreutils -y", user, password)
+        run_cmd(ssh, "export DEBIAN_FRONTEND=noninteractive && apt-get install tar dante-server iptables iptables-persistent curl vnstat sed tcpdump net-tools bind9-dnsutils policycoreutils wget xz-utils -y", user, password)
     else:
         run_cmd(ssh, "dnf update -y", user, password)
         run_cmd(ssh, "dnf install epel-release -y", user, password)
-        run_cmd(ssh, "dnf install tar dante-server firewalld policycoreutils-python-utils curl tcpdump net-tools bind-utils vnstat sed -y", user, password)
+        run_cmd(ssh, "dnf install tar dante-server firewalld policycoreutils-python-utils curl tcpdump net-tools bind-utils vnstat sed wget xz -y", user, password)
 
     # 2. Firewall Configuration
     print_step("Configuring target platform firewall policies")
@@ -497,7 +551,7 @@ def main():
     print_step("Validating and creating system service accounts")
     run_cmd(ssh, "id -u vaydns &>/dev/null || useradd -r -M -s /bin/false -c 'vaydns service user' -d /nonexistent vaydns", user, password)
 
-    # Configure Passwordless SSH (Moved after firewall/user creation to ensure directory structures)
+    # Configure Passwordless SSH
     if pub_key_content:
         print_step("Configuring Passwordless SSH Login")
         run_cmd(ssh, "mkdir -p ~/.ssh && chmod 700 ~/.ssh", user, password, hide_output=True)
@@ -527,6 +581,109 @@ def main():
         run_cmd(ssh, 'semanage fcontext -a -t bin_t "/usr/local/bin/vaydns-server"', user, password)
         run_cmd(ssh, "restorecon -v /usr/local/bin/vaydns-server", user, password)
 
+    # =====================================================================
+    # AUTHENTICATION PROTOCOL SETUP
+    # =====================================================================
+    generated_password = ""
+    ssh_pub_key = ""
+    ssh_priv_key = ""
+
+    if proxy_type == 'socks5':
+        dante_socksmethod = "none"
+        if use_socks_auth:
+            print_step("Configuring SOCKS5 User Authentication")
+            generated_password = generate_password()
+            run_cmd(ssh, "useradd -r -s /usr/sbin/nologin proxyuser || true", user, password)
+            run_cmd(ssh, f"echo 'proxyuser:{generated_password}' | chpasswd", user, password)
+            dante_socksmethod = "username"
+
+        print_step("Detecting primary external network interface")
+        _, primary_interface, _ = run_cmd(ssh, "ip route | awk '/default/ {print $5}' | head -n1", user, password, hide_output=True)
+        if not primary_interface:
+            primary_interface = "eth0"
+            
+        print_step(f"Deploying Dante proxy configuration to {dante_config_path}")
+        run_cmd(ssh, f"mv {dante_config_path} {dante_config_path}.1 || true", user, password)
+        
+        sockd_content = f"""logoutput: stderr
+internal: 127.0.0.1 port = 8000
+external: {primary_interface}
+socksmethod: {dante_socksmethod}
+clientmethod: none
+
+client pass {{
+        from: 127.0.0.1/32 to: 0.0.0.0/0
+        log: connect error
+}}
+
+socks pass {{
+        from: 127.0.0.1/32 to: 0.0.0.0/0
+        protocol: tcp udp
+        log: connect error
+}}"""
+        write_file_remote(ssh, dante_config_path, sockd_content, user, password)
+        run_cmd(ssh, "systemctl daemon-reload", user, password)
+        run_cmd(ssh, f"systemctl start {dante_service}", user, password)
+        run_cmd(ssh, f"systemctl enable {dante_service}", user, password)
+
+    elif proxy_type == 'ssh':
+        print_step("Configuring SSH Proxy Authentication")
+        run_cmd(ssh, "useradd -m sshproxy || true", user, password)
+        
+        # CLEAR old keys to prevent the interactive `ssh-keygen` overwrite prompt hang
+        run_cmd(ssh, 'mkdir -p /home/sshproxy/.ssh && rm -f /home/sshproxy/.ssh/id_ed25519* && ssh-keygen -t ed25519 -f /home/sshproxy/.ssh/id_ed25519 -N "" -q', user, password)
+        
+        run_cmd(ssh, "cp /home/sshproxy/.ssh/id_ed25519.pub /home/sshproxy/.ssh/authorized_keys", user, password)
+        run_cmd(ssh, "chown -R sshproxy:sshproxy /home/sshproxy/.ssh && chmod 700 /home/sshproxy/.ssh && chmod 600 /home/sshproxy/.ssh/authorized_keys", user, password)
+        
+        _, ssh_pub_key, _ = run_cmd(ssh, "cat /home/sshproxy/.ssh/id_ed25519.pub", user, password, hide_output=True)
+        _, ssh_priv_key, _ = run_cmd(ssh, "cat /home/sshproxy/.ssh/id_ed25519", user, password, hide_output=True)
+
+    elif proxy_type == 'shadowsocks':
+        print_step(f"Installing and Configuring Shadowsocks-Rust ({ss_version})")
+        generated_password = generate_password()
+        ss_install_cmd = f"""
+        cd /tmp
+        wget -q "https://github.com/shadowsocks/shadowsocks-rust/releases/download/{ss_version}/shadowsocks-{ss_version}.x86_64-unknown-linux-gnu.tar.xz" -O ss.tar.xz
+        tar -xf ss.tar.xz
+        mv ssserver /usr/local/bin/
+        chmod 755 /usr/local/bin/ssserver
+        rm -f ss.tar.xz sslocal ssmanager ssurl
+        mkdir -p /etc/shadowsocks
+        """
+        run_cmd(ssh, ss_install_cmd, user, password)
+
+        if not is_ubuntu:
+            print_step("Applying target SELinux security context rules for Shadowsocks")
+            run_cmd(ssh, "semanage fcontext -a -t bin_t '/usr/local/bin/ssserver'", user, password)
+            run_cmd(ssh, "restorecon -v /usr/local/bin/ssserver", user, password)
+
+        ss_config = f"""{{
+    "server":"127.0.0.1",
+    "server_port":8388,
+    "local_port":1080,
+    "password":"{generated_password}",
+    "timeout":300,
+    "method":"chacha20-ietf-poly1305"
+}}"""
+        write_file_remote(ssh, "/etc/shadowsocks/config.json", ss_config, user, password)
+
+        ss_service = """[Unit]
+Description=Shadowsocks-Rust Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/ssserver -c /etc/shadowsocks/config.json
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target"""
+        write_file_remote(ssh, "/etc/systemd/system/shadowsocks.service", ss_service, user, password)
+        run_cmd(ssh, "systemctl daemon-reload && systemctl enable --now shadowsocks", user, password)
+
     # 5. Create SystemD Service
     print_step("Checking for existing VayDNS service")
     _, check_active, _ = run_cmd(ssh, "systemctl is-active vaydns-server || true", user, password, hide_output=True)
@@ -546,7 +703,7 @@ User=vaydns
 Group=vaydns
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-ExecStart=/usr/local/bin/vaydns-server -udp :5300 -privkey-file /etc/vaydns/server.key -mtu 1232 -record-type {record_type} {dnstt_flag}-idle-timeout {idle_timeout} -keepalive {keepalive} -domain {domain} -upstream 127.0.0.1:8000
+ExecStart=/usr/local/bin/vaydns-server -udp :5300 -privkey-file /etc/vaydns/server.key -mtu {mtu} -record-type {record_type} {dnstt_flag}-idle-timeout {idle_timeout} -keepalive {keepalive} -domain {domain} -upstream 127.0.0.1:{upstream_port}
 Restart=always
 RestartSec=5
 KillMode=mixed
@@ -567,43 +724,9 @@ ProtectControlGroups=true
 WantedBy=multi-user.target"""
     
     write_file_remote(ssh, "/etc/systemd/system/vaydns-server.service", vaydns_service_content, user, password)
-
-    # 6. Configure Dante Proxy Matrix with Dynamic Interface Detection
-    print_step("Detecting primary external network interface")
-    _, primary_interface, _ = run_cmd(ssh, "ip route | awk '/default/ {print $5}' | head -n1", user, password, hide_output=True)
-    if not primary_interface:
-        primary_interface = "eth0"
-        
-    print(f"[+] Detected external interface: {primary_interface}")
-    print_step(f"Deploying custom Dante proxy configurations to {dante_config_path}")
     
-    run_cmd(ssh, f"mv {dante_config_path} {dante_config_path}.1 || true", user, password)
-    
-    sockd_content = f"""logoutput: stderr
-internal: 127.0.0.1 port = 8000
-external: {primary_interface}
-socksmethod: none
-clientmethod: none
-
-client pass {{
-        from: 127.0.0.1/32 to: 0.0.0.0/0
-        log: connect error
-}}
-
-socks pass {{
-        from: 127.0.0.1/32 to: 0.0.0.0/0
-        protocol: tcp udp
-        log: connect error
-}}"""
-    write_file_remote(ssh, dante_config_path, sockd_content, user, password)
-
-    # 7. Start Services
-    print_step(f"Booting up and enabling backend Dante proxy ({dante_service})")
+    print_step("Booting up and enabling VayDNS core tunnel infrastructure")
     run_cmd(ssh, "systemctl daemon-reload", user, password)
-    run_cmd(ssh, f"systemctl start {dante_service}", user, password)
-    run_cmd(ssh, f"systemctl enable {dante_service}", user, password)
-    
-    print_step("Booting up and enabling VayDNS core tunnel core infrastructure")
     run_cmd(ssh, "systemctl start vaydns-server", user, password)
     run_cmd(ssh, "systemctl enable vaydns-server", user, password)
 
@@ -683,10 +806,27 @@ socks pass {{
     if pub_key_content:
         print(f"• Since we are using SSH keys, to login to the server without a password, simply type: ssh root@{host}" + (f" -p {new_ssh_port}" if new_ssh_port != 22 else ""))
 
+    if proxy_type == 'socks5' and use_socks_auth:
+        print("\n--- SOCKS5 CREDENTIALS ---")
+        print(f"Username: proxyuser")
+        print(f"Password: {generated_password}")
+    elif proxy_type == 'ssh':
+        print("\n--- SSH PROXY CREDENTIALS ---")
+        print(f"Username: sshproxy")
+        print("\n[Client Public Key - Optional]:\n" + ssh_pub_key.strip())
+        print("\n[Client Private Key - REQUIRED FOR CONNECTION]:\n" + ssh_priv_key.strip())
+    elif proxy_type == 'shadowsocks':
+        print("\n--- SHADOWSOCKS CREDENTIALS ---")
+        print(f"Password: {generated_password}")
+        print(f"Method: chacha20-ietf-poly1305")
+
     print("\n--- YOUR VAYDNS ANDROID READY STRINGS ---")
+    dnstt_url_flag = "true" if dnstt_compat else "false"
+    backend_slug = proxy_type if proxy_type != 'shadowsocks' else 'ss'
+
     domains_list = [d.strip() for d in domain.split(',') if d.strip()]
     for d in domains_list:
-        client_config_url = f"dnst://{d}/vaydns/socks5?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive={keepalive}&idle-timeout={idle_timeout}#vaydns"
+        client_config_url = f"dnst://{d}/vaydns/{backend_slug}?pubkey={pubkey}&record-type={record_type}&clientid-size=2&keepalive={keepalive}&idle-timeout={idle_timeout}&dnstt-compat={dnstt_url_flag}#vaydns"
         print(client_config_url)
 
     print("\nImport Method:")
@@ -695,4 +835,4 @@ socks pass {{
     print("3. Choose 'Import' and commit these string layouts onto your configuration profile engine.")
 
 if __name__ == "__main__":
-    main()nnnnnnnn
+    main()
