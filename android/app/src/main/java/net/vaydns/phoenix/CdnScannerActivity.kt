@@ -542,14 +542,11 @@ class CdnScannerActivity : AppCompatActivity() {
             val scannedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
             val scannedPort = spinnerPort.selectedItem?.toString() ?: "443"
 
-            // Append BOTH the port and the CDN before encrypting
+            // Append BOTH the port and the CDN in plaintext AFTER encrypting the IP
             val shareText = "Target CDN: $scannedCdn (Port $scannedPort)\n\n" + cfResults.joinToString("\n") { result ->
-                val addressWithPort = if (result.ip.contains(":")) {
-                    result.ip
-                } else {
-                    "${result.ip}:$scannedPort"
-                }
-                CryptoHelper.encrypt("$addressWithPort:$scannedCdn")
+                // Encrypt just the IP to match the UI
+                val encryptedIp = mobile.Mobile.encryptIP(result.ip)
+                "$encryptedIp:$scannedPort:$scannedCdn"
             }
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {

@@ -43,7 +43,7 @@
             <item
                 android:id="@+id/action_how_to_use"
                 android:icon="@android:drawable/ic_menu_help"
-                android:title="How to Use / راهنمای استفاده" />
+                android:title="How to Use" />
 
             <item
                 android:id="@+id/action_about"

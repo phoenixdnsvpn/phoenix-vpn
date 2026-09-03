@@ -43,6 +43,7 @@ class VayProxyService : Service() {
     // Session-specific tracking
     private var activeConfigType = "vaydns"
     private var activeEngineType = "sing-box"
+    private var activeTunnelProtocol = "vaydns"
     private var sessionOsRx = 0L
     private var sessionOsTx = 0L
 
@@ -58,157 +59,113 @@ class VayProxyService : Service() {
             val currentTime = System.currentTimeMillis()
             if (lastStatsRunTime == 0L) lastStatsRunTime = currentTime
 
-            // Calculate exactly how much time passed since the last loop
             val elapsedMs = currentTime - lastStatsRunTime
             lastStatsRunTime = currentTime
-
-            // Prevent division by zero; default to 1 sec if called too fast
             val elapsedSec = if (elapsedMs >= 1000) elapsedMs / 1000.0 else 1.0
 
             try {
-                // 1. Fetch exact bytes from the Go Engine
+                // Single source of truth: bytes forwarded by the Go proxy core
+                // rx = download (remote -> client), tx = upload (client -> remote)
                 val stats = mobile.Mobile.getProxyStats()
                 val parts = stats.split("|")
 
                 if (parts.size == 2) {
-                    val currentRx = parts[0].toLong()
-                    val currentTx = parts[1].toLong()
+                    val currentRx = parts[0].toLong().coerceAtLeast(0L)
+                    val currentTx = parts[1].toLong().coerceAtLeast(0L)
 
-                    val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                    val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                        .format(java.util.Date())
                     if (currentTrackingDate != dateStr) {
                         val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
                         absoluteDailyRx = prefs.getLong("rx_$dateStr", 0L)
                         absoluteDailyTx = prefs.getLong("tx_$dateStr", 0L)
-                        absoluteDailyOsRx = prefs.getLong("os_rx_$dateStr", 0L)
-                        absoluteDailyOsTx = prefs.getLong("os_tx_$dateStr", 0L)
                         currentTrackingDate = dateStr
                     }
 
-                    // --- GO ENGINE STATS MATH ---
-                    val diffRx = if (currentRx > previousRxBytes) currentRx - previousRxBytes else 0L
-                    val diffTx = if (currentTx > previousTxBytes) currentTx - previousTxBytes else 0L
-
-                    // Calculate TRUE speed
-                    val rxSpeed = (diffRx / elapsedSec).toLong()
-                    val txSpeed = (diffTx / elapsedSec).toLong()
+                    val diffRx = if (currentRx >= previousRxBytes) currentRx - previousRxBytes else 0L
+                    val diffTx = if (currentTx >= previousTxBytes) currentTx - previousTxBytes else 0L
 
                     previousRxBytes = currentRx
                     previousTxBytes = currentTx
+
+                    val rxSpeed = (diffRx / elapsedSec).toLong()
+                    val txSpeed = (diffTx / elapsedSec).toLong()
 
                     absoluteDailyRx += diffRx
                     absoluteDailyTx += diffTx
                     pendingRxSave += diffRx
                     pendingTxSave += diffTx
 
-                    // --- NATIVE ANDROID OS STATS MATH (STRICT PROXY ONLY) ---
-                    val proxyStats = getProxyInterfaceStats()
-
-                    val currentOsRx = proxyStats.first
-                    val currentOsTx = proxyStats.second
-
-                    if (previousOsRxBytes == 0L && previousOsTxBytes == 0L) {
-                        previousOsRxBytes = currentOsRx
-                        previousOsTxBytes = currentOsTx
-                    }
-
-                    // Calculate the payload size for this tick.
-                    val diffOsRx = if (currentOsRx >= previousOsRxBytes) currentOsRx - previousOsRxBytes else 0L
-                    val diffOsTx = if (currentOsTx >= previousOsTxBytes) currentOsTx - previousOsTxBytes else 0L
-
-                    previousOsRxBytes = currentOsRx
-                    previousOsTxBytes = currentOsTx
-
-                    sessionOsRx += diffOsRx
-                    sessionOsTx += diffOsTx
-
-                    // OS Speed = Pure Proxy Bytes / Time Elapsed
-                    val osRxSpeed = (diffOsRx / elapsedSec).toLong()
-                    val osTxSpeed = (diffOsTx / elapsedSec).toLong()
-
-                    absoluteDailyOsRx += diffOsRx
-                    absoluteDailyOsTx += diffOsTx
-                    pendingOsRxSave += diffOsRx
-                    pendingOsTxSave += diffOsTx
-
                     // ==========================================
-                    // 1. DATABASE FLUSH LOGIC (Every ~10 seconds)
+                    // 1. DATABASE FLUSH (every ~10 seconds)
                     // ==========================================
                     if (currentTime - lastDbSaveTime >= 10000L) {
-                        if (pendingRxSave > 0 || pendingTxSave > 0 || pendingOsRxSave > 0 || pendingOsTxSave > 0) {
+                        if (pendingRxSave > 0 || pendingTxSave > 0) {
                             val prefs = getSharedPreferences("Phoenix_Traffic", Context.MODE_PRIVATE)
-                            val dailyRx = prefs.getLong("rx_$dateStr", 0L) + pendingRxSave
-                            val dailyTx = prefs.getLong("tx_$dateStr", 0L) + pendingTxSave
-                            val dailyOsRx = prefs.getLong("os_rx_$dateStr", 0L) + pendingOsRxSave
-                            val dailyOsTx = prefs.getLong("os_tx_$dateStr", 0L) + pendingOsTxSave
-
                             prefs.edit()
-                                .putLong("rx_$dateStr", dailyRx)
-                                .putLong("tx_$dateStr", dailyTx)
-                                .putLong("os_rx_$dateStr", dailyOsRx)
-                                .putLong("os_tx_$dateStr", dailyOsTx)
+                                .putLong("rx_$dateStr", prefs.getLong("rx_$dateStr", 0L) + pendingRxSave)
+                                .putLong("tx_$dateStr", prefs.getLong("tx_$dateStr", 0L) + pendingTxSave)
                                 .apply()
-
                             pendingRxSave = 0L
                             pendingTxSave = 0L
-                            pendingOsRxSave = 0L
-                            pendingOsTxSave = 0L
                         }
                         lastDbSaveTime = currentTime
                     }
 
                     // ==========================================
-                    // 2. UI NOTIFICATION LOGIC (Every ~4 seconds)
+                    // 2. UI + NOTIFICATION (every ~4 seconds)
                     // ==========================================
                     val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                     val notifUpdateMs = appPrefs.getLong("notif_update_ms", 4000L)
 
                     if (currentTime - lastUiUpdateTime >= notifUpdateMs) {
-                        val isDirectMode = activeConfigType.lowercase() == "direct"
-                        val displayRxSpeed = if (isDirectMode) osRxSpeed else rxSpeed
-                        val displayTxSpeed = if (isDirectMode) osTxSpeed else txSpeed
-                        val displayTotalRx = if (isDirectMode) sessionOsRx else currentRx
-                        val displayTotalTx = if (isDirectMode) sessionOsTx else currentTx
-
-                        val speedStr = "▼ ${formatBytes(displayRxSpeed)}/s   ▲ ${formatBytes(displayTxSpeed)}/s"
-                        val totalStr = "Total: ${formatBytes(displayTotalRx)} ↓   ${formatBytes(displayTotalTx)} ↑"
+                        val speedStr = "▼ ${formatBytes(rxSpeed)}/s   ▲ ${formatBytes(txSpeed)}/s"
+                        val totalStr = "Total: ${formatBytes(currentRx)} ↓   ${formatBytes(currentTx)} ↑"
 
                         sendBroadcast(Intent("VPN_STATS_UPDATE").apply {
                             putExtra("speed", speedStr)
                             putExtra("total", totalStr)
                             putExtra("liveDailyRx", absoluteDailyRx)
                             putExtra("liveDailyTx", absoluteDailyTx)
-                            putExtra("liveDailyOsRx", absoluteDailyOsRx)
-                            putExtra("liveDailyOsTx", absoluteDailyOsTx)
+                            putExtra("liveDailyOsRx", absoluteDailyRx)
+                            putExtra("liveDailyOsTx", absoluteDailyTx)
                             setPackage(packageName)
                         })
 
-                        // UPDATE THE LOCK SCREEN NOTIFICATION
                         try {
                             val intent = Intent(this@VayProxyService, MainActivity::class.java)
-                            val pendingIntent = PendingIntent.getActivity(this@VayProxyService, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+                            val pendingIntent = PendingIntent.getActivity(
+                                this@VayProxyService,
+                                0,
+                                intent,
+                                PendingIntent.FLAG_IMMUTABLE
+                            )
 
-                            val updateNotification = androidx.core.app.NotificationCompat.Builder(this@VayProxyService, "VAY_PROXY_ACTIVE")
+                            val updateNotification = NotificationCompat.Builder(
+                                this@VayProxyService,
+                                "VAY_PROXY_ACTIVE"
+                            )
                                 .setContentTitle("Phoenix Proxy Active")
                                 .setContentText(speedStr)
                                 .setSmallIcon(R.drawable.ic_vpn_key)
                                 .setOngoing(true)
                                 .setContentIntent(pendingIntent)
-                                .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
+                                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                                 .setOnlyAlertOnce(true)
-                                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                                 .build()
 
                             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                             nm.notify(2, updateNotification)
                         } catch (e: Exception) {
-                            android.util.Log.e("VAY_PROXY", "Failed to update notification: ${e.message}")
+                            Log.e("VAY_PROXY", "Failed to update notification: ${e.message}")
                         }
 
                         lastUiUpdateTime = currentTime
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("VAY_PROXY", "Error parsing stats: ${e.message}")
+                Log.e("VAY_PROXY", "Error parsing stats: ${e.message}")
             }
 
             // ==========================================
@@ -220,7 +177,6 @@ class VayProxyService : Service() {
             val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             val unlockedDelayMs = appPrefs.getLong("unlocked_delay_ms", 2000L)
             val lockedDelayMs = appPrefs.getLong("locked_delay_ms", 5000L)
-
             val nextDelay = if (isScreenOn) unlockedDelayMs else lockedDelayMs
 
             statsHandler.postDelayed(this, nextDelay)
@@ -248,17 +204,21 @@ class VayProxyService : Service() {
             return START_NOT_STICKY
         }
 
-        val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
-        val lowerProtocol = protocol.lowercase()
+        val tunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
+        val localProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
+        val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
+        val lowerProtocol = tunnelProtocol.lowercase()
 
-        if (lowerProtocol == "amneziawg") {
+        if (lowerProtocol == "amneziawg" || lowerProtocol == "wireguard" || lowerProtocol == "masque") {
 
-            android.util.Log.e("VAY_PROXY", "Attempted to start AmneziaWG in Proxy Mode. Aborting early.")
+            val protoName = if (lowerProtocol == "wireguard" || lowerProtocol == "masque") "WARP" else "AmneziaWG"
+
+            android.util.Log.e("VAY_PROXY", "Attempted to start $protoName in Proxy Mode. Aborting early.")
 
             // Send error directly to MainActivity UI
             sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
                 putExtra("status", "ERROR")
-                putExtra("message", "AmneziaWG does not support Proxy Mode. Please switch to VPN Mode.")
+                putExtra("message", "$protoName does not support Proxy Mode. Please switch to VPN Mode.")
                 setPackage(packageName)
             })
 
@@ -305,8 +265,8 @@ class VayProxyService : Service() {
                 val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
                 val useMultiDomains = intent.getBooleanExtra("USE_MULTI_DOMAINS", false)
                 val useAuth = intent.getBooleanExtra("USE_AUTH", false)
-                val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
-                val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
+                //val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
+                //val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                 val ssMethod = intent.getStringExtra("SS_METHOD") ?: ""
                 val user = intent.getStringExtra("USER") ?: ""
                 val pass = intent.getStringExtra("PASS") ?: ""
@@ -315,6 +275,7 @@ class VayProxyService : Service() {
                 // Initialize Session Variables
                 activeConfigType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
                 activeEngineType = intent?.getStringExtra("ENGINE_TYPE") ?: "sing-box"
+                activeTunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
 
                 sessionOsRx = 0L
                 sessionOsTx = 0L
@@ -375,6 +336,7 @@ class VayProxyService : Service() {
                 val sniIndex = intent.getLongExtra("SNI_INDEX", -1L)
                 val useHysteriaCore = intent.getBooleanExtra("USE_HYSTERIA_CORE", false)
 
+                PhoenixVpnVerify.bind(this)
                 // RESTORED: Exact, working parameter list matching your native Go layout
                 val result = Mobile.startProxy(
                     engineType,
@@ -397,7 +359,9 @@ class VayProxyService : Service() {
                     mtu,
                     dnsttCompatible,
                     useAuth,
-                    protocol,
+                    tunnelProtocol,
+                    localProxyProtocol,
+                    authProtocol,
                     ssMethod,
                     user,
                     pass,
@@ -555,33 +519,4 @@ class VayProxyService : Service() {
         }.start()
     }
 
-    private fun getProxyInterfaceStats(): Pair<Long, Long> {
-        val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
-        val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
-
-        if (uidRx > 0 || uidTx > 0) {
-            // HYBRID UX LOGIC:
-            // Download (RX): Use raw bytes for accurate ISP download metering
-            // Upload (TX): Divide by 2 to prevent local-socket bloat
-            val finalRx = if (activeConfigType.lowercase() != "vaydns" && activeEngineType.lowercase() == "sing-box") {
-                uidRx / 2
-            } else {
-                uidRx
-            }
-            return Pair(finalRx, uidTx / 2)
-        }
-
-        return Pair(0L, 0L)
-    }
-
-    private fun getProxyInterfaceStats2(): Pair<Long, Long> {
-        val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
-        val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
-
-        if (uidRx > 0 || uidTx > 0) {
-            return Pair(uidRx / 2, uidTx / 2)
-        }
-
-        return Pair(0L, 0L)
-    }
 }

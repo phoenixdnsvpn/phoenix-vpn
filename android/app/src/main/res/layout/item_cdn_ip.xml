@@ -24,6 +24,7 @@
         android:hint="CloudX IP"
         android:inputType="textUri"
         android:textSize="15sp"
+        android:textColor="?attr/colorOnSurface"
         android:padding="8dp"
         android:minHeight="36dp" />
 

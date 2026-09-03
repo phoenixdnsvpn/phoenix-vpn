@@ -57,6 +57,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private var pubkey = ""
     private var proxyType = ""
     private var tunnelProtocol = ""
+    private var localProxyProtocol = ""
+    private var authProtocol = ""
     private var ssMethod = ""
     private var lightE2EEnabled = true
     private var engineQuickScan = false
@@ -144,7 +146,9 @@ class DnsScannerResultActivity : AppCompatActivity() {
         domain = intent.getStringExtra("DOMAIN") ?: ""
         pubkey = intent.getStringExtra("PUBKEY") ?: ""
         proxyType = intent.getStringExtra("PROXY_TYPE") ?: "socks5h"
-        tunnelProtocol = intent.getStringExtra("PROTOCOL") ?: "socks"
+        tunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
+        localProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
+        authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
         ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
         lightE2EEnabled = intent.getBooleanExtra("LIGHT_E2E_ENABLED", true)
         engineQuickScan = intent.getBooleanExtra("ENGINE_QUICK_SCAN", false)
@@ -391,6 +395,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 putExtra("baseDohUrl", baseDohUrl)
                 putExtra("proxyType", proxyType)
                 putExtra("tunnelProtocol", tunnelProtocol)
+                putExtra("localProxyProtocol", localProxyProtocol)
+                putExtra("authProtocol", authProtocol)
                 putExtra("user", user)
                 putExtra("pass", pass)
                 putExtra("ssMethod", ssMethod)

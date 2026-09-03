@@ -17,11 +17,10 @@ android {
         applicationId = "net.vaydns.phoenix"
         minSdk = 24
         targetSdk = 36
-        versionCode = 55
-        versionName = "2.7.0"
+        versionCode = 56
+        versionName = "2.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
     }
 
     packaging {
@@ -72,7 +71,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    // Dynamic AAR selection based on the architecture being built
-    val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-arm64.aar"
-    implementation(files("libs/$targetAar"))
+    
+    // Load the unified fat AAR from the libs directory
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
 }

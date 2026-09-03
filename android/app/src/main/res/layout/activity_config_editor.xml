@@ -7,21 +7,37 @@
     android:background="?android:attr/windowBackground"
     android:fitsSystemWindows="true">
 
-    <com.google.android.material.appbar.AppBarLayout
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar_editor"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?attr/colorSurface"
-        app:elevation="4dp">
+        android:layout_height="?attr/actionBarSize"
+        app:title="Config parameters"
+        app:titleTextColor="?attr/colorOnSurface"
+        app:navigationIcon="@drawable/ic_arrow_back_modern"
+        app:navigationIconTint="?attr/colorOnSurface">
 
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar_editor"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            app:title="Config parameters"
-            app:titleTextColor="?attr/colorOnSurface"
-            app:navigationIcon="@drawable/ic_arrow_back_modern"
-            app:navigationIconTint="?attr/colorOnSurface" />
-    </com.google.android.material.appbar.AppBarLayout>
+        <!-- PERFECTED ALIGNMENT: Wrapping the icon in a LinearLayout exactly like your WarpManager -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginEnd="4dp">
+
+            <ImageButton
+                android:id="@+id/btn_save_icon"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:padding="4dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_check_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorOnSurface"
+                android:contentDescription="Save Config" />
+        </LinearLayout>
+
+    </com.google.android.material.appbar.MaterialToolbar>
 
     <ScrollView
         android:layout_width="match_parent"
@@ -634,15 +650,6 @@
                 android:textColorHint="?android:attr/textColorSecondary"
                 android:textColor="?attr/colorOnSurface"
                 android:inputType="text" />
-
-            <Button
-                android:id="@+id/btn_save_config"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="SAVE CONFIG"
-                android:layout_marginTop="24dp"
-                android:backgroundTint="?attr/colorPrimary"
-                android:textColor="?attr/colorOnPrimary" />
 
         </LinearLayout>
     </ScrollView>

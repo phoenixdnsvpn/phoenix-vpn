@@ -71,7 +71,7 @@ class ConfigAdapter(
         val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
         val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-        var activeProtocol = if (isDefault && globalOverride) {
+        var activeTunnelProtocol = if (isDefault && globalOverride) {
             globalProtocol
         } else if (isDefault) {
             context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -84,8 +84,8 @@ class ConfigAdapter(
 
         if (isDefault) {
             val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
-            if (!supportedProtocols.contains(activeProtocol.lowercase())) {
-                activeProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
+            if (!supportedProtocols.contains(activeTunnelProtocol.lowercase())) {
+                activeTunnelProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
             }
         }
 
@@ -108,12 +108,15 @@ class ConfigAdapter(
         }
 
         // Assign striking Material colors based on the protocol
-        val protocolColor = when (activeProtocol.lowercase().trim()) {
+        val protocolColor = when (activeTunnelProtocol.lowercase().trim()) {
             "hysteria2" -> android.graphics.Color.parseColor("#2E7D32") // Teal
             "amneziawg" -> android.graphics.Color.parseColor("#E91E63") // Pink
+            "wireguard" -> android.graphics.Color.parseColor("#00B7EB") // teal
+            "warp" -> android.graphics.Color.parseColor("#00897B") // teal
+            "masque" -> android.graphics.Color.parseColor("#1565C0") // teal
             "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
             //"vless-ws"              -> android.graphics.Color.parseColor("#7B1FA2") // Strong Blue
-            "vless-httpupgrade"     -> android.graphics.Color.parseColor("#00B7EB") // Deep Purple 5E35B1
+            "vless-httpupgrade"     -> android.graphics.Color.parseColor("#FFD700") // Deep Purple 5E35B1
             "reality-xhttp"         -> android.graphics.Color.parseColor("#F9A825") // Golden
             "vless-grpc"            -> android.graphics.Color.parseColor("#D98C8C") // Sausage
             "vless-xhttp"           -> android.graphics.Color.parseColor("#BCA38A") // Creame
@@ -124,27 +127,9 @@ class ConfigAdapter(
                     "cloudv" -> android.graphics.Color.parseColor("#D98C8C") // CloudV Color
                     else -> android.graphics.Color.parseColor("#7B1FA2")     // Default / CloudX Color
                 }
-                /**if (targetCdn.equals("CloudX", ignoreCase = true)) {
-                    android.graphics.Color.parseColor("#7B1FA2")
-                } else if (targetCdn.equals("CloudY", ignoreCase = true)) {
-                       android.graphics.Color.parseColor("#CE93D8")
-                } else {
-                    android.graphics.Color.parseColor("#D98C8C")
-                }*/
             }
             else                    -> defaultTextColor // Phoenix (Native Black/White)
         }
-
-        // Assign striking Material colors based on the protocol
-        /**val protocolColor = when (activeProtocol.lowercase().trim()) {
-            "hysteria2" -> android.graphics.Color.parseColor("#00897B") // Teal
-            "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
-            "vless-ws"              -> android.graphics.Color.parseColor("#1565C0") // Strong Blue
-            "vless-httpupgrade"     -> android.graphics.Color.parseColor("#00B7EB") // Deep Purple 5E35B1
-            "reality-xhttp"         -> android.graphics.Color.parseColor("#F9A825") // Golden
-            "vless-grpc"            -> android.graphics.Color.parseColor("#2E7D32") // Green
-            else                    -> defaultTextColor // Phoenix (Native Black/White)
-        }*/
 
         holder.name.setTextColor(protocolColor)
 
@@ -254,7 +239,6 @@ class ConfigAdapter(
 
             val prefs = context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
             val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
-            val activeProtocol = prefs.getString("active_protocol", "vaydns") ?: "vaydns"
             val lightE2E = prefs.getBoolean("light_e2e", false)
             val workers = prefs.getInt("workers", 20)
             val tWait = prefs.getInt("tunnel_wait", 3000)
@@ -270,11 +254,6 @@ class ConfigAdapter(
                 finalConfig.vlessIp
             }
 
-            /**val configVlessIp = if (finalConfig.isDefault) {
-                prefs.getString("${finalConfig.id}_vlessIp", "") ?: ""
-            } else {
-                finalConfig.vlessIp
-            }*/
             val globalVlessIp = context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
                 .getString("vless_ws_ip", "") ?: ""
 
@@ -307,7 +286,8 @@ class ConfigAdapter(
                 val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
                 val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-                var activeProtocol = if (globalOverride) {
+                // Extract all three isolated protocol variables accurately for intents
+                var activeTunnelProtocol = if (finalConfig.isDefault && globalOverride) {
                     globalProtocol
                 } else if (finalConfig.isDefault) {
                     context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -319,15 +299,31 @@ class ConfigAdapter(
 
                 if (finalConfig.isDefault) {
                     val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
-                    if (!supportedProtocols.contains(activeProtocol.lowercase())) {
-                        activeProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
+                    if (!supportedProtocols.contains(activeTunnelProtocol.lowercase())) {
+                        activeTunnelProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
                     }
                 }
 
+                val activeLocalProxyProtocol = if (finalConfig.isDefault) {
+                    context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                        .getString("${finalConfig.id}_localProxyProtocol", null)
+                        ?: mobile.Mobile.getDefaultConfigProxy(configIndex)
+                } else {
+                    finalConfig.localProxyProtocol
+                }
+
+                val activeAuthProtocol = if (finalConfig.isDefault) {
+                    context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                        .getString("${finalConfig.id}_authProtocol", null)
+                        ?: mobile.Mobile.getDefaultConfigProtocol(configIndex)
+                } else {
+                    finalConfig.authProtocol
+                }
+
                 // 2. SANITIZE ROUTING FOR BACKEND
-                val isDirectMode = activeProtocol.lowercase() != "vaydns"
+                val isDirectMode = activeTunnelProtocol.lowercase() != "vaydns"
                 val cleanConfigType = if (isDirectMode) "direct" else "vaydns"
-                val cleanProtocol = if (isDirectMode) activeProtocol else finalConfig.protocol
+                val cleanTunnelProtocol = if (isDirectMode) activeTunnelProtocol else finalConfig.tunnelProtocol
 
                 // ONLY pass the IP if it's a custom config (which is already public to the user)
                 val serverIp = if (isDirectMode && !finalConfig.isDefault) {
@@ -344,16 +340,23 @@ class ConfigAdapter(
                 putExtra("CONFIG_INDEX", configIndex)
                 putExtra("MODE", finalConfig.mode)
                 putExtra("DOMAIN_INDEX", domainIndex)
-                // putExtra("DOMAIN", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
                 putExtra("DOMAIN", finalConfig.domain)
                 putExtra("PUBKEY", finalConfig.pubkey)
                 putExtra("MULTIPATH_DNS", multipathDnsList)
                 putExtra("BASE_DOH_URL", if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else "")
                 putExtra("PROXY_TYPE", proxyType)
-                putExtra("PROTOCOL", cleanProtocol)
+
+                // NEW: Three isolated variables passed cleanly to VayRowPingService
+                putExtra("TUNNEL_PROTOCOL", cleanTunnelProtocol)
+                putExtra("LOCAL_PROXY_PROTOCOL", activeLocalProxyProtocol)
+                putExtra("AUTH_PROTOCOL", activeAuthProtocol)
+
                 putExtra("VLESS_WS_IP", finalVlessIp)
-                val finalUser = if (finalConfig.isDefault) "" else finalConfig.user
-                val finalPass = if (finalConfig.isDefault) "" else finalConfig.pass
+
+                val isSS = activeAuthProtocol == "shadowsocks" || activeTunnelProtocol == "shadowsocks"
+                val finalUser = if (finalConfig.isDefault) "" else if (isSS) finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else finalConfig.user.ifEmpty { "none" }
+                val finalPass = if (finalConfig.isDefault) "" else if (finalConfig.useAuth || isSS) finalConfig.pass.ifEmpty { "none" } else "none"
+
                 putExtra("USER", finalUser)
                 putExtra("PASS", finalPass)
                 putExtra("SS_METHOD", finalConfig.ssMethod)

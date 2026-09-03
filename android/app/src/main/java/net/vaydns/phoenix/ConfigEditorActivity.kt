@@ -34,17 +34,15 @@ class ConfigEditorActivity : AppCompatActivity() {
     private var editingConfigId: String? = null
     private var multipathDialog: androidx.appcompat.app.AlertDialog? = null
     private lateinit var switchMultiDomain: SwitchCompat
-
+    // Multi-Protocol Credential Caches
+    private var sshUserCache = ""
+    private var sshPassCache = ""
+    private var ssPassCache = ""
+    private var basicUserCache = ""
+    private var basicPassCache = ""
+    private var currentAuthMode = "socks"
+    private var isInitializing = true
     private var realVlessIp = ""
-
-    /*private fun getMaskedIp(ip: String): String {
-        val parts = ip.split(".")
-        return if (parts.size == 4 && !ip.contains("***")) {
-            "***.***.${parts[2]}.${parts[3]}"
-        } else {
-            ip
-        }
-    }*/
 
     data class ResolverEntry(
         var address: String,
@@ -147,7 +145,6 @@ class ConfigEditorActivity : AppCompatActivity() {
         val rgAuthProtocol = findViewById<RadioGroup>(R.id.rg_auth_protocol)
         val etUser = findViewById<EditText>(R.id.et_user)
         val etPass = findViewById<EditText>(R.id.et_pass)
-        val btnSave = findViewById<Button>(R.id.btn_save_config)
         val swSshKey = findViewById<SwitchCompat>(R.id.sw_ssh_key)
         val spSsMethod = findViewById<Spinner>(R.id.sp_ss_method)
         val tvUserLabel = findViewById<TextView>(R.id.tv_user_label)
@@ -274,109 +271,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             }.start()
         }
 
-        /**cbBestCfIp.setOnCheckedChangeListener { buttonView, isChecked ->
-            if (isChecked) {
-                // Grab the currently selected CDN and Tunnel Protocol from the Editor
-                val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "CloudX"
-                val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
-                val selectedTunnelProtocol = spinnerTunnelProtocol?.selectedItem?.toString() ?: "vaydns"
-
-                val spinnerEditorPort = findViewById<Spinner>(R.id.spinner_editor_port)
-                val selectedPortStr = spinnerEditorPort?.selectedItem?.toString() ?: "443"
-                val selectedPort = selectedPortStr.toLongOrNull() ?: 443L
-
-                // GUARDRAIL 1 & 2: Check if CDN supports both the selected VLESS protocol AND the selected port
-                if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
-                    val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
-                    if (!supported) {
-                        Toast.makeText(this, "CDN '$selectedCdn' does not support protocol '$selectedTunnelProtocol'!", Toast.LENGTH_LONG).show()
-                        buttonView.isChecked = false
-                        return@setOnCheckedChangeListener
-                    }
-
-                    val portSupported = Mobile.cdnSupportsPort(selectedCdn, selectedPort)
-                    if (!portSupported) {
-                        Toast.makeText(this, "CDN '$selectedCdn' does not support port '$selectedPortStr'!", Toast.LENGTH_LONG).show()
-                        buttonView.isChecked = false
-                        return@setOnCheckedChangeListener
-                    }
-                }
-
-                // Fetch ALL IPs from the JSON Vault for the Layer 7 scanner
-                val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
-                val jsonString = prefs.getString("vault_ips_json", "[]") ?: "[]"
-                val allIpsList = mutableListOf<String>()
-
-                try {
-                    val jsonArray = org.json.JSONArray(jsonString)
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        val ipCdn = obj.optString("cdn", "CloudX")
-
-                        // FILTER: Only race IPs that belong to the Target CDN
-                        if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
-                            val rawIp = obj.getString("ip")
-                            val decryptedIp = CryptoHelper.decrypt(rawIp)
-                            if (decryptedIp.isNotBlank()) {
-                                allIpsList.add(decryptedIp)
-                            }
-                        }
-                    }
-                } catch (e: Exception) { e.printStackTrace() }
-
-                val savedIps = allIpsList.joinToString(",")
-
-                if (savedIps.isBlank()) {
-                    Toast.makeText(this, "No IPs found for $selectedCdn in Global Settings!", Toast.LENGTH_SHORT).show()
-                    buttonView.isChecked = false
-                    return@setOnCheckedChangeListener
-                }
-
-                Toast.makeText(this, "Racing $selectedCdn IPs in background...", Toast.LENGTH_SHORT).show()
-                buttonView.isEnabled = false
-                // Layer 7 latency measurement
-                Thread {
-                    val isDefault = editingConfigId?.startsWith("default_") == true
-                    val cIndex = if (isDefault) editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: -1L else -1L
-
-                    // Grab the domain currently typed into the editor (Adjust the ID to match your domain EditText if needed)
-                    val etDomain = findViewById<EditText>(R.id.et_domain)
-                    val currentDomain = etDomain?.text?.toString()?.trim() ?: ""
-
-                    // Call the NEW Layer 7 Scanner
-                    val result = Mobile.getFastestCloudflareIP(
-                        isDefault,
-                        cIndex,
-                        savedIps,
-                        currentDomain,
-                        selectedCdn,
-                        selectedPort.toLong(),
-                        selectedTunnelProtocol
-                    )
-
-                    runOnUiThread {
-                        buttonView.isEnabled = true
-                        buttonView.isChecked = false
-
-                        if (result.isNotEmpty() && result.contains("|")) {
-                            val parts = result.split("|")
-                            val bestIp = parts[0]
-                            val latency = parts[1]
-
-                            val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
-                            realVlessIp = bestIp
-                            // val maskedWinner = getMaskedIp(bestIp)
-                            val mappedWinner = mobile.Mobile.encryptIP(bestIp)
-                            etVlessIp.setText(mappedWinner)
-                            Toast.makeText(this@ConfigEditorActivity, "Winner: $mappedWinner (${latency}ms)", Toast.LENGTH_LONG).show()
-                        } else {
-                            Toast.makeText(this@ConfigEditorActivity, "All IPs failed the Layer 7 Handshake.", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }.start()
-            }
-        }*/
-
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
 
         val ssMethods = arrayOf("chacha20-ietf-poly1305", "aes-128-gcm", "aes-256-gcm", "xchacha20-ietf-poly1305")
@@ -396,6 +290,41 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         editingConfigId = intent.getStringExtra("CONFIG_ID")
         val isDefault = editingConfigId?.startsWith("default_") == true
+
+        if (editingConfigId != null && !isDefault) {
+            val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+            val configsString = sharedPref.getString("configs", "[]") ?: "[]"
+            try {
+                val jsonArray = JSONArray(configsString)
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    if (obj.getString("id") == editingConfigId) {
+                        sshUserCache = obj.optString("sshUser", "")
+                        sshPassCache = obj.optString("sshPass", "")
+                        ssPassCache = obj.optString("ssPass", "")
+                        basicUserCache = obj.optString("basicUser", "")
+                        basicPassCache = obj.optString("basicPass", "")
+
+                        val activeAuth = obj.optString("authProtocol", "socks").lowercase()
+                        val legacyUser = obj.optString("user", "")
+                        val legacyPass = obj.optString("pass", "")
+
+                        // Migrate legacy credentials into the proper cache if they are empty
+                        if (activeAuth == "ssh" && sshUserCache.isEmpty() && sshPassCache.isEmpty()) {
+                            sshUserCache = legacyUser
+                            sshPassCache = legacyPass
+                        } else if (activeAuth == "shadowsocks" && ssPassCache.isEmpty()) {
+                            ssPassCache = legacyPass
+                        } else if ((activeAuth == "socks" || activeAuth == "basic") && basicUserCache.isEmpty() && basicPassCache.isEmpty()) {
+                            basicUserCache = legacyUser
+                            basicPassCache = legacyPass
+                        }
+                        currentAuthMode = activeAuth
+                        break
+                    }
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
 
         // Load Data into memory (does not build UI yet)
         setupMultipathData(editingConfigId ?: "new_temp_config")
@@ -539,8 +468,11 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swAuth.isChecked = (user.isNotEmpty() || pass.isNotEmpty())
                 swAuth.isEnabled = false
 
-                val proxyType = mobile.Mobile.getDefaultConfigProxy(index)
-                if (proxyType.lowercase() == "http") {
+				// 1. Check for a user override first; fallback to native default
+                val defaultProxyType = mobile.Mobile.getDefaultConfigProxy(index)
+                val savedProxyType = prefs.getString("${editingConfigId}_localProxyProtocol", defaultProxyType) ?: defaultProxyType
+
+                if (savedProxyType.lowercase() == "http") {
                     rgProxyProtocol.check(R.id.rb_proxy_http)
                 } else {
                     rgProxyProtocol.check(R.id.rb_proxy_socks)
@@ -549,12 +481,11 @@ class ConfigEditorActivity : AppCompatActivity() {
                 tvProxyProtocolLabel.visibility = View.VISIBLE
                 rgProxyProtocol.visibility = View.VISIBLE
 
-
-                // VISUAL PROTECTION: Disable interacting with the locked default configs
+                // 2. ENABLE user interaction for SOCKS5 / HTTP on default configs
                 for (i in 0 until rgProxyProtocol.childCount) {
                     val v = rgProxyProtocol.getChildAt(i)
-                    v.isEnabled = false
-                    v.alpha = 0.5f
+                    v.isEnabled = true
+                    v.alpha = 1.0f
                 }
 
                 for (i in 0 until rgAuthProtocol.childCount) {
@@ -644,7 +575,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         swDnstt, config.dnsttCompatible,
                         swAuth, config.useAuth,
                         swSshKey, config.useSshKey,
-                        rgProxyProtocol, config.protocol,
+                        rgProxyProtocol, config.localProxyProtocol,
                         rgAuthProtocol, config.authProtocol,
                         spSsMethod, config.ssMethod,
                         etUser, config.user,
@@ -747,32 +678,60 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         rgAuthProtocol.setOnCheckedChangeListener { _, checkedId ->
+            // 1. Sync currently typed text into the OLD mode's cache before switching
+            if (isInitializing) return@setOnCheckedChangeListener
+
+            val typedUser = etUser.text.toString()
+            val typedPass = etPass.text.toString()
+            when (currentAuthMode) {
+                "ssh" -> { sshUserCache = typedUser; sshPassCache = typedPass }
+                "shadowsocks" -> { ssPassCache = typedPass }
+                "socks", "basic" -> { basicUserCache = typedUser; basicPassCache = typedPass }
+            }
+
+            // 2. Switch UI and restore the NEW mode's cache onto the screen
             when (checkedId) {
                 R.id.rb_auth_ssh -> {
-                    swSshKey.isEnabled = swAuth.isChecked
+                    currentAuthMode = "ssh"
+                    val isAuthOn = swAuth.isChecked
+                    swSshKey.isEnabled = isAuthOn
+                    swSshKey.alpha = if (isAuthOn) 1.0f else 0.3f
+
                     tvUserLabel.visibility = View.VISIBLE
                     etUser.visibility = View.VISIBLE
                     tvSsMethodLabel.visibility = View.GONE
                     spSsMethod.visibility = View.GONE
+
+                    etUser.setText(sshUserCache)
+                    etPass.setText(sshPassCache)
                 }
                 R.id.rb_auth_shadowsocks -> {
+                    currentAuthMode = "shadowsocks"
                     swSshKey.isChecked = false
                     swSshKey.isEnabled = false
+                    swSshKey.alpha = 0.3f
                     tvUserLabel.visibility = View.GONE
                     etUser.visibility = View.GONE
                     tvSsMethodLabel.visibility = View.VISIBLE
                     spSsMethod.visibility = View.VISIBLE
+
+                    etUser.setText("")
+                    etPass.setText(ssPassCache)
                 }
-                else -> { // Basic
+                else -> { // Basic / Socks
+                    currentAuthMode = "socks"
                     swSshKey.isChecked = false
                     swSshKey.isEnabled = false
+                    swSshKey.alpha = 0.3f
                     tvUserLabel.visibility = View.VISIBLE
                     etUser.visibility = View.VISIBLE
                     tvSsMethodLabel.visibility = View.GONE
                     spSsMethod.visibility = View.GONE
+
+                    etUser.setText(basicUserCache)
+                    etPass.setText(basicPassCache)
                 }
             }
-
         }
 
         swAuth.setOnCheckedChangeListener { _, isChecked ->
@@ -791,8 +750,10 @@ class ConfigEditorActivity : AppCompatActivity() {
             // It should only be enabled if Auth is ON AND the selected protocol is SSH
             if (isChecked && rgAuthProtocol.checkedRadioButtonId == R.id.rb_auth_ssh) {
                 swSshKey.isEnabled = true
+                swSshKey.alpha = 1.0f
             } else {
                 swSshKey.isEnabled = false
+                swSshKey.alpha = 0.3f
             }
         }
 
@@ -1179,6 +1140,13 @@ class ConfigEditorActivity : AppCompatActivity() {
                         v?.visibility = visibilityState
                     }
 
+                    // Enable proxy protocol buttons when VayDNS is active, disable them for Direct
+                    for (i in 0 until rgProxyProtocol.childCount) {
+                        val child = rgProxyProtocol.getChildAt(i)
+                        child.isEnabled = isVaydns
+                        child.alpha = if (isVaydns) 1.0f else 0.5f
+                    }
+                    
                     // 2. ABSOLUTE HIDE: Ensure forbidden fields are NEVER shown for official configs!
                     val forbiddenDefaultFields = listOf<View?>(
                         etDomain, etPubkey, spRecordType, etIdleTimeout,
@@ -1207,8 +1175,9 @@ class ConfigEditorActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
         }
 
-        // 2. Add Listener to toggle visibility dynamically
-        btnSave.setOnClickListener {
+// 2. Add Listener to the new Toolbar Icon
+        val btnSaveIcon = findViewById<ImageButton>(R.id.btn_save_icon)
+        btnSaveIcon.setOnClickListener {
             val name = etName.text.toString().trim()
             if (name.isEmpty()) {
                 Toast.makeText(this, "Config name is required", Toast.LENGTH_SHORT).show()
@@ -1261,17 +1230,31 @@ class ConfigEditorActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             val dnstt = swDnstt.isChecked
-            val useAuth = swAuth.isChecked
             val useSshKey = swSshKey.isChecked
             val useMultiDomains = switchMultiDomain.isChecked
-            val proxyProtocol = if (rgProxyProtocol.checkedRadioButtonId == R.id.rb_proxy_http) "http" else "socks5"
+            val localProxyProtocol = if (rgProxyProtocol.checkedRadioButtonId == R.id.rb_proxy_http) "http" else "socks5"
             val authProtocol = when (rgAuthProtocol.checkedRadioButtonId) {
                 R.id.rb_auth_ssh -> "ssh"
                 R.id.rb_auth_shadowsocks -> "shadowsocks"
                 else -> "socks"
             }
-            val user = etUser.text.toString().trim()
-            val pass = etPass.text.toString().trim()
+
+            val useAuth = swAuth.isChecked || authProtocol == "shadowsocks" || authProtocol == "ssh"
+
+            // Fetch the values from the UI
+            val finalUser = etUser.text.toString().trim()
+            val finalPass = etPass.text.toString().trim()
+
+            // Sync final input to caches before saving (from our previous multi-protocol cache implementation)
+            when (currentAuthMode) {
+                "ssh" -> { sshUserCache = finalUser; sshPassCache = finalPass }
+                "shadowsocks" -> { ssPassCache = finalPass }
+                "socks", "basic" -> { basicUserCache = finalUser; basicPassCache = finalPass }
+            }
+
+            val user = finalUser
+            val pass = finalPass
+
             val rt = spRecordType.selectedItem.toString()
             val selectedVlessIp = realVlessIp.trim()
             val selectedDomainIndex = when (findViewById<RadioGroup>(R.id.rg_domain_selector).checkedRadioButtonId) {
@@ -1287,13 +1270,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                 if (raw.isEmpty()) return default
 
                 return when {
-                    // If the user already specified ms or s, leave it exactly as is
                     raw.endsWith("ms") || raw.endsWith("s") -> raw
-
-                    // If it's just a number, append "s" as the default unit
                     raw.all { it.isDigit() } -> "${raw}s"
-
-                    // Fallback for invalid characters
                     else -> default
                 }
             }
@@ -1301,7 +1279,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             val idle = normalizeDuration(etIdleTimeout.text.toString(), "10s")
             val keep = normalizeDuration(etKeepAlive.text.toString(), "2s")
 
-            // Save the current value for future switching
             when (rgMode.checkedRadioButtonId) {
                 R.id.rb_udp -> lastUdp = dns
                 R.id.rb_tcp -> lastTcp = dns
@@ -1318,7 +1295,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 .filter { it.isChecked && it.address.isNotEmpty() }
                 .mapNotNull { sanitizeResolverInput(it.address, mode) }
 
-            //  FORMATTING RULE: Assign appropriate ports/URLs based on Tunnel Mode
             val engineResolvers = if (selectedAddrs.isEmpty()) {
                 listOf(dns)
             } else {
@@ -1326,25 +1302,24 @@ class ConfigEditorActivity : AppCompatActivity() {
                     when (mode) {
                         "doh" -> if (res.startsWith("https://") || res.startsWith("http://")) res else "https://$res/dns-query"
                         "dot" -> if (res.contains(":")) res else "$res:853"
-                        else ->  if (res.contains(":")) res else "$res:53" // Covers UDP and TCP
+                        else ->  if (res.contains(":")) res else "$res:53"
                     }
                 }
             }
 
             java.io.File(filesDir, "selected_multipath_$configId.txt").writeText(selectedAddrs.joinToString("\n"))
 
-            // PASS configId TO THIS FUNCTION
             saveOrUpdateConfig(
                 configId,
                 name, domain, pubkey, dns, mode, rt, idle, keep,
-                clientIdSize, mtu,dnstt, useAuth, useSshKey, proxyProtocol,
+                clientIdSize, mtu,dnstt, useAuth, useSshKey, localProxyProtocol,
                 authProtocol, ssMethod, user, pass, useMultiDomains, selectedTunnelProtocol,
                 selectedVlessIp, selectedDomainIndex, selectedCdn, selectedPort.toInt()
             )
             finish()
-
         }
 
+        // 2. Add Listener to toggle visibility dynamically
         if (editingConfigId == null) {
             // Since default is Socks, force SSH Key switch to be disabled
             swSshKey.isChecked = false
@@ -1353,6 +1328,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         updateDnsFieldState()
+        isInitializing = false
     }
 
     private fun isValidIpv4(ip: String): Boolean {
@@ -1495,8 +1471,8 @@ class ConfigEditorActivity : AppCompatActivity() {
         etKeepAlive.setText(keepValue)
         etClientIdSize.setText(clientIdValue.toString())
         etMtu.setText(mtuValue.toString())
-        etUser.setText(userValue)
-        etPass.setText(passValue)
+        // etUser.setText(userValue)
+        // etPass.setText(passValue)
 
         val selectedId = when (domainIndex) {
             1 -> R.id.rb_domain_2
@@ -1553,18 +1529,27 @@ class ConfigEditorActivity : AppCompatActivity() {
         when (authProtocolValue.lowercase()) {
             "ssh" -> {
                 rgAuthProtocol.check(R.id.rb_auth_ssh)
-                swSshKey.isEnabled = true
+                swSshKey.isEnabled = useAuth
+                swSshKey.alpha = if (useAuth) 1.0f else 0.3f
                 swSshKey.isChecked = useSshKey
+                etUser.setText(sshUserCache)
+                etPass.setText(sshPassCache)
             }
             "shadowsocks" -> {
                 rgAuthProtocol.check(R.id.rb_auth_shadowsocks)
                 swSshKey.isEnabled = false
+                swSshKey.alpha = 0.3f
                 swSshKey.isChecked = false
+                etUser.setText("")
+                etPass.setText(ssPassCache)
             }
             else -> {
                 rgAuthProtocol.check(R.id.rb_auth_socks)
                 swSshKey.isEnabled = false
+                swSshKey.alpha = 0.3f
                 swSshKey.isChecked = false
+                etUser.setText(basicUserCache)
+                etPass.setText(basicPassCache)
             }
         }
 
@@ -1609,7 +1594,9 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         // 6. Auth and Extras
         swDnstt.isChecked = dnsttValue
-        swAuth.isChecked = useAuth || userValue.isNotEmpty() || passValue.isNotEmpty()
+        // swAuth.isChecked = useAuth || userValue.isNotEmpty() || passValue.isNotEmpty()
+        swAuth.isChecked = useAuth
+
         if (rtIndex >= 0) spRecordType.setSelection(rtIndex)
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
@@ -1619,7 +1606,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj: JSONObject, name: String, domain: String, pubkey: String, dns: String,
         mode: String, recordType: String, idleTimeout: String, keepAlive: String,
         clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean,
-        useSshKey: Boolean, proxyProtocolValue: String, authProtocolValue: String,
+        useSshKey: Boolean, localProxyProtocolValue: String, authProtocolValue: String,
         ssMethod: String, user: String, pass: String, useMultiDomains: Boolean,
         tunnelProtocol: String, vlessIp: String, domainIndex: Int, vlessPort: Int
     ) {
@@ -1636,7 +1623,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("dnsttCompatible", dnsttCompatible)
         obj.put("useAuth", useAuth)
         obj.put("useSshKey", useSshKey)
-        obj.put("protocol", proxyProtocolValue)
+        obj.put("localProxyProtocol", localProxyProtocolValue)
         obj.put("authProtocol", authProtocolValue)
         obj.put("ssMethod", ssMethod)
         obj.put("user", user)
@@ -1646,6 +1633,11 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("tunnelProtocol", tunnelProtocol)
         obj.put("vlessIp", vlessIp)
         obj.put("vlessPort", vlessPort)
+        obj.put("sshUser", sshUserCache)
+        obj.put("sshPass", sshPassCache)
+        obj.put("ssPass", ssPassCache)
+        obj.put("basicUser", basicUserCache)
+        obj.put("basicPass", basicPassCache)
     }
 
     private fun saveOrUpdateConfig(
@@ -1663,7 +1655,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         dnsttCompatible: Boolean,
         useAuth: Boolean,
         useSshKey: Boolean,
-        proxyProtocolValue: String,
+        localProxyProtocolValue: String,
         authProtocolValue: String,
         ssMethod: String,
         user: String,
@@ -1688,6 +1680,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putInt("${editingConfigId}_domainIndex", domainIndex)
                 putString("${editingConfigId}_cdn", selectedCdn)
                 putInt("${editingConfigId}_vlessPort", selectedPort)
+                putString("${editingConfigId}_localProxyProtocol", localProxyProtocolValue)
             }.apply()
             finish()
             return
@@ -1707,7 +1700,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 if (obj.getString("id") == editingConfigId) {
                     populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
                         idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
-                        useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass,
+                        useSshKey, localProxyProtocolValue, authProtocolValue, ssMethod, user, pass,
                         useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort)
                     break
                 }
@@ -1719,7 +1712,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             newObj.put("id", finalAssignedId)
             populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
                 idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
-                useSshKey, proxyProtocolValue, authProtocolValue, ssMethod, user, pass,
+                useSshKey, localProxyProtocolValue, authProtocolValue, ssMethod, user, pass,
                 useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort)
             jsonArray.put(newObj)
 
@@ -1762,7 +1755,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                val finalProxyProto = obj.optString("protocol", "socks5")
+                val finalProxyProto = obj.optString("localProxyProtocol", "socks5")
                 val finalAuthProto = obj.optString("authProtocol", "socks")
 
                 list.add(
@@ -1781,7 +1774,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         dnsttCompatible = obj.optBoolean("dnsttCompatible", false),
                         useAuth = obj.optBoolean("useAuth", false),
                         useSshKey = obj.optBoolean("useSshKey", false),
-                        protocol = finalProxyProto,
+                        localProxyProtocol = finalProxyProto,
                         authProtocol = finalAuthProto,
                         ssMethod = obj.optString("ssMethod", "chacha20-ietf-poly1305"),
                         user = obj.optString("user", ""),
@@ -1789,7 +1782,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                         useMultiDomains = obj.optBoolean("useMultiDomains", false),
                         domainIndex = obj.optInt("domainIndex", 0),
                         tunnelProtocol = obj.optString("tunnelProtocol", "vaydns"),
-                        // vlessIp = obj.optString("vlessIp", ""),
                         vlessIp = CryptoHelper.decrypt(obj.optString("vlessIp", "")),
                         vlessPort = obj.optInt("vlessPort", 443),
                         isDefault = false // User configs are never default
@@ -1824,7 +1816,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         // --- New Protocol & Auth Fields ---
                         put("useAuth", config.useAuth)
                         put("useSshKey", config.useSshKey)
-                        put("protocol", config.protocol)
+                        put("localProxyProtocol", config.localProxyProtocol)
                         put("authProtocol", config.authProtocol)
                         put("ssMethod", config.ssMethod)
                         put("user", config.user)

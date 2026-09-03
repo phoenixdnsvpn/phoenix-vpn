@@ -38,7 +38,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var spinnerCdn: android.widget.Spinner
     private lateinit var cbDebugLogs: SwitchCompat
     //private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp")
-    private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-xhttp")
+    // private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-xhttp")
+    private val supportedProtocols get() = Mobile.getOverrideProtocols().split(",").map { it.trim() }
     // Notification Management
     private lateinit var etUnlockedDelay: EditText
     private lateinit var etLockedDelay: EditText
@@ -290,7 +291,11 @@ class GlobalSettingsActivity : AppCompatActivity() {
 
         // Load VLESS IP Fallback
         //etVlessWsIp.setText(tunnelPrefs.getString("vless_ws_ip", ""))
-        val engineType = tunnelPrefs.getString("tun_engine", "xray")
+        val releaseType = try { Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
+        val fallbackEngine = if (releaseType == "community") "sing-box" else "xray"
+
+        val engineType = tunnelPrefs.getString("tun_engine", fallbackEngine)        
+        // val engineType = tunnelPrefs.getString("tun_engine", "xray")
         if (engineType == "xray") {
             rgEngineMode.check(R.id.rb_engine_xray)
         } else {
@@ -324,13 +329,13 @@ class GlobalSettingsActivity : AppCompatActivity() {
         // val isOfficialBuild = Mobile.isOfficialBuild()
         // val configCount = Mobile.getDefaultConfigCount()
 
-        val releaseType = try { Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
+        // val releaseType = try { Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
         val configCount = Mobile.getDefaultConfigCount()
 
         if (releaseType == "community") {
 
             // 2. Hide the wrapped sections for Community Builds (Engine, Reality, Layer 7, Override, CDN, DNS)
-            findViewById<View>(R.id.section_engine_mode)?.visibility = View.GONE
+            // findViewById<View>(R.id.section_engine_mode)?.visibility = View.GONE
             findViewById<View>(R.id.section_advanced_protocols)?.visibility = View.GONE
 
             // 3. Remove Update & Upload options from the Menu Visibility Section

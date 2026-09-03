@@ -137,7 +137,9 @@ class VayScannerService : Service() {
         val resolvers = intent.getStringExtra("resolvers") ?: ""
         val baseDohUrl = intent.getStringExtra("baseDohUrl") ?: ""
         val proxyType = intent.getStringExtra("proxyType") ?: "socks5h"
-        val tunnelProtocol = intent.getStringExtra("tunnelProtocol") ?: "socks"
+        val tunnelProtocol = intent.getStringExtra("tunnelProtocol") ?: "vaydns"
+        val localProxyProtocol = intent.getStringExtra("localProxyProtocol") ?: "socks5"
+        val authProtocol = intent.getStringExtra("authProtocol") ?: "socks"
         val user = intent.getStringExtra("user") ?: "none"
         val pass = intent.getStringExtra("pass") ?: "none"
         val ssMethod = intent.getStringExtra("ssMethod") ?: "chacha20-ietf-poly1305"
@@ -190,11 +192,34 @@ class VayScannerService : Service() {
             startForeground(3, notification)
         }
 
+        PhoenixVpnVerify.bind(this)
         // START GO ENGINE
         val result = Mobile.startF35Scan(
-            isDefaultConfig, configIndex, domainIndex.toLong(), selectedMode, domain, pubkey, resolvers, baseDohUrl, proxyType, tunnelProtocol,
-            user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, mtu, workers, tunnelWait, udpTimeout,
-            probeTimeout, retries, lightE2EEnabled, engineQuickScan
+            isDefaultConfig,
+            configIndex,
+            domainIndex.toLong(),
+            selectedMode,
+            domain,
+            pubkey,
+            resolvers,
+            baseDohUrl,
+            proxyType,
+            authProtocol,
+            user,
+            pass,
+            ssMethod,
+            recordType,
+            idleTimeout,
+            keepAlive,
+            clientIdSize,
+            mtu,
+            workers,
+            tunnelWait,
+            udpTimeout,
+            probeTimeout,
+            retries,
+            lightE2EEnabled,
+            engineQuickScan
         )
 
         if (result.startsWith("error")) {

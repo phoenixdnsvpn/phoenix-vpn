@@ -107,12 +107,17 @@ class SniScannerActivity : AppCompatActivity() {
         directConfigs.addAll(allConfigs.filter { config ->
             val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
             val configType = if (config.isDefault) Mobile.getDefaultConfigType(nativeIndex).lowercase() else "vaydns"
-            val protocol = config.protocol.lowercase()
+
+            // Replace this:
+            // val protocol = config.protocol.lowercase()
+
+            // With this:
+            val tunnelProtocol = config.tunnelProtocol.lowercase()
 
             // Strictly check for SNI-dependent protocols
-            val isSniDependent = protocol == "reality-tcp" ||
-                    protocol == "reality-xhttp" ||
-                    protocol == "hysteria2" ||
+            val isSniDependent = tunnelProtocol == "reality-tcp" ||
+                    tunnelProtocol == "reality-xhttp" ||
+                    tunnelProtocol == "hysteria2" ||
                     configType.contains("reality") ||
                     configType.contains("hysteria")
 

@@ -8,6 +8,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import mobile.Mobile
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 
 class VayRowPingService : Service() {
 
@@ -23,36 +26,151 @@ class VayRowPingService : Service() {
 
         val configId = intent.getStringExtra("CONFIG_ID") ?: return START_NOT_STICKY
         val configType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
-        val protocol = intent.getStringExtra("PROTOCOL") ?: ""
+        val tunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
+        val localProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
+        val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
+
+        val activeProtocol = tunnelProtocol.lowercase()
+        val isWireguardMode = activeProtocol == "wireguard"
+        val isMasqueMode = activeProtocol == "masque"
+        val isWarpPlusMode = activeProtocol == "warp" // Added WARP+ Support
 
         // ARCHITECTURAL FORK: Check if it is a direct connection by verifying the active protocol string
         val isDirectMode = !configType.lowercase().contains("vaydns") ||
-                protocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp", "amneziawg")
+                tunnelProtocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp", "amneziawg")
 
-        // ARCHITECTURAL FORK: Check if it is a direct connection
-        //val isDirectMode = configType.lowercase() == "direct"
+        // Group Standard WARP and WARP+ together
+        if (isWireguardMode || isWarpPlusMode) {
+            // =========================================================
+            // DEDICATED WIREGUARD/WARP+ PING (Using Scanner Engine)
+            // =========================================================
+            Thread {
+                var latency = -1L
+                try {
+                    val warpPrefs = getSharedPreferences("WarpProfilePrefs", Context.MODE_PRIVATE)
+                    val mode = warpPrefs.getString("connection_mode", "endpoint") ?: "endpoint"
+                    val endpoint = warpPrefs.getString("endpoint", "engage.cloudflareclient.com") ?: "engage.cloudflareclient.com"
+                    val customIp = warpPrefs.getString("custom_ip", "") ?: ""
+                    val engineType = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE).getString("tun_engine", "xray") ?: "xray"
 
-        if (isDirectMode) {
+                    // Determine which target to ping based on the active Radio toggle
+                    val targetIp = if (mode == "ip" && customIp.isNotEmpty()) customIp else endpoint
+                    val port = warpPrefs.getString("port", "2408")?.toIntOrNull() ?: 2408
+
+                    // CRITICAL FIX: Read keys directly from JSON since UI no longer saves them to Prefs
+                    var privKey = ""
+                    var pubKey = ""
+                    var reservedBytesStr = "[0, 0, 0]"
+
+                    val file = File(filesDir, "warp_keys.json")
+                    if (file.exists()) {
+                        try {
+                            val decrypted = mobile.Mobile.decryptText(file.readText())
+                            val json = JSONObject(decrypted)
+                            privKey = json.optString("private_key", "")
+                            pubKey = json.optString("public_key", json.optString("server_public_key", ""))
+                            val resArr = json.optJSONArray("reserved")
+                            if (resArr != null) {
+                                reservedBytesStr = resArr.toString()
+                            } else if (json.has("reserved_bytes")) {
+                                reservedBytesStr = json.optString("reserved_bytes", "[0, 0, 0]")
+                            }
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+
+                    var r1 = 0L; var r2 = 0L; var r3 = 0L
+                    try {
+                        val cleanArr = reservedBytesStr.replace("[", "").replace("]", "").split(",")
+                        if (cleanArr.size >= 3) {
+                            r1 = cleanArr[0].trim().toLongOrNull() ?: 0L
+                            r2 = cleanArr[1].trim().toLongOrNull() ?: 0L
+                            r3 = cleanArr[2].trim().toLongOrNull() ?: 0L
+                        }
+                    } catch (e: Exception) { e.printStackTrace() }
+
+                    if (privKey.isNotEmpty() && pubKey.isNotEmpty() && targetIp.isNotEmpty()) {
+                        val resultJson = mobile.Mobile.runWarpScanner(
+                            1L,
+                            targetIp,
+                            port.toLong(),
+                            false,
+                            privKey,
+                            pubKey,
+                            r1,
+                            r2,
+                            r3,
+                            engineType,
+                            1L
+                        )
+
+                        val safeJson = if (resultJson.isNullOrBlank() || resultJson == "null") "[]" else resultJson
+                        val resultsArray = JSONArray(safeJson)
+
+                        if (resultsArray.length() > 0) {
+                            latency = resultsArray.getJSONObject(0).getLong("latency_ms")
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                broadcastResult(configId, latency)
+            }.start()
+
+        } else if (isMasqueMode) {
+            // =========================================================
+            // DEDICATED MASQUE PING (Using Native QUIC Scanner)
+            // =========================================================
+            Thread {
+                var latency = -1L
+                try {
+                    val uPrefs = getSharedPreferences("UsqueProfilePrefs", Context.MODE_PRIVATE)
+                    val mode = uPrefs.getString("connection_mode", "endpoint") ?: "endpoint"
+                    val endpoint = uPrefs.getString("endpoint", "162.159.198.2") ?: "162.159.198.2"
+                    val customIp = uPrefs.getString("custom_ip", "") ?: ""
+                    val port = uPrefs.getString("port", "443")?.toIntOrNull() ?: 443
+
+                    val targetIp = if (mode == "ip" && customIp.isNotEmpty()) customIp else endpoint
+
+                    if (targetIp.isNotEmpty()) {
+                        val resultJson = mobile.Mobile.runNativeMasqueScanner(
+                            1L,
+                            targetIp,
+                            port.toLong(),
+                            false,
+                            1L,
+                            1000L,
+                            2500L
+                        )
+
+                        val safeJson = if (resultJson.isNullOrBlank() || resultJson == "null") "[]" else resultJson
+                        val resultsArray = JSONArray(safeJson)
+
+                        if (resultsArray.length() > 0) {
+                            latency = resultsArray.getJSONObject(0).getLong("latency_ms")
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                broadcastResult(configId, latency)
+            }.start()
+
+        } else if (isDirectMode) {
             // =========================================================
             // SECURE NATIVE PING (Executes entirely inside Go)
             // =========================================================
             val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
             val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
             val serverIp = intent.getStringExtra("SERVER_IP") ?: "" // Only used for custom configs
-            val protocol = intent.getStringExtra("PROTOCOL") ?: ""
+            //val protocol = intent.getStringExtra("PROTOCOL") ?: ""
             var vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
             val domain = intent.getStringExtra("DOMAIN") ?: "" // Extract for SNI
 
-            // ==========================================
-            // THE FIX: FETCH THE ASSIGNED CLOUDFLARE IP
-            // ==========================================
             if (vlessWsIp.isEmpty()) {
                 if (isDefault) {
-                    // Fetch the scanned IP from Default Overrides memory using the correct _vlessIp key
                     val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                     vlessWsIp = defPrefs.getString("${configId}_vlessIp", "") ?: ""
                 } else {
-                    // Fetch the scanned IP from User Custom Configs memory using the vlessIp property
                     try {
                         val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this)
                         val userConfig = currentConfigs.find { it.id == configId }
@@ -62,9 +180,7 @@ class VayRowPingService : Service() {
                     }
                 }
             }
-            // ==========================================
 
-            // Log.i("Phoenix", "VLESS_WS_IP : $vlessWsIp")
             val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
             val useLayer7 = tunnelPrefs.getBoolean("use_layer7_ping", true)
             var globalDnsServer = tunnelPrefs.getString("global_dns_server", "")?.trim() ?: ""
@@ -80,7 +196,6 @@ class VayRowPingService : Service() {
             val selectedSniIndex = tunnelPrefs.getInt("selected_sni_index", -1)
             val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
 
-            // Fetch the specific CDN saved to this config, unless Global Override is active
             val targetCdn = if (globalOverride) {
                 globalCdn
             } else if (isDefault) {
@@ -94,18 +209,15 @@ class VayRowPingService : Service() {
             vlessWsIp = CryptoHelper.decrypt(vlessWsIp)
 
             Thread {
-                // mobile.Mobile.setGlobalVlessWsIP(vlessWsIp)
-
                 val latency = if (useLayer7) {
                     Mobile.pingDirectServerLayer7(
                         isDefault,
                         configIndex,
                         serverIp,
-                        configType.lowercase(),
-                        protocol.lowercase(),
-                        domain, // Passed down as customSni
-                        "/",     // Passed down as default customPath for VLESS-WS
-                       globalDnsServer,
+                        tunnelProtocol.lowercase(),
+                        domain,
+                        "/",
+                        globalDnsServer,
                         getServerIpFromDomain,
                         targetCdn,
                         vlessWsIp,
@@ -116,8 +228,7 @@ class VayRowPingService : Service() {
                         isDefault,
                         configIndex,
                         serverIp,
-                        configType.lowercase(),
-                        protocol.lowercase(),
+                        tunnelProtocol.lowercase(),
                         globalDnsServer,
                         getServerIpFromDomain,
                         targetCdn,
@@ -141,7 +252,7 @@ class VayRowPingService : Service() {
             val multipathDnsList = intent.getStringExtra("MULTIPATH_DNS") ?: ""
             val baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
             val proxyType = intent.getStringExtra("PROXY_TYPE") ?: "socks5h"
-            val protocol = intent.getStringExtra("PROTOCOL") ?: ""
+            //val protocol = intent.getStringExtra("PROTOCOL") ?: ""
             val user = intent.getStringExtra("USER") ?: "none"
             val pass = intent.getStringExtra("PASS") ?: "none"
             val ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
@@ -159,11 +270,31 @@ class VayRowPingService : Service() {
 
             Thread {
                 val bestLatency = Mobile.pingMultipleServers(
-                    isDefault, configIndex, domainIndex.toLong(), mode, domain, pubkey, multipathDnsList,
-                    baseDohUrl, proxyType, protocol, user, pass, ssMethod,
-                    recordType, idleTimeout, keepAlive, clientIdSize, mtu,
-                    workers, tunnelWait, udpTimeout, probeTimeout, retries,
-                    lightE2E, false
+                    isDefault,
+                    configIndex,
+                    domainIndex.toLong(),
+                    mode,
+                    domain,
+                    pubkey,
+                    multipathDnsList,
+                    baseDohUrl,
+                    proxyType,
+                    authProtocol,
+                    user,
+                    pass,
+                    ssMethod,
+                    recordType,
+                    idleTimeout,
+                    keepAlive,
+                    clientIdSize,
+                    mtu,
+                    workers,
+                    tunnelWait,
+                    udpTimeout,
+                    probeTimeout,
+                    retries,
+                    lightE2E,
+                    false
                 )
                 broadcastResult(configId, bestLatency)
             }.start()

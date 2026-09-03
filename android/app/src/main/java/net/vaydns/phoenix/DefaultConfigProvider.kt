@@ -10,8 +10,6 @@ object DefaultConfigProvider {
         // We just ask for the count.
         val count = mobile.Mobile.getDefaultConfigCount()
         val status = mobile.Mobile.getBuildStatus() // Call the function here
-        //Log.d("VAY_DEBUG_KOTLIN", "Go reported config count: $count")
-        //Log.d("VAY_DEBUG_KOTLIN", "Go reported build status: $status")
 
         val defaultList = mutableListOf<Config>()
         val overrides = context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -22,16 +20,22 @@ object DefaultConfigProvider {
             val isFreeScanner = mobile.Mobile.getDefaultConfigIsFreeScanner(i)
             val originalName = mobile.Mobile.getDefaultConfigName(i).ifEmpty { "Official Server ${i.toInt() + 1}" }
             val customName = overrides.getString("${id}_name", originalName) ?: originalName
+
+            // Fetch Native Defaults
             val nativeProxy = mobile.Mobile.getDefaultConfigProxy(i)
             val nativeProto = mobile.Mobile.getDefaultConfigProtocol(i)
-            val authProto = if (nativeProto == "ssh" || nativeProto == "shadowsocks") nativeProto else "socks"
+            val rawConfigType = mobile.Mobile.getDefaultConfigType(i)
+
+            // Resolve Default Values
+            val authProtoDefault = if (nativeProto == "ssh" || nativeProto == "shadowsocks") nativeProto else "socks"
+            val localProxyProtoDefault = if (nativeProxy.lowercase() == "http") "http" else "socks5"
+            val tunnelProtoDefault = rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
 
             val config = Config(
                 id = id,
                 isDefault = true,
                 freeScanner = isFreeScanner,
                 name = customName,
-                //name = mobile.Mobile.getDefaultConfigName(i).ifEmpty { "Official Server ${i.toInt() + 1}" },
                 domain = "SECURE_NATIVE_VAULT",
                 pubkey = "SECURE_NATIVE_VAULT",
 
@@ -44,22 +48,30 @@ object DefaultConfigProvider {
                 clientIdSize = mobile.Mobile.getDefaultConfigClientIdSize(i),
                 dnsttCompatible = mobile.Mobile.getDefaultConfigDnsttCompatible(i),
                 ssMethod = mobile.Mobile.getDefaultConfigMethod(i),
-                protocol = mobile.Mobile.getDefaultConfigProtocol(i),
-                authProtocol = authProto,
                 useSshKey = mobile.Mobile.getDefaultConfigUseSshKey(i),
+
+                // =======================================================
+                // THE 3 ISOLATED VARIABLES (WITH OVERRIDE SUPPORT)
+                // =======================================================
+                localProxyProtocol = overrides.getString("${id}_localProxyProtocol", localProxyProtoDefault) ?: localProxyProtoDefault,
+                authProtocol = overrides.getString("${id}_authProtocol", authProtoDefault) ?: authProtoDefault,
+                tunnelProtocol = overrides.getString("${id}_tunnelProtocol", tunnelProtoDefault) ?: tunnelProtoDefault,
 
                 useAuth = hasAuth,
                 user = "",
                 pass = "",
-                // user = if (hasAuth) "********" else "",
-                // pass = if (hasAuth) "********" else "",
                 useMultiDomains = overrides.getBoolean("${id}_useMultiDomains", false),
-                domainIndex = overrides.getInt("${id}_domainIndex", 0)
+                domainIndex = overrides.getInt("${id}_domainIndex", 0),
+
+                // Pull VLESS Overrides so the UI reflects them instantly
+                vlessIp = CryptoHelper.decrypt(overrides.getString("${id}_vlessIp", "") ?: ""),
+                vlessPort = overrides.getInt("${id}_vlessPort", 443)
             )
             defaultList.add(config)
         }
         return defaultList
     }
+
     fun getActualConfig(context: Context, maskedConfig: Config): Config {
         // If it's a custom config, return it as-is
         if (!maskedConfig.isDefault) return maskedConfig

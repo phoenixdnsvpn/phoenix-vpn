@@ -613,6 +613,10 @@ class MainActivity : AppCompatActivity() {
         loadSelectedApps()
 
         mobile.Mobile.initVault(filesDir.absolutePath)
+        val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
+        mobile.Mobile.setUsqueBinaryPath(usquePath)
+        // Extract the HTTP/3 MASQUE binary in the background
+        // extractUsqueBinary()
 
         window.statusBarColor = Color.TRANSPARENT
 
@@ -691,6 +695,8 @@ class MainActivity : AppCompatActivity() {
         drawerLayout.setStatusBarBackgroundColor(surfaceColor)
 
         navView = findViewById(R.id.nav_view)
+        val releaseType = try { mobile.Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
+        val isPrivateBuild = (releaseType == "private")
 
         // This creates the 3-line hamburger icon and links it to opening the drawer
         toggle = androidx.appcompat.app.ActionBarDrawerToggle(
@@ -911,8 +917,8 @@ class MainActivity : AppCompatActivity() {
                     val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
                     val rawConfigType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
 
-                    // ACCURATE PROTOCOL RESOLUTION (Matches startVpnService logic)
-                    val resolvedProtocol = if (config.isDefault && globalOverride) {
+                    // ACCURATE TUNNEL PROTOCOL RESOLUTION
+                    val resolvedTunnelProtocol = if (config.isDefault && globalOverride) {
                         globalProtocol
                     } else if (config.isDefault) {
                         getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -920,24 +926,33 @@ class MainActivity : AppCompatActivity() {
                             ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
                     } else {
                         // Custom user configs bypass overrides and dictate their own protocol
-                        config.protocol
+                        config.tunnelProtocol
                     }
 
-                    // GUARDRAIL 1: Verify Default Configs support the selected protocol
-                    // (Custom configs are skipped here because they inherently support their own protocol)
+                    // ACCURATE LOCAL PROXY PROTOCOL RESOLUTION
+                    val resolvedLocalProxyProtocol = if (config.isDefault) {
+                        getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                            .getString("${config.id}_localProxyProtocol", null)
+                            ?: mobile.Mobile.getDefaultConfigProxy(nativeIndex)
+                    } else {
+                        config.localProxyProtocol // <-- Extracts local proxy dialect (socks5/http)
+                    }
+
+                    // GUARDRAIL 1: Verify Default Configs support the selected routing protocol
                     if (config.isDefault) {
                         val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
-                        if (!supportedProtocols.contains(resolvedProtocol.lowercase())) {
-                            Toast.makeText(this@MainActivity, "This config does not support ${resolvedProtocol.uppercase()}.", Toast.LENGTH_LONG).show()
+                        if (!supportedProtocols.contains(resolvedTunnelProtocol.lowercase())) {
+                            Toast.makeText(this@MainActivity, "This config does not support ${resolvedTunnelProtocol.uppercase()}.", Toast.LENGTH_LONG).show()
                             return@setOnClickListener // Instantly abort the connection attempt
                         }
                     }
 
                     // GUARDRAIL 2: Block HTTP in VPN Mode
-                    if (resolvedProtocol.lowercase() == "http" && !isProxyMode) {
+                    // <-- We now correctly check the Local Proxy Protocol instead of the Tunnel Protocol
+                    if (resolvedLocalProxyProtocol.lowercase() == "http" && !isProxyMode) {
                         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                             .setTitle("VPN Mode Unavailable")
-                            // ... your existing HTTP error message ...
+                            .setMessage("HTTP Proxy protocol cannot be used in VPN mode. Please switch to SOCKS5 or change to Proxy Mode.\n\nپروتکل پروکسی HTTP در حالت VPN قابل استفاده نیست. لطفاً به SOCKS5 تغییر دهید یا برنامه را در حالت پروکسی (Proxy Mode) قرار دهید.")
                             .setPositiveButton("OK", null)
                             .show()
                         return@setOnClickListener // Block connection
@@ -1005,6 +1020,34 @@ class MainActivity : AppCompatActivity() {
 
         askForNotificationPermission()
     }
+
+    /**private fun extractUsqueBinary() {
+        Thread {
+            try {
+                val targetFile = java.io.File(filesDir, "masque")
+
+                // Delete the old one to ensure updates apply cleanly
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+
+                // Copy the binary from the APK assets (Gradle ensured it is the correct architecture)
+                assets.open("masque").use { inputStream ->
+                    java.io.FileOutputStream(targetFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+
+                // CRITICAL: Make the file executable!
+                targetFile.setExecutable(true, false)
+
+                android.util.Log.i("VAY_DEBUG", "Successfully extracted masque binary to ${targetFile.absolutePath}")
+
+            } catch (e: Exception) {
+                android.util.Log.e("VAY_DEBUG", "Failed to extract masque binary: ${e.message}")
+            }
+        }.start()
+    }*/
 
     private fun checkUpdateAndWarn() {
         val updatePrefs = getSharedPreferences("AppUpdateTracker", Context.MODE_PRIVATE)
@@ -1262,7 +1305,6 @@ class MainActivity : AppCompatActivity() {
 
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
-        //val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
         val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
         val workers = tunnelPrefs.getInt("workers", 20)
         val tWait = tunnelPrefs.getInt("tunnel_wait", 3000)
@@ -1311,28 +1353,46 @@ class MainActivity : AppCompatActivity() {
             val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
             val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-            var activeProtocol = if (config.isDefault && globalOverride) {
+            // 1. Resolve activeTunnelProtocol
+            var activeTunnelProtocol = if (config.isDefault && globalOverride) {
                 globalProtocol
             } else if (config.isDefault) {
                 getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                     .getString("${config.id}_tunnelProtocol", null)
                     ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
             } else {
-                // STRICT GUARDRAIL: Custom configs bypass the global override and strictly use their own protocol
                 finalConfig.tunnelProtocol
             }
 
             if (config.isDefault) {
                 val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
-                if (!supportedProtocols.contains(activeProtocol.lowercase())) {
-                    activeProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
+                if (!supportedProtocols.contains(activeTunnelProtocol.lowercase())) {
+                    activeTunnelProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
                 }
+            }
+
+            // 2. Resolve activeLocalProxyProtocol
+            val activeLocalProxyProtocol = if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_localProxyProtocol", null)
+                    ?: mobile.Mobile.getDefaultConfigProxy(nativeIndex)
+            } else {
+                finalConfig.localProxyProtocol
+            }
+
+            // 3. Resolve activeAuthProtocol
+            val activeAuthProtocol = if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_authProtocol", null)
+                    ?: mobile.Mobile.getDefaultConfigProtocol(nativeIndex)
+            } else {
+                finalConfig.authProtocol
             }
 
             // =========================================================
             // GUARDRAIL: Skip Direct Configs for Custom Resolver Scans
             // =========================================================
-            if (activeProtocol.lowercase() != "vaydns") {
+            if (activeTunnelProtocol.lowercase() != "vaydns") {
                 continue // Skip Hysteria/Reality configs entirely
             }
 
@@ -1356,13 +1416,20 @@ class MainActivity : AppCompatActivity() {
                 put("resolvers", formattedResolver)
                 put("base_doh_url", if (targetMode.lowercase() == "doh") formattedResolver else "")
                 put("domain_index", domainIndex)
-                // put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
                 put("custom_domain", finalConfig.domain)
                 put("custom_pubkey", finalConfig.pubkey)
                 put("proxy_type", proxyType)
-                put("protocol", finalConfig.protocol)
-                put("user", if (finalConfig.protocol == "shadowsocks") finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
-                put("pass", if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none")
+
+                // Use dynamically resolved variables
+                put("protocol", activeTunnelProtocol)
+                put("local_proxy_protocol", activeLocalProxyProtocol)
+                put("auth_protocol", activeAuthProtocol)
+                put("protocol", activeAuthProtocol)
+
+                val isSS = activeAuthProtocol == "shadowsocks" || activeTunnelProtocol == "shadowsocks"
+                put("user", if (isSS) finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
+                put("pass", if (finalConfig.useAuth || isSS) finalConfig.pass.ifEmpty { "none" } else "none")
+
                 put("ss_method", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
                 put("record_type", finalConfig.recordType)
                 put("idle_timeout", finalConfig.idleTimeout)
@@ -1399,7 +1466,6 @@ class MainActivity : AppCompatActivity() {
 
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val proxyType = tunnelPrefs.getString("proxy_type", "socks5h") ?: "socks5h"
-        val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
         val globalCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
         val lightE2E = tunnelPrefs.getBoolean("light_e2e", false)
         val workers = tunnelPrefs.getInt("workers", 20)
@@ -1436,28 +1502,46 @@ class MainActivity : AppCompatActivity() {
             val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
             val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
 
-            var activeProtocol = if (config.isDefault && globalOverride) {
+            // 1. Resolve activeTunnelProtocol
+            var activeTunnelProtocol = if (config.isDefault && globalOverride) {
                 globalProtocol
             } else if (config.isDefault) {
                 getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                     .getString("${config.id}_tunnelProtocol", null)
                     ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
             } else {
-                // STRICT GUARDRAIL: Custom configs bypass the global override and strictly use their own protocol
                 finalConfig.tunnelProtocol
             }
 
             if (config.isDefault) {
                 val supportedProtocols = rawConfigType.lowercase().split(",").map { it.trim() }
-                if (!supportedProtocols.contains(activeProtocol.lowercase())) {
-                    activeProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
+                if (!supportedProtocols.contains(activeTunnelProtocol.lowercase())) {
+                    activeTunnelProtocol = supportedProtocols.firstOrNull { it.isNotEmpty() } ?: "vaydns"
                 }
+            }
+
+            // 2. Resolve activeLocalProxyProtocol
+            val activeLocalProxyProtocol = if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_localProxyProtocol", null)
+                    ?: mobile.Mobile.getDefaultConfigProxy(nativeIndex)
+            } else {
+                finalConfig.localProxyProtocol
+            }
+
+            // 3. Resolve activeAuthProtocol
+            val activeAuthProtocol = if (config.isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_authProtocol", null)
+                    ?: mobile.Mobile.getDefaultConfigProtocol(nativeIndex)
+            } else {
+                finalConfig.authProtocol
             }
 
             val configVlessIp = if (config.isDefault) {
                 val encrypted = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                     .getString("${config.id}_vlessIp", "") ?: ""
-                CryptoHelper.decrypt(encrypted) // <-- Added Decryption
+                CryptoHelper.decrypt(encrypted)
             } else {
                 finalConfig.vlessIp
             }
@@ -1472,7 +1556,7 @@ class MainActivity : AppCompatActivity() {
                     .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
             }
 
-// Fetch the Vault JSON
+            // Fetch the Vault JSON
             val vaultPrefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
             val jsonString = vaultPrefs.getString("vault_ips_json", "[]") ?: "[]"
             var firstGlobalVlessIp = ""
@@ -1503,9 +1587,10 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) { e.printStackTrace() }
 
-            val isDirectMode = activeProtocol.lowercase() != "vaydns"
+            val isDirectMode = activeTunnelProtocol.lowercase() != "vaydns"
             val cleanConfigType = if (isDirectMode) "direct" else "vaydns"
-            val cleanProtocol = if (isDirectMode) activeProtocol else finalConfig.protocol
+            val cleanProtocol = if (isDirectMode) activeTunnelProtocol else finalConfig.tunnelProtocol
+
             var serverIp = ""
             if (isDirectMode) {
                 if (cleanProtocol.lowercase() == "vless-ws" || cleanProtocol.lowercase() == "vless-httpupgrade"
@@ -1534,11 +1619,9 @@ class MainActivity : AppCompatActivity() {
                 // Inject Direct Protocol parameters
                 put("config_type", cleanConfigType)
                 put("server_ip", serverIp)
-                put("protocol", cleanProtocol)
                 put("vless_ws_ip", firstGlobalVlessIp)
                 put("target_cdn", targetCdn)
                 put("dns_mode", finalConfig.mode)
-                // put("custom_domain", finalConfig.domain.split(",").firstOrNull()?.trim() ?: finalConfig.domain)
                 put("custom_domain", finalConfig.domain)
                 put("domain_index", domainIndex)
                 put("custom_pubkey", finalConfig.pubkey)
@@ -1546,9 +1629,17 @@ class MainActivity : AppCompatActivity() {
                 put("base_doh_url", if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else "")
                 put("proxy_type", proxyType)
 
+                // Use dynamically resolved variables
+                put("protocol", activeAuthProtocol)
+                put("tunnel_protocol", cleanProtocol)
+                put("local_proxy_protocol", activeLocalProxyProtocol)
+                put("auth_protocol", activeAuthProtocol)
+
                 // Mirror authentication parameter construction criteria explicitly
-                put("user", if (finalConfig.protocol == "shadowsocks") finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
-                put("pass", if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none")
+                val isSS = activeAuthProtocol == "shadowsocks" || activeTunnelProtocol == "shadowsocks"
+                put("user", if (isSS) finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
+                put("pass", if (finalConfig.useAuth || isSS) finalConfig.pass.ifEmpty { "none" } else "none")
+
                 put("ss_method", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
                 put("record_type", finalConfig.recordType)
                 put("idle_timeout", finalConfig.idleTimeout)
@@ -1677,7 +1768,7 @@ class MainActivity : AppCompatActivity() {
             .scheme("dnst")
             .authority(config.domain)
             .appendPath("vaydns")
-            .appendPath(config.protocol)
+            .appendPath(config.tunnelProtocol)
             .appendQueryParameter("pubkey", config.pubkey)
             .appendQueryParameter("record-type", config.recordType.lowercase())
             .appendQueryParameter("clientid-size", config.clientIdSize.toString())
@@ -1688,12 +1779,18 @@ class MainActivity : AppCompatActivity() {
             uriBuilder.appendQueryParameter("dnstt-compat", "true")
         }
 
-        if (config.useAuth) {
-            uriBuilder.appendQueryParameter("user", config.user)
-            if (config.useSshKey) {
-                uriBuilder.appendQueryParameter("pk", config.pass)
-            } else {
+        val isSS = config.authProtocol == "shadowsocks" || config.authProtocol == "ss"
+        if (config.useAuth || isSS) {
+            if (isSS) {
+                uriBuilder.appendQueryParameter("method", config.ssMethod)
                 uriBuilder.appendQueryParameter("password", config.pass)
+            } else {
+                uriBuilder.appendQueryParameter("user", config.user)
+                if (config.useSshKey) {
+                    uriBuilder.appendQueryParameter("pk", config.pass)
+                } else {
+                    uriBuilder.appendQueryParameter("password", config.pass)
+                }
             }
         }
 
@@ -1722,7 +1819,7 @@ class MainActivity : AppCompatActivity() {
 
         // Backend Object
         val backend = org.json.JSONObject().apply {
-            put("type", config.protocol)
+            put("type", config.authProtocol)
             if (config.useAuth) {
                 put("user", config.user)
                 if (config.useSshKey) {
@@ -1730,7 +1827,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     put("password", config.pass)
                 }
-                if (config.protocol == "shadowsocks") {
+                if (config.authProtocol == "shadowsocks") {
                     put("method", config.ssMethod)
                 }
             }
@@ -1883,7 +1980,8 @@ class MainActivity : AppCompatActivity() {
                     name = getUniqueName(tag, loadAllConfigs(this)),
                     domain = domain,
                     transport = transport,
-                    protocol = backend,
+                    authProtocol = backend,
+                    localProxyProtocol = "socks5",
                     pubkey = uri.getQueryParameter("pubkey") ?: "",
                     dnsAddress = "8.8.8.8:53", // Default if not provided
                     mode = "udp", // Default mode
@@ -1923,7 +2021,9 @@ class MainActivity : AppCompatActivity() {
                     clientIdSize = transportObj.optLong("clientid_size", 2L),
                     idleTimeout = transportObj.optString("idle_timeout", "10s"),
                     keepAlive = transportObj.optString("keepalive", "2s"),
-                    protocol = backendObj.getString("type"),
+                    tunnelProtocol = transportObj.optString("type", "vaydns"),
+                    authProtocol = backendObj.getString("type"),
+                    localProxyProtocol = "socks5",
                     ssMethod = backendObj.optString("method", "chacha20-ietf-poly1305"),
                     user = backendObj.optString("user", ""),
                     pass = backendObj.optString("pk", backendObj.optString("password", "")),
@@ -2074,6 +2174,39 @@ class MainActivity : AppCompatActivity() {
             updateItem.isVisible = (isUpdateAvailable && isVpnConnected)
         }
 
+        // COLORIZE: Get AmneziaWG Keys menu title to #E91E63
+        /**val awgItem = menu.findItem(R.id.action_get_awg_keys)
+        if (awgItem != null) {
+            val title = awgItem.title?.toString() ?: "Get AmneziaWG Keys"
+            val spannableTitle = android.text.SpannableString(title).apply {
+                setSpan(
+                    android.text.style.ForegroundColorSpan(Color.parseColor("#E91E63")),
+                    0,
+                    length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            awgItem.title = spannableTitle
+        }*/
+        
+        // COLORIZE: WARP IP Scanner menu title to #00897B
+        /**val warpItem = menu.findItem(R.id.action_warp_scanner)
+        if (warpItem != null) {
+            val title = warpItem.title?.toString() ?: "WARP IP Scanner"
+            val spannableTitle = android.text.SpannableString(title).apply {
+                setSpan(
+                    android.text.style.ForegroundColorSpan(Color.parseColor("#00897B")),
+                    0,
+                    length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            warpItem.title = spannableTitle
+
+            // Optional: If you add an icon for this item later, tint it too!
+            // warpItem.icon?.mutate()?.setTint(Color.parseColor("#00897B"))
+        }*/
+            
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -2309,18 +2442,22 @@ class MainActivity : AppCompatActivity() {
                         putExtra("MODE", config.mode)
 
                         // Protocol & Authentication
-                        putExtra("PROTOCOL", config.protocol)
+                        putExtra("TUNNEL_PROTOCOL", config.tunnelProtocol)
+                        putExtra("LOCAL_PROXY_PROTOCOL", config.localProxyProtocol)
+                        putExtra("AUTH_PROTOCOL", config.authProtocol)
                         putExtra("SS_METHOD", config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
                         putExtra("USE_AUTH", config.useAuth)
 
-                        val finalUser = if (config.protocol == "shadowsocks") {
+                        val isSS = config.authProtocol == "shadowsocks" || config.tunnelProtocol == "shadowsocks"
+
+                        val finalUser = if (isSS) {
                             config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
                         } else if (config.useAuth) {
                             config.user.ifEmpty { "none" }
                         } else {
                             "none"
                         }
-                        val finalPass = if (config.useAuth) config.pass.ifEmpty { "none" } else "none"
+                        val finalPass = if (config.useAuth || isSS) config.pass.ifEmpty { "none" } else "none"
 
                         putExtra("USER", finalUser)
                         putExtra("PASS", finalPass)
@@ -2365,18 +2502,21 @@ class MainActivity : AppCompatActivity() {
                         putExtra("MTU", config.mtu)
                         putExtra("MODE", config.mode)
 
-                        putExtra("PROTOCOL", config.protocol)
+                        putExtra("TUNNEL_PROTOCOL", config.tunnelProtocol)
+                        putExtra("LOCAL_PROXY_PROTOCOL", config.localProxyProtocol)
+                        putExtra("AUTH_PROTOCOL", config.authProtocol)
                         putExtra("SS_METHOD", config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
                         putExtra("USE_AUTH", config.useAuth)
 
-                        val finalUser = if (config.protocol == "shadowsocks") {
+                        val isSS = config.authProtocol == "shadowsocks" || config.tunnelProtocol == "shadowsocks"
+                        val finalUser = if (isSS) {
                             config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
                         } else if (config.useAuth) {
                             config.user.ifEmpty { "none" }
                         } else {
                             "none"
                         }
-                        val finalPass = if (config.useAuth) config.pass.ifEmpty { "none" } else "none"
+                        val finalPass = if (config.useAuth || isSS) config.pass.ifEmpty { "none" } else "none"
 
                         putExtra("USER", finalUser)
                         putExtra("PASS", finalPass)
@@ -3170,7 +3310,7 @@ class MainActivity : AppCompatActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("My DNS Server")
             .setView(container)
-            .setPositiveButton("Close / بستن", null)
+            .setPositiveButton("Close", null)
             .setIcon(R.mipmap.ic_launcher_round)
             .show()
     }
@@ -3874,25 +4014,44 @@ class MainActivity : AppCompatActivity() {
         val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
         val useHysteriaCore = tunnelPrefs.getBoolean("use_hysteria_core", false)
 
-        var activeProtocol = if (config.isDefault && globalOverride) {
+// 1. Resolve Tunnel Routing Engine (vaydns, hysteria2, etc)
+        var activeTunnelProtocol = if (config.isDefault && globalOverride) {
             globalProtocol
         } else if (config.isDefault) {
             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 .getString("${config.id}_tunnelProtocol", null)
                 ?: configType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
         } else {
-            // STRICT GUARDRAIL: Custom configs bypass the global override and strictly use their own protocol
+            // Custom configs bypass overrides and dictate their own protocol
             finalConfig.tunnelProtocol
+        }
+
+        // 2. Resolve Local Proxy Protocol (socks5, http)
+        val activeLocalProxyProtocol = if (config.isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${config.id}_localProxyProtocol", null)
+                ?: mobile.Mobile.getDefaultConfigProxy(nativeIndex)
+        } else {
+            finalConfig.localProxyProtocol
+        }
+
+        // 3. Resolve Authentication Protocol (socks, ssh, shadowsocks)
+        val activeAuthProtocol = if (config.isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${config.id}_authProtocol", null)
+                ?: mobile.Mobile.getDefaultConfigProtocol(nativeIndex)
+        } else {
+            finalConfig.authProtocol
         }
 
         if (config.isDefault) {
             val supportedProtocols = configType.lowercase().split(",").map { it.trim() }
-            if (!supportedProtocols.contains(activeProtocol.lowercase())) {
+            if (!supportedProtocols.contains(activeTunnelProtocol.lowercase())) {
 
                 // 1. Warn the user
                 Toast.makeText(
                     this,
-                    "Connection Failed: This server no longer supports '${activeProtocol}'.Please edit the config to select a valid protocol.",
+                    "Connection Failed: This server no longer supports '${activeTunnelProtocol}'.Please edit the config to select a valid protocol.",
                     Toast.LENGTH_LONG
                 ).show()
                 val btnToggle = findViewById<Button>(R.id.btn_toggle)
@@ -3908,7 +4067,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (checkWarning && activeProtocol.lowercase() == "vaydns" && selectedApps.size > 5) {
+        if (checkWarning && activeTunnelProtocol.lowercase() == "vaydns" && selectedApps.size > 5) {
             val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("hide_vaydns_app_warning", false)) {
 
@@ -3973,7 +4132,7 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) { e.printStackTrace() }
 
-        val isDirectMode = activeProtocol.lowercase() != "vaydns"
+        val isDirectMode = activeTunnelProtocol.lowercase() != "vaydns"
         val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val tunnelAllApps = appPrefs.getBoolean("tunnel_all_apps", false)
         val tunnelAndroidServices = appPrefs.getBoolean("tunnel_android_services", false)
@@ -4002,7 +4161,7 @@ class MainActivity : AppCompatActivity() {
             // If the JSON is cleanly marked "direct", use the Global Settings override.
 
             //val finalProtocol = if (configType.lowercase() == "direct") activeProtocol else configType.lowercase()
-            val finalProtocol = if (activeProtocol != "vaydns") activeProtocol else configType.split(",").firstOrNull { it != "vaydns" } ?: "hysteria2"
+            val finalProtocol = if (activeTunnelProtocol != "vaydns") activeTunnelProtocol else configType.split(",").firstOrNull { it != "vaydns" } ?: "hysteria2"
 
             if (finalProtocol == "vaydns") {
                 Toast.makeText(this@MainActivity, "This is a direct config. Please select Hysteria or Reality in Settings.", Toast.LENGTH_LONG).show()
@@ -4038,7 +4197,9 @@ class MainActivity : AppCompatActivity() {
                 putExtra("CONFIG_ID", config.id)
                 putExtra("CONFIG_INDEX", nativeIndex)
                 putExtra("CONFIG_TYPE", "direct")
-                putExtra("PROTOCOL", finalProtocol)
+                putExtra("TUNNEL_PROTOCOL", finalProtocol)
+                putExtra("LOCAL_PROXY_PROTOCOL", activeLocalProxyProtocol)
+                putExtra("AUTH_PROTOCOL", activeAuthProtocol)
                 putExtra("ENGINE_TYPE", engineType)
                 putExtra("VLESS_WS_IP", firstGlobalVlessIp)
                 putExtra("TARGET_CDN", targetCdn)
@@ -4105,8 +4266,15 @@ class MainActivity : AppCompatActivity() {
                 val safeWorkers = 5
                 val baseDohUrl = if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else ""
                 val ssMethod = finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
-                val user = if (finalConfig.protocol == "shadowsocks") ssMethod else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none"
-                val pass = if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none"
+                val isSS = activeAuthProtocol == "shadowsocks" || activeTunnelProtocol == "shadowsocks"
+                val user = if (isSS) {
+                    ssMethod
+                } else if (finalConfig.useAuth) {
+                    finalConfig.user.ifEmpty { "none" }
+                } else {
+                    "none"
+                }
+                val pass = if (finalConfig.useAuth || isSS) finalConfig.pass.ifEmpty { "none" } else "none"
                 val engineQuickScan = false
 
                 val domainIndex = if (config.isDefault) {
@@ -4142,7 +4310,9 @@ class MainActivity : AppCompatActivity() {
                             putExtra("PUBKEY", finalConfig.pubkey)
                             putExtra("BASE_DOH_URL", baseDohUrl)
                             putExtra("PROXY_TYPE", proxyType)
-                            putExtra("TUNNEL_PROTOCOL", finalConfig.protocol)
+                            putExtra("TUNNEL_PROTOCOL", activeTunnelProtocol)
+                            putExtra("LOCAL_PROXY_PROTOCOL", activeLocalProxyProtocol)
+                            putExtra("AUTH_PROTOCOL", activeAuthProtocol)
                             putExtra("PROXY_USER", user)
                             putExtra("PROXY_PASS", pass)
                             putExtra("SS_METHOD", ssMethod)
@@ -4235,19 +4405,23 @@ class MainActivity : AppCompatActivity() {
                         putExtra("MTU", config.mtu)
                         putExtra("DNSTT_COMPATIBLE", finalConfig.dnsttCompatible)
                         putExtra("USE_AUTH", finalConfig.useAuth)
-                        putExtra("PROTOCOL", finalConfig.protocol)
-                        putExtra("AUTH_PROTOCOL", finalConfig.authProtocol)
+                        putExtra("TUNNEL_PROTOCOL", activeTunnelProtocol)
+                        putExtra("LOCAL_PROXY_PROTOCOL", activeLocalProxyProtocol)
+                        putExtra("AUTH_PROTOCOL", activeAuthProtocol)
+
                         putExtra("SS_METHOD", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
 
-                        val finalUserVal = if (finalConfig.protocol == "shadowsocks") {
+                        // Check against the newly isolated active variables
+                        val isSS = activeAuthProtocol == "shadowsocks" || activeTunnelProtocol == "shadowsocks"
+
+                        val finalUserVal = if (isSS) {
                             finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" }
-                        } else if (config.useAuth) {
+                        } else if (finalConfig.useAuth) {
                             finalConfig.user.ifEmpty { "none" }
                         } else {
                             "none"
                         }
-                        val finalPassVal = if (finalConfig.useAuth) finalConfig.pass.ifEmpty { "none" } else "none"
-
+                        val finalPassVal = if (finalConfig.useAuth || isSS) finalConfig.pass.ifEmpty { "none" } else "none"
                         putExtra("USER", finalUserVal)
                         putExtra("PASS", finalPassVal)
                         putExtra("TARGET_CDN", targetCdn)

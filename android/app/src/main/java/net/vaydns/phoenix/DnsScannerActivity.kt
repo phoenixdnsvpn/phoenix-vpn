@@ -46,7 +46,9 @@ class DnsScannerActivity : AppCompatActivity() {
     private var selectedDnsAddress = "udp"
     private var configId = ""
     private var selectedMtu = 0L
-    private var selectedProtocol = "socks"
+    private var selectedTunnelProtocol = "vaydns"
+    private var selectedLocalProxyProtocol = "socks5"
+    private var selectedAuthProtocol = "socks"
     private var selectedSsMethod = "chacha20-ietf-poly1305"
     private var selectedUseAuth = false
     private var selectedUser = "none"
@@ -133,7 +135,9 @@ class DnsScannerActivity : AppCompatActivity() {
         selectedClientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
         selectedMode = intent.getStringExtra("MODE") ?: "udp"
         selectedMtu = intent.getLongExtra("MTU", 0L)
-        selectedProtocol = intent.getStringExtra("PROTOCOL") ?: "socks"
+        selectedTunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
+        selectedLocalProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
+        selectedAuthProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
         selectedSsMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
         selectedUseAuth = intent.getBooleanExtra("USE_AUTH", false)
         selectedUser = intent.getStringExtra("USER") ?: "none"
@@ -1263,7 +1267,9 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("KEEP_ALIVE", selectedKeepAlive)
             putExtra("CLIENT_ID_SIZE", selectedClientIdSize)
             putExtra("MTU", selectedMtu)
-            putExtra("PROTOCOL", selectedProtocol) // Backend encryption type
+            putExtra("TUNNEL_PROTOCOL", selectedTunnelProtocol)
+            putExtra("LOCAL_PROXY_PROTOCOL", selectedLocalProxyProtocol)
+            putExtra("AUTH_PROTOCOL", selectedAuthProtocol)
             putExtra("SS_METHOD", selectedSsMethod)
             putExtra("USE_AUTH", selectedUseAuth)
             putExtra("USER", selectedUser)

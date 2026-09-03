@@ -18,7 +18,7 @@ data class Config(
     val dnsttCompatible: Boolean = false,
     val useAuth: Boolean = false,
     val useSshKey: Boolean = false,
-    val protocol: String = "socks",
+    val localProxyProtocol: String = "socks5",
     val authProtocol: String = "socks",
     val user: String = "",
     val pass: String = "",

@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
@@ -118,10 +119,10 @@ class MultipathResolverActivity : AppCompatActivity() {
         recyclerView.adapter = adapter
         itemTouchHelper.attachToRecyclerView(recyclerView)
 
-        findViewById<Button>(R.id.btn_import_resolvers).setOnClickListener { showImportDialog() }
+        findViewById<ImageButton>(R.id.btn_import_resolvers).setOnClickListener { showImportDialog() }
 
-        // Toggle All Button Actions Bar Core Engine
-        val btnToggleAll = findViewById<Button>(R.id.btn_toggle_all_resolvers)
+        // Toggle All Icon Action
+        val btnToggleAll = findViewById<ImageButton>(R.id.btn_toggle_all_resolvers)
         btnToggleAll.setOnClickListener {
             resolverEntries.forEach { entry ->
                 if (entry.address.isNotBlank() && sanitizeInput(entry.address, tunnelMode) != null) {
@@ -131,17 +132,20 @@ class MultipathResolverActivity : AppCompatActivity() {
                 }
             }
             isCheckAllActive = !isCheckAllActive
-            btnToggleAll.text = if (isCheckAllActive) "CHECK ALL" else "UNCHECK ALL"
+
+            // Replace the old text change with a Toast notification
+            val actionText = if (isCheckAllActive) "Unchecked All" else "Checked All"
+            Toast.makeText(this, actionText, Toast.LENGTH_SHORT).show()
+
             adapter.notifyDataSetChanged()
             updateSubtitleCount()
         }
 
-        findViewById<Button>(R.id.btn_save_resolvers).setOnClickListener { executeSaveSequence() }
+        findViewById<ImageButton>(R.id.btn_save_resolvers).setOnClickListener { executeSaveSequence() }
 
-        findViewById<Button>(R.id.btn_export_resolvers).setOnClickListener { exportResolvers() }
+        findViewById<ImageButton>(R.id.btn_export_resolvers).setOnClickListener { exportResolvers() }
 
-        // DELETIONS ARE STAGED IN RAM ONLY (Allows Undo via Discard)
-        findViewById<Button>(R.id.btn_delete_resolvers).setOnClickListener {
+        findViewById<ImageButton>(R.id.btn_delete_resolvers).setOnClickListener {
             val checkedItems = resolverEntries.filter { it.isChecked && it.address.isNotEmpty() }
 
             if (checkedItems.isEmpty()) {
@@ -215,12 +219,10 @@ class MultipathResolverActivity : AppCompatActivity() {
     }
 
     private fun updateToggleAllButtonState() {
-        val btnToggleAll = findViewById<Button>(R.id.btn_toggle_all_resolvers)
         val validEntriesCount = resolverEntries.count { it.address.isNotBlank() && sanitizeInput(it.address, tunnelMode) != null }
         val checkedCount = resolverEntries.count { it.isChecked }
 
         isCheckAllActive = checkedCount < validEntriesCount
-        btnToggleAll.text = if (isCheckAllActive) "CHECK ALL" else "UNCHECK ALL"
     }
 
     private fun updateSubtitleCount() {

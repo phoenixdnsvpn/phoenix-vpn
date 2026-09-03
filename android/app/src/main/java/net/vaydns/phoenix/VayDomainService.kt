@@ -51,7 +51,9 @@ class VayDomainService : Service() {
                 val pubkey = intent.getStringExtra("PUBKEY") ?: ""
                 val baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
                 val proxyType = intent.getStringExtra("PROXY_TYPE") ?: "socks5h"
-                val tunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "socks5"
+                val tunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
+                val localProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
+                val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                 val proxyUser = intent.getStringExtra("PROXY_USER") ?: "none"
                 val proxyPass = intent.getStringExtra("PROXY_PASS") ?: "none"
                 val ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
@@ -70,10 +72,32 @@ class VayDomainService : Service() {
 
                 // Call the heavy Go Engine
                 val result = Mobile.checkHealthyDomains(
-                    useMultiDomains, isDefault, configIndex, domainIndex.toLong(), domains, resolverIP, dnsMode, pubkey,
-                    baseDohUrl, proxyType, tunnelProtocol, proxyUser, proxyPass, ssMethod,
-                    recordType, idleTimeout, keepAlive, clientIdSize, mtu, workers, tunnelWait,
-                    udpTimeout, probeTimeout, retries, lightE2E, engineQuickScan
+                    useMultiDomains,
+                    isDefault,
+                    configIndex,
+                    domainIndex.toLong(),
+                    domains,
+                    resolverIP,
+                    dnsMode,
+                    pubkey,
+                    baseDohUrl,
+                    proxyType,
+                    authProtocol,
+                    proxyUser,
+                    proxyPass,
+                    ssMethod,
+                    recordType,
+                    idleTimeout,
+                    keepAlive,
+                    clientIdSize,
+                    mtu,
+                    workers,
+                    tunnelWait,
+                    udpTimeout,
+                    probeTimeout,
+                    retries,
+                    lightE2E,
+                    engineQuickScan
                 )
 
                 // Broadcast result back to the Main UI Process

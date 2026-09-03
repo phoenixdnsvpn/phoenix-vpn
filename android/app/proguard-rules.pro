@@ -20,5 +20,7 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
--keep class go.** { *; }
+# Keep Gomobile bindings intact so JNI doesn't break
 -keep class mobile.** { *; }
+-keep class go.** { *; }
+-keep class net.vaydns.phoenix.** { *; }

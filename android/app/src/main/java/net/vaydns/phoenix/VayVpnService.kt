@@ -277,29 +277,44 @@ class VayVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        // =========================================================
-        // AMNEZIAWG MISSING KEYS INTERCEPTOR
-        // =========================================================
-        val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
-        if (protocol.lowercase() == "amneziawg") {
+        val tunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
+        val localProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
+        val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
+
+        if (tunnelProtocol.lowercase() == "amneziawg") {
             val keyFile = java.io.File(filesDir, "amneziawg_keys.json")
             if (!keyFile.exists()) {
-                // 1. Show the Toast message
-                val warningText = "AmneziaWG keys missing! Please tap 'Get AmneziaWG Keys' from the menu first."
-
-                // 2. Broadcast error so MainActivity resets the "CONNECTING..." button
                 sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
                     putExtra("status", "ERROR")
-                    putExtra("message", warningText)
+                    putExtra("message", "AmneziaWG keys missing! Please tap 'Get AmneziaWG Keys' from the menu first.")
                     setPackage(packageName)
                 })
-
-                // 3. Abort the service connection
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        } else if (tunnelProtocol.lowercase() == "wireguard" || tunnelProtocol.lowercase() == "warp") {
+            val keyFile = java.io.File(filesDir, "warp_keys.json")
+            if (!keyFile.exists()) {
+                sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                    putExtra("status", "ERROR")
+                    putExtra("message", "WARP keys missing! Please tap 'WARP Settings' and provision keys.")
+                    setPackage(packageName)
+                })
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        } else if (tunnelProtocol.lowercase() == "masque") {
+            val keyFile = java.io.File(filesDir, "usque_config.json")
+            if (!keyFile.exists()) {
+                sendBroadcast(Intent("VPN_STATE_CHANGED").apply {
+                    putExtra("status", "ERROR")
+                    putExtra("message", "QUIC (MASQUE) keys missing! Please tap 'WARP Settings' and provision keys.")
+                    setPackage(packageName)
+                })
                 stopSelf()
                 return START_NOT_STICKY
             }
         }
-        // =========================================================
 
         val notification = Notification.Builder(this, "VAY_CHANNEL_ACTIVE")
             .setContentTitle("Phoenix Tunnel Active")
@@ -338,8 +353,7 @@ class VayVpnService : VpnService() {
                     val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
                     val useMultiDomains = intent.getBooleanExtra("USE_MULTI_DOMAINS", false)
                     val useAuth = intent.getBooleanExtra("USE_AUTH", false)
-                    val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
-                    currentProtocol = protocol
+                    currentProtocol = tunnelProtocol
                     val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                     val ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
                     val user = intent.getStringExtra("USER") ?: ""
@@ -359,17 +373,30 @@ class VayVpnService : VpnService() {
                     sessionOsTx = 0L
 
                     val lowerConfig = configType.lowercase()
-                    val lowerProto = protocol.lowercase()
-                    val finalMtu = if (lowerConfig == "direct" ||
+                    val lowerProto = tunnelProtocol.lowercase()
+                    var finalMtu = if (lowerConfig == "direct" ||
                         lowerProto == "hysteria2" || lowerProto == "reality-tcp" || lowerProto == "reality-xhttp" ||
                         lowerProto == "vless-httpupgrade" || lowerProto == "vless-ws" || lowerProto == "vless-grpc" || lowerProto == "vless-xhttp" ||
-                        lowerProto == "amneziawg" || lowerProto == "warp") {
-                        if (lowerProto == "amneziawg" || lowerProto == "warp") 1280 else 1420
+                        lowerProto == "amneziawg" || lowerProto == "wireguard" || lowerProto == "masque" || lowerProto == "warp") {
+                        if (lowerProto == "amneziawg" || lowerProto == "wireguard" || lowerProto == "masque" || lowerProto == "warp") 1280 else 1420
                     } else {
                         1232
                     }
 
+                    if (lowerProto == "warp") {
+                        val wPrefs = getSharedPreferences("WarpProfilePrefs", Context.MODE_PRIVATE)
+                        val isNested = wPrefs.getBoolean("warp_plus", false)
+                        if (isNested) {
+                            finalMtu = 1200
+                        }
+                    }
+
                     mobile.Mobile.initVault(filesDir.absolutePath)
+                    // Set the binary path inside the isolated :vpn process!
+                    if (tunnelProtocol.lowercase() == "masque") {
+                        val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
+                        mobile.Mobile.setUsqueBinaryPath(usquePath)
+                    }
 
                     var udp = ""
                     var tcp = ""
@@ -385,36 +412,66 @@ class VayVpnService : VpnService() {
                     val serverIp = try {
                         InetAddress.getByName(domain).hostAddress
                     } catch (e: Exception) { null }
-                    // =========================================================
-                    // 1. DYNAMIC AMNEZIAWG PARAMETER EXTRACTION
-                    // =========================================================
-                    var awgDynamicServerIp = ""
-                    var awgLocalIp = "10.0.0.2"
-                    var awgLocalPrefix = 24
 
-                    if (protocol.lowercase() == "amneziawg") {
+                    // =========================================================
+                    // 1. DYNAMIC NATIVE TUN PARAMETER EXTRACTION
+                    // =========================================================
+                    var dynamicServerIp = ""
+                    var localIpv4 = "10.0.0.2"
+                    var prefixV4 = 24
+
+                    if (tunnelProtocol.lowercase() == "amneziawg") {
                         val prefs = getSharedPreferences("AmneziaKeysPrefs", Context.MODE_PRIVATE)
-                        awgDynamicServerIp = prefs.getString("server_ip", "") ?: ""
+                        dynamicServerIp = prefs.getString("server_ip", "") ?: ""
 
                         val fullLocal = prefs.getString("internal_ip", "10.0.0.2/32") ?: "10.0.0.2/32"
                         if (fullLocal.contains("/")) {
-                            awgLocalIp = fullLocal.substringBefore("/")
-                            awgLocalPrefix = fullLocal.substringAfter("/").toIntOrNull() ?: 32
+                            localIpv4 = fullLocal.substringBefore("/")
+                            prefixV4 = fullLocal.substringAfter("/").toIntOrNull() ?: 32
                         } else {
-                            awgLocalIp = fullLocal
-                            awgLocalPrefix = 32
+                            localIpv4 = fullLocal
+                            prefixV4 = 32
                         }
+                    } else if (tunnelProtocol.lowercase() == "wireguard" || tunnelProtocol.lowercase() == "masque" || tunnelProtocol.lowercase() == "warp") {
+                        val prefName = if (tunnelProtocol.lowercase() == "masque") "UsqueProfilePrefs" else "WarpProfilePrefs"
+                        val prefs = getSharedPreferences(prefName, Context.MODE_PRIVATE)
+
+                        val useIp = prefs.getString("connection_mode", "endpoint") == "ip"
+                        val customIp = prefs.getString("custom_ip", "")
+                        val defaultDomain = prefs.getString("endpoint", "engage.cloudflareclient.com") ?: "engage.cloudflareclient.com"
+                        // 1. Determine the active target (Custom IP vs Domain)
+                        var activeTarget = if (useIp && customIp != null && customIp.isNotEmpty()) {
+                            customIp
+                        } else {
+                            defaultDomain
+                        }
+
+                        if (!isValidIp(activeTarget)) {
+                            try {
+                                val inetAddresses = InetAddress.getAllByName(activeTarget)
+                                if (inetAddresses.isNotEmpty()) {
+                                    activeTarget = inetAddresses[0].hostAddress
+                                }
+                            } catch (e: Exception) {
+                                // Fallback to a guaranteed Cloudflare Anycast IP if DNS fails
+                                activeTarget = "162.159.192.1"
+                            }
+                        }
+
+                        // 2. Set it so Android's VPN builder excludes it from the tunnel
+                        dynamicServerIp = activeTarget
+
                     }
 
                     builder = Builder()
                     builder.setSession("Phoenix Tunnel Active")
-                        // .addAddress("10.0.0.2", 24)
-                        .addAddress(awgLocalIp, awgLocalPrefix)
+                        .addAddress(localIpv4, prefixV4)
                         .addDnsServer("1.1.1.1") // Primary public DNS
                         .addDnsServer("8.8.8.8") // Secondary public DNS
                         .setMtu(finalMtu)
                         .addRoute("0.0.0.0", 0)
-                        .setBlocking(false)
+
+                    builder.setBlocking(false)
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                         builder.setUnderlyingNetworks(null)
@@ -422,22 +479,45 @@ class VayVpnService : VpnService() {
 
                     val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
                     val activeProtocol = tunnelPrefs.getString("active_protocol", "vaydns") ?: "vaydns"
+                    Log.i("VAY_DEBUG", "EVALUATING BYPASS:")
+                    Log.i("VAY_DEBUG", "1. Intent protocol: $tunnelProtocol")
+                    Log.i("VAY_DEBUG", "2. Prefs activeProtocol: $activeProtocol")
+                    Log.i("VAY_DEBUG", "3. Intent activeConfigType: $activeConfigType")
+                    Log.i("VAY_DEBUG", "4. dynamicServerIp: $dynamicServerIp")
 
                     var globalDnsServer = tunnelPrefs.getString("global_dns_server", "")?.trim() ?: ""
                     if (globalDnsServer.isEmpty()) {
                         globalDnsServer = "1.1.1.1"
                     }
 
+                    // =========================================================
+                    // 3. EXCLUDE THE CORRECT DYNAMIC SERVER IP FROM VPN ROUTING
+                    // =========================================================
+                    // CRITICAL FIX: If the Intent protocol is a direct protocol, override the UI preference!
+                    //val directProtocols = listOf("amneziawg", "wireguard", "masque", "warp", "hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-xhttp", "vless-grpc", "vless-httpupgrade")
+                    val directProtocols = Mobile.getDirectProtocols().split(",").map { it.trim().lowercase() }
+                    val isDirectMode = activeProtocol.lowercase() != "vaydns" || tunnelProtocol.lowercase() in directProtocols
+
                     var primaryBypassIp = serverIp
-                    val isDirectMode = activeProtocol.lowercase() != "vaydns"
 
                     // =========================================================
                     // 3. EXCLUDE THE CORRECT DYNAMIC SERVER IP FROM VPN ROUTING
                     // =========================================================
                     if (isDirectMode) {
-                        if (protocol.lowercase() == "amneziawg" && awgDynamicServerIp.isNotEmpty()) {
-                            primaryBypassIp = awgDynamicServerIp
-                        } else {
+                        if ((tunnelProtocol.lowercase() == "amneziawg" || tunnelProtocol.lowercase() == "wireguard" || tunnelProtocol.lowercase() == "masque" || tunnelProtocol.lowercase() == "warp") && dynamicServerIp.isNotEmpty()) {
+                            primaryBypassIp = dynamicServerIp
+
+                            if (primaryBypassIp != null && !isValidIp(primaryBypassIp!!)) {
+                                try {
+                                    val inetAddresses = InetAddress.getAllByName(primaryBypassIp)
+                                    if (inetAddresses.isNotEmpty()) {
+                                        primaryBypassIp = inetAddresses[0].hostAddress
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("VAY_DEBUG", "Failed to resolve endpoint for bypass: ${e.message}")
+                                }
+                            }
+                        } else if (tunnelProtocol.lowercase() !in listOf("amneziawg", "wireguard", "masque", "warp")) {
                             val targetIp = mobile.Mobile.getTargetIP(configIndex, activeProtocol, globalDnsServer, getServerIpFromDomain, targetCdn, vlessWsIp)
                             try {
                                 primaryBypassIp = InetAddress.getByName(targetIp).hostAddress
@@ -447,16 +527,7 @@ class VayVpnService : VpnService() {
                         }
                     }
 
-                    /**if (isDirectMode){
-                        val targetIp = mobile.Mobile.getTargetIP(configIndex, activeProtocol, globalDnsServer, getServerIpFromDomain, targetCdn, vlessWsIp)
-                        try {
-                            primaryBypassIp = InetAddress.getByName(targetIp).hostAddress
-                        } catch (e: Exception) {
-                            primaryBypassIp = targetIp
-                        }
-                    }*/
-
-                    if (primaryBypassIp != null && isValidIp(primaryBypassIp)) {
+                    if (primaryBypassIp != null && isValidIp(primaryBypassIp!!)) {
                         Log.i("VAY_DEBUG", "Excluding Proxy IP from VPN Routing Table: $primaryBypassIp")
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             try {
@@ -474,9 +545,9 @@ class VayVpnService : VpnService() {
                         bypassIp = bypassIp.substringBefore(":")
                     }
 
-                    // ONLY bypass the DNS IP if we are actively tunneling via VayDNS.
-                    // For Direct proxies (VLESS/Hysteria), DNS must route THROUGH the VPN to prevent carrier hijacking.
-                    if (!isDirectMode && isValidIp(bypassIp)) {
+                    // CRITICAL FIX: Usque requires DNS bypass to resolve Watchdog domains and Cloudflare endpoints!
+                    // If it is NOT direct mode, or if it IS Usque, bypass the DNS IP.
+                    if ((!isDirectMode || tunnelProtocol.lowercase() == "masque") && isValidIp(bypassIp)) {
                         Log.i("VAY_DEBUG", "Excluding DNS IP from VPN Routing Table: $bypassIp")
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             try {
@@ -547,12 +618,31 @@ class VayVpnService : VpnService() {
                     wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Phoenix::VpnKeepAlive")
                     wakeLock?.acquire(12 * 60 * 60 * 1000L)
 
+                    if (tunnelProtocol.lowercase() == "masque") {
+                        val uPrefs = getSharedPreferences("UsqueProfilePrefs", Context.MODE_PRIVATE)
+                        val sni = uPrefs.getString("sni", "speed.cloudflare.com") ?: "speed.cloudflare.com"
+                        val useHttp2 = uPrefs.getBoolean("use_http2", false)
+                        mobile.Mobile.setMasqueAdvancedParams(sni, useHttp2)
+                    } else if (tunnelProtocol.lowercase() == "warp") {
+                        val wPrefs = getSharedPreferences("WarpProfilePrefs", Context.MODE_PRIVATE)
+                        val isNested = wPrefs.getBoolean("warp_plus", false)
+                        mobile.Mobile.setWarpAdvancedParams(isNested)
+                    }
+
+                    if (tunnelProtocol.lowercase() == "masque" || tunnelProtocol.lowercase() == "warp" || tunnelProtocol.lowercase() == "wireguard"){
+                        val wPrefs = getSharedPreferences("WarpProfilePrefs", Context.MODE_PRIVATE)
+                        val isRandom = wPrefs.getBoolean("random_endpoint", false)
+                        mobile.Mobile.setWarpRandomEndpoint(isRandom)
+                    }
+
                     tunInterface = builder.establish()
                     if (tunInterface == null) return@synchronized
 
                     val fd = tunInterface?.fd ?: -1
 
                     if (fd != -1) {
+                        PhoenixVpnVerify.bind(this)
+
                         val result = Mobile.startVpn(
                             fd.toLong(),
                             engineType,
@@ -575,7 +665,8 @@ class VayVpnService : VpnService() {
                             mtu.toLong(),
                             dnsttCompatible,
                             useAuth,
-                            protocol,
+                            tunnelProtocol,
+                            localProxyProtocol,
                             authProtocol,
                             ssMethod,
                             user,
@@ -594,7 +685,8 @@ class VayVpnService : VpnService() {
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")
 
                         if (result.contains("Success")) {
-                            val isNativeTun = protocol.lowercase() == "amneziawg"
+                            // CHANGED: Only AmneziaWG uses the native TUN. WARP requires the C-Tunnel proxy!
+                            val isNativeTun = tunnelProtocol.lowercase() == "amneziawg"
 
                             if (!isNativeTun) {
                                 // ===============================================
@@ -635,7 +727,7 @@ class VayVpnService : VpnService() {
                                     Log.e("Phoenix", "Failed to start HEV C-Tunnel: ${e.message}")
                                 }
                             } else {
-                                Log.i("Phoenix", "Native TUN interface bound directly to Go Core ($protocol). Skipping C-Tunnel.")
+                                Log.i("Phoenix", "Native TUN interface bound directly to Go Core ($tunnelProtocol). Skipping C-Tunnel.")
                             }
 
                             runVerificationLogic()
@@ -671,8 +763,16 @@ class VayVpnService : VpnService() {
         updateNotification("Handshaking with server...")
 
         Thread {
-            Thread.sleep(2000)
-            val verifyResult = Mobile.verifyTunnel()
+            // val directProtocols = listOf("amneziawg", "wireguard", "masque", "warp", "hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-xhttp", "vless-grpc", "vless-httpupgrade")
+            val directProtocols = Mobile.getDirectProtocols().split(",").map { it.trim().lowercase() }
+            val isDirectMode = activeConfigType.lowercase() == "direct" || currentProtocol.lowercase() in directProtocols
+
+            // Preserve the 2000ms stabilization delay ONLY for VayDNS
+            if (!isDirectMode) {
+                Thread.sleep(2000)
+            }
+            // val verifyResult = Mobile.verifyTunnel()
+            val verifyResult = Mobile.verifyTunnel(currentProtocol)
 
             if (isStopping) return@Thread
 
@@ -760,10 +860,6 @@ class VayVpnService : VpnService() {
         stopForeground(STOP_FOREGROUND_REMOVE)
 
         Thread {
-            // =========================================
-            // 1. INSTANTLY KILL THE C-TUNNEL FIRST
-            // =========================================
-
             try { hev.htproxy.TProxyService.TProxyStopService() } catch (e: Exception) {}
 
             try {
@@ -810,7 +906,7 @@ class VayVpnService : VpnService() {
             } catch (e: Exception) {}
         }
 
-        // 2. C-TUNNEL STATS: For proxy protocols (Hysteria2, VLESS, etc.)
+        // 2. C-TUNNEL STATS: For proxy protocols (Hysteria2, VLESS, WARP, etc.)
         if (activeConfigType.lowercase() != "vaydns") {
             try {
                 val cStats = hev.htproxy.TProxyService.TProxyGetStats()
@@ -820,7 +916,6 @@ class VayVpnService : VpnService() {
                     return Pair(downloadBytes, uploadBytes)
                 }
             } catch (e: Exception) {
-                // Silently fallback if the C-engine isn't fully booted yet
             }
         }
 
@@ -834,5 +929,4 @@ class VayVpnService : VpnService() {
 
         return Pair(0L, 0L)
     }
-
 }

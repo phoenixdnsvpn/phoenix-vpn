@@ -7,6 +7,7 @@
     android:background="?android:attr/windowBackground"
     android:fitsSystemWindows="true">
 
+    <!-- TOP TOOLBAR -->
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -23,90 +24,99 @@
             app:navigationIconTint="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 
+    <!-- MAIN CONTENT -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:padding="16dp">
 
-        <Button
-            android:id="@+id/btn_import_resolvers"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="IMPORT RESOLVERS / وارد کردن آی‌پی"
-            android:backgroundTint="@color/brand_blue"
-            android:textColor="@android:color/white"
-            android:layout_marginBottom="12dp" />
-
+        <!-- RecyclerView List Filling the Center Space -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_resolvers"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:clipToPadding="false"
-            android:paddingBottom="8dp"/>
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:clipToPadding="false" />
 
+        <!-- SLIM BOTTOM ACTION BAR -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="4dp">
+            android:gravity="center"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:background="?attr/colorSurface"
+            app:elevation="8dp">
 
-            <Button
-                android:id="@+id/btn_save_resolvers"
+            <!-- Import Icon -->
+            <ImageButton
+                android:id="@+id/btn_import_resolvers"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="38dp"
                 android:layout_weight="1"
-                android:layout_marginEnd="6dp"
-                android:text="SAVE"
-                android:backgroundTint="?attr/colorPrimary"
-                android:textColor="?attr/colorOnPrimary"
-                android:textStyle="bold"
-                android:textSize="14sp" />
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_input_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Import Resolvers" />
 
-            <Button
-                android:id="@+id/btn_export_resolvers"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:text="EXPORT"
-                android:backgroundTint="@color/brand_blue"
-                android:textColor="@android:color/white"
-                android:textStyle="bold"
-                android:textSize="14sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="8dp">
-
-            <Button
+            <!-- Check/Toggle All Icon -->
+            <ImageButton
                 android:id="@+id/btn_toggle_all_resolvers"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="38dp"
                 android:layout_weight="1"
-                android:text="CHECK ALL"
-                android:backgroundTint="@color/brand_blue"
-                android:textColor="@android:color/white"
-                android:layout_marginEnd="6dp"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_check_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Toggle All" />
 
-            <Button
+            <!-- Delete Icon -->
+            <ImageButton
                 android:id="@+id/btn_delete_resolvers"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="38dp"
                 android:layout_weight="1"
-                android:text="DELETE"
-                android:backgroundTint="@color/brand_blue"
-                android:textColor="@android:color/white"
-                android:layout_marginStart="6dp"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_delete_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Delete" />
 
+            <!-- Export Icon -->
+            <ImageButton
+                android:id="@+id/btn_export_resolvers"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_share_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Export" />
+
+            <!-- Save Icon -->
+            <ImageButton
+                android:id="@+id/btn_save_resolvers"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_save_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Save" />
+
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
