@@ -37,7 +37,7 @@ class VayRowPingService : Service() {
 
         // ARCHITECTURAL FORK: Check if it is a direct connection by verifying the active protocol string
         val isDirectMode = !configType.lowercase().contains("vaydns") ||
-                tunnelProtocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp", "amneziawg")
+                tunnelProtocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "dns","vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp", "amneziawg")
 
         // Group Standard WARP and WARP+ together
         if (isWireguardMode || isWarpPlusMode) {

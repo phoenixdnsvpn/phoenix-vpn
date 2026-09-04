@@ -115,7 +115,7 @@ class ConfigAdapter(
             "warp" -> android.graphics.Color.parseColor("#00897B") // teal
             "masque" -> android.graphics.Color.parseColor("#1565C0") // teal
             "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
-            //"vless-ws"              -> android.graphics.Color.parseColor("#7B1FA2") // Strong Blue
+            "dns"                   -> android.graphics.Color.parseColor("#64DD17") // lime
             "vless-httpupgrade"     -> android.graphics.Color.parseColor("#FFD700") // Deep Purple 5E35B1
             "reality-xhttp"         -> android.graphics.Color.parseColor("#F9A825") // Golden
             "vless-grpc"            -> android.graphics.Color.parseColor("#D98C8C") // Sausage

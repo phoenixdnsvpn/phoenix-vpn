@@ -375,7 +375,7 @@ class VayVpnService : VpnService() {
                     val lowerConfig = configType.lowercase()
                     val lowerProto = tunnelProtocol.lowercase()
                     var finalMtu = if (lowerConfig == "direct" ||
-                        lowerProto == "hysteria2" || lowerProto == "reality-tcp" || lowerProto == "reality-xhttp" ||
+                        lowerProto == "hysteria2" || lowerProto == "reality-tcp" || lowerProto == "reality-xhttp" || lowerProto == "dns" ||
                         lowerProto == "vless-httpupgrade" || lowerProto == "vless-ws" || lowerProto == "vless-grpc" || lowerProto == "vless-xhttp" ||
                         lowerProto == "amneziawg" || lowerProto == "wireguard" || lowerProto == "masque" || lowerProto == "warp") {
                         if (lowerProto == "amneziawg" || lowerProto == "wireguard" || lowerProto == "masque" || lowerProto == "warp") 1280 else 1420
