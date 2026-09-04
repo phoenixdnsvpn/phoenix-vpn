@@ -42,8 +42,8 @@ jobs:
       - name: Build ARM64 Version
         run: |
           cd android
-          # Note: Removed -PtargetAar since Gradle will now grab the committed AAR from the libs folder automatically
           ./gradlew clean assembleRelease \
+            -PtargetAar=vaydns-arm64.aar \
             -Pandroid.injected.abi=arm64-v8a \
             -Pandroid.injected.signing.store.file=$(pwd)/../release.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.KEY_STORE_PASSWORD }} \
@@ -61,6 +61,7 @@ jobs:
         run: |
           cd android
           ./gradlew clean assembleRelease \
+            -PtargetAar=vaydns-armeabi-v7a.aar \
             -Pandroid.injected.abi=armeabi-v7a \
             -Pandroid.injected.signing.store.file=$(pwd)/../release.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.KEY_STORE_PASSWORD }} \

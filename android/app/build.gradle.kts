@@ -5,8 +5,13 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+// 1. Read injected properties from GitHub Actions CI
+val targetAbi = project.findProperty("android.injected.abi") as String?
+val targetAar = project.findProperty("targetAar") as String? ?: "vaydns-arm64.aar"
+
 android {
     namespace = "net.vaydns.phoenix"
+    
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -21,24 +26,18 @@ android {
         versionName = "2.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
 
-    packaging {
-        resources {
-            val targetAbi = project.findProperty("android.injected.abi") as String?
-
-            if (targetAbi == "arm64-v8a") {
-                // If building for 64-bit, remove 32-bit junk
-                excludes.add("lib/armeabi-v7a/*")
-                excludes.add("lib/x86/*")
-                excludes.add("lib/x86_64/*")
-            } else if (targetAbi == "armeabi-v7a") {
-                // If building for 32-bit, remove 64-bit junk
-                excludes.add("lib/arm64-v8a/*")
-                excludes.add("lib/x86/*")
-                excludes.add("lib/x86_64/*")
+        // 2. Strictly filter the APK to only include the targeted native architecture (.so files)
+        if (targetAbi != null) {
+            ndk {
+                abiFilters.clear()
+                abiFilters.add(targetAbi)
             }
         }
+    }
+
+    // 3. Removed the broken resources.excludes logic, keeping only jniLibs compression setting
+    packaging {
         jniLibs {
             // This forces the APK to compress the Go library.
             // It makes the APK file smaller, but slightly slower to 'install'.
@@ -55,6 +54,7 @@ android {
             )
         }
     }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -72,6 +72,6 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     
-    // Load the unified fat AAR from the libs directory
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
+    // 4. Load ONLY the designated architecture AAR (never both simultaneously)
+    implementation(files("libs/$targetAar"))
 }
