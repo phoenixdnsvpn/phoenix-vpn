@@ -369,6 +369,14 @@ class VayVpnService : VpnService() {
                     val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
                     val sniIndex = intent.getLongExtra("SNI_INDEX", -1L)
                     val useHysteriaCore = intent.getBooleanExtra("USE_HYSTERIA_CORE", false)
+
+                    val dns_mode = intent.getStringExtra("DNS_MODE") ?: when ((intent.getStringExtra("MODE") ?: "udp").lowercase()) {
+                        "tcp" -> "TCP"
+                        "dot" -> "DoT"
+                        "doh" -> "DoH"
+                        else -> "UDP"
+                    }
+
                     sessionOsRx = 0L
                     sessionOsTx = 0L
 
@@ -494,7 +502,7 @@ class VayVpnService : VpnService() {
                     // 3. EXCLUDE THE CORRECT DYNAMIC SERVER IP FROM VPN ROUTING
                     // =========================================================
                     // CRITICAL FIX: If the Intent protocol is a direct protocol, override the UI preference!
-                    //val directProtocols = listOf("amneziawg", "wireguard", "masque", "warp", "hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-xhttp", "vless-grpc", "vless-httpupgrade")
+                    // val directProtocols = listOf("amneziawg", "wireguard", "masque", "warp", "hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-xhttp", "vless-grpc", "vless-httpupgrade")
                     val directProtocols = Mobile.getDirectProtocols().split(",").map { it.trim().lowercase() }
                     val isDirectMode = activeProtocol.lowercase() != "vaydns" || tunnelProtocol.lowercase() in directProtocols
 
@@ -680,6 +688,7 @@ class VayVpnService : VpnService() {
                             getServerIpFromDomain,
                             sniIndex,
                             useHysteriaCore,
+                            dns_mode,
                             protector
                         )
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")

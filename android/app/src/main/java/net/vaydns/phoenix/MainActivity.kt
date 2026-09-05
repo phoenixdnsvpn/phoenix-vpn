@@ -51,6 +51,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import mobile.Mobile
 
 private lateinit var rgMode: RadioGroup   // kept only for editor (we don't use it here anymore)
 private lateinit var tvStatus: TextView
@@ -613,8 +614,8 @@ class MainActivity : AppCompatActivity() {
         loadSelectedApps()
 
         mobile.Mobile.initVault(filesDir.absolutePath)
-        val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
-        mobile.Mobile.setUsqueBinaryPath(usquePath)
+        /*val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
+        mobile.Mobile.setUsqueBinaryPath(usquePath)*/
         // Extract the HTTP/3 MASQUE binary in the background
         // extractUsqueBinary()
 
@@ -1020,34 +1021,6 @@ class MainActivity : AppCompatActivity() {
 
         askForNotificationPermission()
     }
-
-    /**private fun extractUsqueBinary() {
-        Thread {
-            try {
-                val targetFile = java.io.File(filesDir, "masque")
-
-                // Delete the old one to ensure updates apply cleanly
-                if (targetFile.exists()) {
-                    targetFile.delete()
-                }
-
-                // Copy the binary from the APK assets (Gradle ensured it is the correct architecture)
-                assets.open("masque").use { inputStream ->
-                    java.io.FileOutputStream(targetFile).use { outputStream ->
-                        inputStream.copyTo(outputStream)
-                    }
-                }
-
-                // CRITICAL: Make the file executable!
-                targetFile.setExecutable(true, false)
-
-                android.util.Log.i("VAY_DEBUG", "Successfully extracted masque binary to ${targetFile.absolutePath}")
-
-            } catch (e: Exception) {
-                android.util.Log.e("VAY_DEBUG", "Failed to extract masque binary: ${e.message}")
-            }
-        }.start()
-    }*/
 
     private fun checkUpdateAndWarn() {
         val updatePrefs = getSharedPreferences("AppUpdateTracker", Context.MODE_PRIVATE)
@@ -1737,11 +1710,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 },
                 /**onEditClicked = { config ->
-                    // All configs can now be edited to select their protocol!
-                    val intent = Intent(this, ConfigEditorActivity::class.java).apply {
-                        putExtra("CONFIG_ID", config.id)
-                    }
-                    startActivity(intent)
+                // All configs can now be edited to select their protocol!
+                val intent = Intent(this, ConfigEditorActivity::class.java).apply {
+                putExtra("CONFIG_ID", config.id)
+                }
+                startActivity(intent)
                 },*/
                 onDeleteClicked = { config -> showDeleteConfirmation(config) },
                 onExportClicked = { config ->
@@ -2173,7 +2146,7 @@ class MainActivity : AppCompatActivity() {
             // Only show if an update exists AND the tunnel is active
             updateItem.isVisible = (isUpdateAvailable && isVpnConnected)
         }
-            
+
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -2600,8 +2573,8 @@ class MainActivity : AppCompatActivity() {
             //}
 
             //R.id.action_upload_resolvers -> {
-                // Using "*/*" because Android's SAF can be extremely strict
-                // about selecting custom extensions like .bin
+            // Using "*/*" because Android's SAF can be extremely strict
+            // about selecting custom extensions like .bin
             //    resolverFilePickerLauncher.launch(arrayOf("*/*"))
             //    true
             //}
@@ -4104,6 +4077,24 @@ class MainActivity : AppCompatActivity() {
         val tunnelAllApps = appPrefs.getBoolean("tunnel_all_apps", false)
         val tunnelAndroidServices = appPrefs.getBoolean("tunnel_android_services", false)
 
+        val rawSavedDnsMode = if (config.isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${config.id}_dns_mode", null)
+                ?: getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${config.id}_mode", finalConfig.mode)
+                ?: finalConfig.mode
+        } else {
+            finalConfig.mode
+        }
+
+        val dns_mode = when (rawSavedDnsMode.lowercase()) {
+            "tcp" -> "TCP"
+            "dot" -> "DoT"
+            "doh" -> "DoH"
+            "udp" -> "UDP"
+            else -> if (activeTunnelProtocol.lowercase() == "dns") "TCP" else "UDP"
+        }
+
         // --- NEW: Fetch the Tunnel Apps preference for the intents ---
 
         if (tunnelAllApps && !isDirectMode) {
@@ -4154,6 +4145,7 @@ class MainActivity : AppCompatActivity() {
             val useFragmentation = tunnelPrefs.getBoolean("use_fragmentation", false)
             val blockQuic = tunnelPrefs.getBoolean("block_quic", true)
             val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
+            //val isAutoConnect = config.isDefault && Mobile.isDefaultConfigRandom(nativeIndex)
 
             val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
                 action = "ACTION_START_VPN"
@@ -4167,6 +4159,8 @@ class MainActivity : AppCompatActivity() {
                 putExtra("TUNNEL_PROTOCOL", finalProtocol)
                 putExtra("LOCAL_PROXY_PROTOCOL", activeLocalProxyProtocol)
                 putExtra("AUTH_PROTOCOL", activeAuthProtocol)
+                putExtra("DNS_MODE", dns_mode)
+                putExtra("MODE", dns_mode.lowercase())
                 putExtra("ENGINE_TYPE", engineType)
                 putExtra("VLESS_WS_IP", firstGlobalVlessIp)
                 putExtra("TARGET_CDN", targetCdn)
@@ -4175,6 +4169,8 @@ class MainActivity : AppCompatActivity() {
                 putExtra("GET_SERVER_IP_FROM_DOMAIN", getServerIpFromDomain)
                 putExtra("SNI_INDEX", sniIndex)
                 putExtra("USE_HYSTERIA_CORE", useHysteriaCore)
+                putExtra("IS_PROXY_MODE", isProxyMode)
+                //putExtra("IS_AUTO_CONNECT", isAutoConnect)
             }
 
             if (isProxyMode) {
@@ -4364,6 +4360,8 @@ class MainActivity : AppCompatActivity() {
                         val finalBaseDohUrl = if (finalConfig.mode.lowercase() == "doh") finalConfig.dnsAddress else ""
                         putExtra("BASE_DOH_URL", finalBaseDohUrl)
                         putExtra("UDP", multipathDns)
+                        putExtra("UDP", multipathDns)
+                        putExtra("DNS_MODE", dns_mode)
                         putExtra("MODE", finalConfig.mode)
                         putExtra("RECORD_TYPE", finalConfig.recordType)
                         putExtra("IDLE_TIMEOUT", finalConfig.idleTimeout)
@@ -4424,6 +4422,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     }
+
                 }
             }
         }

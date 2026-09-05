@@ -468,7 +468,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swAuth.isChecked = (user.isNotEmpty() || pass.isNotEmpty())
                 swAuth.isEnabled = false
 
-				// 1. Check for a user override first; fallback to native default
+                // Check for a user override first; fallback to native default
                 val defaultProxyType = mobile.Mobile.getDefaultConfigProxy(index)
                 val savedProxyType = prefs.getString("${editingConfigId}_localProxyProtocol", defaultProxyType) ?: defaultProxyType
 
@@ -481,7 +481,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 tvProxyProtocolLabel.visibility = View.VISIBLE
                 rgProxyProtocol.visibility = View.VISIBLE
 
-                // 2. ENABLE user interaction for SOCKS5 / HTTP on default configs
+                // ENABLE user interaction for SOCKS5 / HTTP on default configs
                 for (i in 0 until rgProxyProtocol.childCount) {
                     val v = rgProxyProtocol.getChildAt(i)
                     v.isEnabled = true
@@ -1021,6 +1021,13 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val visibilityState = if (isVaydns) View.VISIBLE else View.GONE
                 val isVless = selected.startsWith("vless")
 
+                val tvModeLabel = findViewById<TextView>(R.id.tv_mode_label)
+                val rgMode = findViewById<RadioGroup>(R.id.rg_mode)
+                val rbUdp = findViewById<RadioButton>(R.id.rb_udp)
+                val rbTcp = findViewById<RadioButton>(R.id.rb_tcp)
+                val rbTls = findViewById<RadioButton>(R.id.rb_tls)
+                val rbHttps = findViewById<RadioButton>(R.id.rb_https)
+
                 // 1. Handle Vless Block universally
                 if (isVless) {
                     tvVlessIpLabel.visibility = View.VISIBLE
@@ -1061,7 +1068,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     val vaydnsFields = listOf<View?>(
                         etDomain, switchMultiDomain, etPubkey,
                         etDns, (etDns.parent as? ViewGroup),
-                        rgMode, btnSelectMultipath, spRecordType, etIdleTimeout,
+                        btnSelectMultipath, spRecordType, etIdleTimeout,
                         etKeepAlive, etClientIdSize, etMtu, swDnstt, swAuth, swSshKey,
                         rgProxyProtocol, rgAuthProtocol, spSsMethod, etUser, etPass,
                         layoutMultipathControls, swUseDefaultResolvers,
@@ -1072,7 +1079,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         findViewById(R.id.tv_auth_protocol_label), findViewById(R.id.tv_ss_method_label),
                         findViewById(R.id.tv_mtu_label), findViewById(R.id.tv_domain_label),
                         findViewById(R.id.tv_pubkey_label), findViewById(R.id.tv_dns_label),
-                        findViewById(R.id.tv_mode_label), findViewById(R.id.tv_record_type_label),
+                        findViewById(R.id.tv_record_type_label),
                         findViewById(R.id.tv_idle_timeout_label), findViewById(R.id.tv_keep_alive_label),
                         findViewById(R.id.tv_client_id_size_label)
                     )
@@ -1133,7 +1140,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                         findViewById(R.id.tv_dns_label), etDns, (etDns.parent as? ViewGroup),
                         findViewById(R.id.tv_multipath_label), findViewById(R.id.tv_multipath_desc),
                         findViewById(R.id.tv_multipath_status), layoutMultipathControls, btnSelectMultipath,
-                        findViewById(R.id.tv_mode_label), rgMode,
                         findViewById(R.id.tv_proxy_protocol_label), rgProxyProtocol
                     )
                     for (v in allowedDefaultFields) {
@@ -1146,7 +1152,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                         child.isEnabled = isVaydns
                         child.alpha = if (isVaydns) 1.0f else 0.5f
                     }
-                    
+
                     // 2. ABSOLUTE HIDE: Ensure forbidden fields are NEVER shown for official configs!
                     val forbiddenDefaultFields = listOf<View?>(
                         etDomain, etPubkey, spRecordType, etIdleTimeout,
@@ -1163,10 +1169,27 @@ class ConfigEditorActivity : AppCompatActivity() {
                     for (v in forbiddenDefaultFields) {
                         v?.visibility = View.GONE // Force permanent hide
                     }
+                }
 
-                    // Strictly force switches OFF so they don't apply ghost data
-                    // swAuth.isChecked = false
-                    // swSshKey.isChecked = false
+                // =================================================================
+                // TUNNEL MODE (UDP / TCP / DoT / DoH) DYNAMIC VISIBILITY
+                // =================================================================
+
+                if (isVaydns) {
+                    tvModeLabel?.visibility = View.VISIBLE
+                    rgMode?.visibility = View.VISIBLE
+                    rbUdp?.visibility = View.VISIBLE
+                    rbTcp?.visibility = View.VISIBLE
+                    rbTls?.visibility = View.VISIBLE
+                    rbHttps?.visibility = View.VISIBLE
+
+                    tvModeLabel?.isEnabled = true
+                    tvModeLabel?.alpha = 1.0f
+                    rgMode?.isEnabled = true
+                    rgMode?.alpha = 1.0f
+                } else {
+                    tvModeLabel?.visibility = View.GONE
+                    rgMode?.visibility = View.GONE
                 }
 
                 // Keep the dynamic resolver field safe
@@ -1174,7 +1197,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
         }
-
+        
 // 2. Add Listener to the new Toolbar Icon
         val btnSaveIcon = findViewById<ImageButton>(R.id.btn_save_icon)
         btnSaveIcon.setOnClickListener {
@@ -1185,6 +1208,17 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
 
             var selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
+            val isDnsProto = selectedTunnelProtocol.lowercase().trim() == "dns"
+
+            // CREATE dns_mode ("UDP", "TCP", "DoT", "DoH")
+            val dns_mode = when (rgMode.checkedRadioButtonId) {
+                R.id.rb_udp -> "UDP"
+                R.id.rb_tcp -> "TCP"
+                R.id.rb_tls -> "DoT"
+                R.id.rb_https -> "DoH"
+                else -> if (isDnsProto) "TCP" else "UDP"
+            }
+            val mode = dns_mode.lowercase()
 
             // OVERRIDE master protocol with VLESS Protocol spinner if applicable
             if (selectedTunnelProtocol.lowercase().startsWith("vless")) {
@@ -1211,12 +1245,12 @@ class ConfigEditorActivity : AppCompatActivity() {
                 }
             }
 
-            val mode = when (rgMode.checkedRadioButtonId) {
+            /**val mode = when (rgMode.checkedRadioButtonId) {
                 R.id.rb_tcp -> "tcp"
                 R.id.rb_tls -> "dot"
                 R.id.rb_https -> "doh"
                 else -> "udp"
-            }
+            }*/
             val ssMethod = spSsMethod.selectedItem.toString()
             val domain = etDomain.text.toString().trim()
             val pubkey = etPubkey.text.toString().trim()
@@ -1311,7 +1345,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
             saveOrUpdateConfig(
                 configId,
-                name, domain, pubkey, dns, mode, rt, idle, keep,
+                name, domain, pubkey, dns, mode, dns_mode, rt, idle, keep,
                 clientIdSize, mtu,dnstt, useAuth, useSshKey, localProxyProtocol,
                 authProtocol, ssMethod, user, pass, useMultiDomains, selectedTunnelProtocol,
                 selectedVlessIp, selectedDomainIndex, selectedCdn, selectedPort.toInt()
@@ -1604,7 +1638,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
     private fun populateJsonObject(
         obj: JSONObject, name: String, domain: String, pubkey: String, dns: String,
-        mode: String, recordType: String, idleTimeout: String, keepAlive: String,
+        mode: String, dns_mode: String, recordType: String, idleTimeout: String, keepAlive: String,
         clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean,
         useSshKey: Boolean, localProxyProtocolValue: String, authProtocolValue: String,
         ssMethod: String, user: String, pass: String, useMultiDomains: Boolean,
@@ -1615,6 +1649,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("pubkey", pubkey)
         obj.put("dnsAddress", dns)
         obj.put("mode", mode)
+        obj.put("dns_mode", dns_mode)
         obj.put("recordType", recordType)
         obj.put("idleTimeout", idleTimeout)
         obj.put("keepAlive", keepAlive)
@@ -1647,6 +1682,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         pubkey: String,
         dns: String,
         mode: String,
+        dns_mode: String,
         recordType: String,
         idleTimeout: String,
         keepAlive: String,
@@ -1673,6 +1709,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putString("${editingConfigId}_name", name)
                 putString("${editingConfigId}_dns", dns)
                 putString("${editingConfigId}_mode", mode)
+                putString("${editingConfigId}_dns_mode", dns_mode)
                 putLong("${editingConfigId}_mtu", mtu)
                 putBoolean("${editingConfigId}_useMultiDomains", useMultiDomains)
                 putString("${editingConfigId}_tunnelProtocol", tunnelProtocol)
@@ -1698,7 +1735,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 if (obj.getString("id") == editingConfigId) {
-                    populateJsonObject(obj, name, domain, pubkey, dns, mode, recordType,
+                    populateJsonObject(obj, name, domain, pubkey, dns, mode, dns_mode, recordType,
                         idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
                         useSshKey, localProxyProtocolValue, authProtocolValue, ssMethod, user, pass,
                         useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort)
@@ -1710,7 +1747,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             finalAssignedId = java.util.UUID.randomUUID().toString()
             val newObj = JSONObject()
             newObj.put("id", finalAssignedId)
-            populateJsonObject(newObj, name, domain, pubkey, dns, mode, recordType,
+            populateJsonObject(newObj, name, domain, pubkey, dns, mode, dns_mode, recordType,
                 idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
                 useSshKey, localProxyProtocolValue, authProtocolValue, ssMethod, user, pass,
                 useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort)

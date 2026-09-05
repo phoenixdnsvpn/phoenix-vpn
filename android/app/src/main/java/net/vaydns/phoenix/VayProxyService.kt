@@ -288,6 +288,13 @@ class VayProxyService : Service() {
                     "dot" -> dot = dnsAddress
                 }
 
+                val dns_mode = intent.getStringExtra("DNS_MODE") ?: when ((intent.getStringExtra("MODE") ?: "udp").lowercase()) {
+                    "tcp" -> "TCP"
+                    "dot" -> "DoT"
+                    "doh" -> "DoH"
+                    else -> "UDP"
+                }
+
                 Log.i("VAY_DEBUG", "Starting Pre-Scan from Kotlin...")
 
                 val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
@@ -374,7 +381,8 @@ class VayProxyService : Service() {
                     blockQuic,
                     getServerIpFromDomain,
                     sniIndex,
-                    useHysteriaCore
+                    useHysteriaCore,
+                    dns_mode
                 )
 
                 if (result.startsWith("Success")) {
