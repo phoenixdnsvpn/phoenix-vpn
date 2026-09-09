@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/windowBackground"
+    android:fitsSystemWindows="true">
+
+    <!-- TOP TOOLBAR WITH TITLE AND HELP ICON -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        app:elevation="4dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+
+            android:id="@+id/toolbar_warp_manager"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="IP Management"
+            app:titleTextColor="?attr/colorOnSurface"
+            app:navigationIcon="@drawable/ic_arrow_back_modern"
+            app:navigationIconTint="?attr/colorOnSurface">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_gravity="end"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginEnd="4dp">
+
+                <!-- SORT ICON (Placed left of the Help icon) -->
+                <ImageButton
+                    android:id="@+id/btn_warp_sort"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_sort_modern"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    app:tint="?attr/colorPrimary"
+                    android:contentDescription="Sort by Latency" />
+
+                <FrameLayout
+                    android:layout_width="40dp"
+                    android:layout_height="40dp">
+
+                    <ImageButton
+                        android:id="@+id/btn_ping_warp"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_network_ping"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        app:tint="?attr/colorPrimary"
+                        android:contentDescription="Ping Checked IPs" />
+
+                    <ProgressBar
+                        android:id="@+id/progress_ping_warp"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_gravity="center"
+                        android:visibility="gone"
+                        android:indeterminateTint="?attr/colorPrimary" />
+                </FrameLayout>
+
+                <!-- HELP ICON -->
+                <ImageButton
+                    android:id="@+id/btn_warp_help"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_help_modern"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    app:tint="?attr/colorPrimary"
+                    android:contentDescription="Help" />
+            </LinearLayout>
+
+        </com.google.android.material.appbar.MaterialToolbar>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- MAIN CONTENT BODY -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Protocol Radio Group -->
+        <RadioGroup
+            android:id="@+id/rg_manager_protocol"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <RadioButton
+                android:id="@+id/rb_manager_wireguard"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="WireGuard"
+                android:checked="true"
+                android:buttonTint="#2F4A6F"
+                android:textColor="?attr/colorOnSurface" />
+
+            <RadioButton
+                android:id="@+id/rb_manager_masque"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="MASQUE"
+                android:buttonTint="#2F4A6F"
+                android:textColor="?attr/colorOnSurface" />
+        </RadioGroup>
+
+        <!-- Port Selection & Display All -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Target Port:"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp"
+                android:layout_marginEnd="8dp"/>
+
+            <Spinner
+                android:id="@+id/spinner_manager_port"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:backgroundTint="?attr/colorOnSurface" />
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/cb_manager_all_ports"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Display All Ports"
+                android:textColor="?attr/colorOnSurface" />
+        </LinearLayout>
+
+        <!-- RecyclerView List Filling the Center Space -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_warp_ips"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- SLIM BOTTOM ACTION BAR -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:background="?attr/colorSurface"
+            app:elevation="8dp">
+
+            <!-- Import Icon -->
+            <ImageButton
+                android:id="@+id/btn_import_warp_ips"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_input_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Import from Clipboard" />
+
+            <!-- Check/Toggle All Icon -->
+            <ImageButton
+                android:id="@+id/btn_toggle_all_warp"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_check_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Toggle All" />
+
+            <!-- Delete Icon -->
+            <ImageButton
+                android:id="@+id/btn_delete_warp"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_delete_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Delete" />
+
+            <!-- Export/Share Icon -->
+            <ImageButton
+                android:id="@+id/btn_export_warp"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_share_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Export" />
+
+            <!-- Save Icon -->
+            <ImageButton
+                android:id="@+id/btn_save_warp"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_save_modern"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="Save" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</LinearLayout>

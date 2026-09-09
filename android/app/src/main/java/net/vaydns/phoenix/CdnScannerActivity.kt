@@ -84,9 +84,11 @@ class CdnScannerActivity : AppCompatActivity() {
                         val jsonArray = JSONArray(jsonString)
                         for (i in 0 until jsonArray.length()) {
                             val obj = jsonArray.getJSONObject(i)
-                            val ip = obj.getString("ip")
+                            val realIp = obj.getString("ip")
                             val latency = obj.getInt("latency")
-                            cfResults.add(ResolverResult(ip, latency, "ok"))
+                            // Immediately mask the real IP for the UI
+                            val fakeIp = mobile.Mobile.encryptIP(realIp)
+                            cfResults.add(ResolverResult(fakeIp, latency, "ok"))
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -482,13 +484,18 @@ class CdnScannerActivity : AppCompatActivity() {
                         finalTargetIpsToSave.addAll(scannedIps)
                     }
 
-                    for ((index, ip) in finalTargetIpsToSave.withIndex()) {
+                    for ((index, fakeIp) in finalTargetIpsToSave.withIndex()) {
+                        // 1. Recover the Real IP from Go's RAM
+                        var realIp = mobile.Mobile.decryptIP(fakeIp)
+                        if (realIp.isEmpty()) realIp = fakeIp
+
                         val obj = org.json.JSONObject()
-                        obj.put("ip", CryptoHelper.encrypt(ip))
+                        // 2. Encrypt the REAL IP for disk storage
+                        obj.put("ip", CryptoHelper.encrypt(realIp))
                         obj.put("isChecked", index == 0)
 
-                        val matchedResult = filteredResults.find { it.ip == ip }
-                        val latency = matchedResult?.latencyMs ?: existingLatencies[ip] ?: -1
+                        val matchedResult = filteredResults.find { it.ip == fakeIp }
+                        val latency = matchedResult?.latencyMs ?: existingLatencies[fakeIp] ?: -1
 
                         obj.put("latency", latency)
                         obj.put("cdn", selectedCdn)
@@ -499,8 +506,12 @@ class CdnScannerActivity : AppCompatActivity() {
 
                     vaultPrefs.edit().putString("vault_ips_json", finalJsonArray.toString()).apply()
 
-                    val fastestIp = scannedIps.firstOrNull() ?: ""
-                    if (fastestIp.isNotEmpty() && configId.isNotEmpty()) {
+                    val fastestFakeIp = scannedIps.firstOrNull() ?: ""
+                    if (fastestFakeIp.isNotEmpty() && configId.isNotEmpty()) {
+                        // Recover the Real IP before updating the config
+                        var realFastestIp = mobile.Mobile.decryptIP(fastestFakeIp)
+                        if (realFastestIp.isEmpty()) realFastestIp = fastestFakeIp
+
                         val configCdn = if (isDefaultConfig) {
                             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                                 .getString("${configId}_cdn", "CloudX") ?: "CloudX"
@@ -513,13 +524,15 @@ class CdnScannerActivity : AppCompatActivity() {
                             if (isDefaultConfig) {
                                 getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                                     .edit()
-                                    .putString("${configId}_vlessIp", CryptoHelper.encrypt(fastestIp))
+                                    // Save the Real IP encrypted
+                                    .putString("${configId}_vlessIp", CryptoHelper.encrypt(realFastestIp))
                                     .apply()
                             } else {
                                 val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this@CdnScannerActivity).toMutableList()
                                 val cIndex = currentConfigs.indexOfFirst { it.id == configId }
                                 if (cIndex != -1) {
-                                    currentConfigs[cIndex] = currentConfigs[cIndex].copy(vlessIp = fastestIp)
+                                    // Inject the Real IP directly into the config
+                                    currentConfigs[cIndex] = currentConfigs[cIndex].copy(vlessIp = realFastestIp)
                                     net.vaydns.phoenix.ConfigEditorActivity.saveAllConfigs(this@CdnScannerActivity, currentConfigs)
                                 }
                             }
@@ -538,16 +551,26 @@ class CdnScannerActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // Dynamically grab the CDN and Port directly from the spinners so they match exactly what was scanned
+            // Dynamically grab the CDN and Port directly from the spinners
             val scannedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
             val scannedPort = spinnerPort.selectedItem?.toString() ?: "443"
 
-            // Append BOTH the port and the CDN in plaintext AFTER encrypting the IP
-            val shareText = "Target CDN: $scannedCdn (Port $scannedPort)\n\n" + cfResults.joinToString("\n") { result ->
-                // Encrypt just the IP to match the UI
-                val encryptedIp = mobile.Mobile.encryptIP(result.ip)
-                "$encryptedIp:$scannedPort:$scannedCdn"
+            // Convert each result to Base64 format
+            val encodedIps = cfResults.joinToString("\n") { result ->
+
+                val fakeIp = result.ip
+
+                // 1. Combine exactly as the Manager expects: IP:Port:CDN
+                val combinedString = "$fakeIp:$scannedPort:$scannedCdn"
+
+                // 2. Encode to Base64 (NO_WRAP is critical to prevent broken lines)
+                android.util.Base64.encodeToString(
+                    combinedString.toByteArray(Charsets.UTF_8),
+                    android.util.Base64.NO_WRAP
+                )
             }
+
+            val shareText = "Target CDN: $scannedCdn (Port $scannedPort)\n\n" + encodedIps
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"

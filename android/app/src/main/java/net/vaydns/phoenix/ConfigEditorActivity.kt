@@ -23,6 +23,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.util.Log
 import androidx.appcompat.widget.AppCompatCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.json.JSONArray
@@ -210,7 +211,12 @@ class ConfigEditorActivity : AppCompatActivity() {
                     // FILTER: Only race IPs that belong to the Target CDN
                     if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
                         val rawIp = obj.getString("ip")
+                        // Log.e("KOTLIN", "rawIp: ${rawIp}")
                         val decryptedIp = CryptoHelper.decrypt(rawIp)
+                        val fakedIP = mobile.Mobile.encryptIP(decryptedIp)
+
+                        // Log.e("KOTLIN", "decryptedIp: ${decryptedIp}")
+                        // Log.e("KOTLIN", "fakedIP: ${fakedIP}")
                         if (decryptedIp.isNotBlank()) {
                             allIpsList.add(decryptedIp)
                         }
@@ -237,7 +243,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 // Grab the domain currently typed into the editor
                 val etDomain = findViewById<EditText>(R.id.et_domain)
                 val currentDomain = etDomain?.text?.toString()?.trim() ?: ""
-
+                // Log.e("KOTLIN", "savedIps: ${savedIps}")
                 // Call the NEW Layer 7 Scanner
                 val result = Mobile.getFastestCloudflareIP(
                     isDefault,
@@ -258,10 +264,11 @@ class ConfigEditorActivity : AppCompatActivity() {
                         val parts = result.split("|")
                         val bestIp = parts[0]
                         val latency = parts[1]
-
+                        // Log.e("KOTLIN", "bestIp: ${bestIp}")
                         val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
                         realVlessIp = bestIp
                         val mappedWinner = mobile.Mobile.encryptIP(bestIp)
+                        // Log.e("KOTLIN", "mappedWinner: ${mappedWinner}")
                         etVlessIp.setText(mappedWinner)
                         Toast.makeText(this@ConfigEditorActivity, "Winner: $mappedWinner (${latency}ms)", Toast.LENGTH_LONG).show()
                     } else {
@@ -817,7 +824,14 @@ class ConfigEditorActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val input = s.toString().trim()
                 if (input.isNotEmpty()) {
-                    realVlessIp = mobile.Mobile.decryptIP(input)
+                    // Try to decrypt it (assuming it is a Fake IP)
+                    var decrypted = mobile.Mobile.decryptIP(input)
+
+                    // Fallback: If Go returns empty, the user pasted a Real IP
+                    if (decrypted.isEmpty() || decrypted == input) {
+                        decrypted = input
+                    }
+                    realVlessIp = decrypted
                 } else {
                     realVlessIp = ""
                 }
@@ -957,7 +971,9 @@ class ConfigEditorActivity : AppCompatActivity() {
 
                 val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
                 val jsonString = prefs.getString("vault_ips_json", "[]") ?: "[]"
+
                 var firstIp = ""
+                var fallbackIp = ""
 
                 try {
                     val jsonArray = org.json.JSONArray(jsonString)
@@ -967,12 +983,28 @@ class ConfigEditorActivity : AppCompatActivity() {
 
                         if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
                             val rawIp = obj.getString("ip")
-                            firstIp = CryptoHelper.decrypt(rawIp)
-                            break // Stop at the very first match
+                            val decryptedIp = CryptoHelper.decrypt(rawIp)
+
+                            // 1. Save the very first IP we see as a safety fallback
+                            if (fallbackIp.isEmpty()) {
+                                fallbackIp = decryptedIp
+                            }
+
+                            // 2. If this specific IP is checked, use it and stop searching immediately!
+                            val isChecked = obj.optBoolean("isChecked", false)
+                            if (isChecked) {
+                                firstIp = decryptedIp
+                                break
+                            }
                         }
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
+                }
+
+                // 3. If the loop finished and we never found a checked IP, use the fallback
+                if (firstIp.isEmpty() && fallbackIp.isNotEmpty()) {
+                    firstIp = fallbackIp
                 }
 
                 // Replace with the retrieved IP (if one was found)
@@ -1197,7 +1229,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
         }
-        
+
 // 2. Add Listener to the new Toolbar Icon
         val btnSaveIcon = findViewById<ImageButton>(R.id.btn_save_icon)
         btnSaveIcon.setOnClickListener {

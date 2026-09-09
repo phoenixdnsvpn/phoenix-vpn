@@ -434,7 +434,8 @@ class CdnIpManagerActivity : AppCompatActivity() {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val rawIp = obj.getString("ip")
-                val ip = CryptoHelper.decrypt(rawIp)
+                val realIp = CryptoHelper.decrypt(rawIp)
+                //val ip = CryptoHelper.decrypt(rawIp)
                 val isChecked = obj.getBoolean("isChecked")
                 val latency = obj.optInt("latency", -1)
 
@@ -443,8 +444,9 @@ class CdnIpManagerActivity : AppCompatActivity() {
 
                 // STRICT PARTITION: Must match both the selected CDN AND the selected Port
                 if (cdn.equals(targetCdn, ignoreCase = true) && port == targetPort) {
-                    if (ip.isNotBlank()) {
-                        ipEntries.add(CfIpEntry(ip, isChecked, latency, cdn, port))
+                    if (realIp.isNotBlank()) {
+                        val freshFakeIp = mobile.Mobile.encryptIP(realIp)
+                        ipEntries.add(CfIpEntry(freshFakeIp, isChecked, latency, cdn, port))
                     }
                 } else {
                     hiddenOtherCdnIps.add(obj)
@@ -475,8 +477,9 @@ class CdnIpManagerActivity : AppCompatActivity() {
         // Save active IPs with their current Target CDN and Port
         for (entry in ipEntries) {
             if (entry.address.isNotBlank()) {
+                val realIp = mobile.Mobile.decryptIP(entry.address)
                 val obj = org.json.JSONObject()
-                obj.put("ip", CryptoHelper.encrypt(entry.address))
+                obj.put("ip", CryptoHelper.encrypt(realIp))
                 obj.put("isChecked", entry.isChecked)
                 obj.put("latency", entry.latencyMs)
                 obj.put("cdn", targetCdn)

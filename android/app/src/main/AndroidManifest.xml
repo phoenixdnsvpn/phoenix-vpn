@@ -100,8 +100,24 @@
 
         <service
             android:name="net.vaydns.phoenix.VayProxyService"
-            android:process=":proxy"  android:foregroundServiceType="specialUse"
-            android:exported="false" />
+            android:process=":proxy"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local SOCKS5 Proxy Server" />
+        </service>
+
+        <service
+            android:name="net.vaydns.phoenix.VayAutoConnectService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:process=":autoconnect">
+
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Network scanning and auto-connection" />
+        </service>
 
         <service
             android:name="net.vaydns.phoenix.VayPingService"
@@ -164,6 +180,19 @@
             android:name=".SniScannerActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".WarpSettingsActivity"
+            android:label="WARP Settings"/>
+
+        <activity
+            android:name="net.vaydns.phoenix.WarpScannerActivity"
+            android:label="WARP IP Scanner"
+            android:exported="false" />
+
+        <activity
+            android:name=".WarpIpManagerActivity"
+            android:exported="false"/>
 
     </application>
 

@@ -614,10 +614,8 @@ class MainActivity : AppCompatActivity() {
         loadSelectedApps()
 
         mobile.Mobile.initVault(filesDir.absolutePath)
-        /*val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
+        /**val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
         mobile.Mobile.setUsqueBinaryPath(usquePath)*/
-        // Extract the HTTP/3 MASQUE binary in the background
-        // extractUsqueBinary()
 
         window.statusBarColor = Color.TRANSPARENT
 
@@ -698,6 +696,8 @@ class MainActivity : AppCompatActivity() {
         navView = findViewById(R.id.nav_view)
         val releaseType = try { mobile.Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
         val isPrivateBuild = (releaseType == "private")
+        // navView.menu.findItem(R.id.action_warp_settings)?.isVisible = isPrivateBuild
+        navView.menu.findItem(R.id.action_warp_settings)?.isVisible = true
 
         // This creates the 3-line hamburger icon and links it to opening the drawer
         toggle = androidx.appcompat.app.ActionBarDrawerToggle(
@@ -720,6 +720,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.action_daily_traffic -> {
                     showDailyTrafficDialog()
+                }
+
+                R.id.action_warp_settings -> {
+                    startActivity(Intent(this, WarpSettingsActivity::class.java))
                 }
 
                 R.id.action_tunnel_settings -> {
@@ -1021,6 +1025,34 @@ class MainActivity : AppCompatActivity() {
 
         askForNotificationPermission()
     }
+
+    /**private fun extractUsqueBinary() {
+    Thread {
+    try {
+    val targetFile = java.io.File(filesDir, "masque")
+
+    // Delete the old one to ensure updates apply cleanly
+    if (targetFile.exists()) {
+    targetFile.delete()
+    }
+
+    // Copy the binary from the APK assets (Gradle ensured it is the correct architecture)
+    assets.open("masque").use { inputStream ->
+    java.io.FileOutputStream(targetFile).use { outputStream ->
+    inputStream.copyTo(outputStream)
+    }
+    }
+
+    // CRITICAL: Make the file executable!
+    targetFile.setExecutable(true, false)
+
+    android.util.Log.i("VAY_DEBUG", "Successfully extracted masque binary to ${targetFile.absolutePath}")
+
+    } catch (e: Exception) {
+    android.util.Log.e("VAY_DEBUG", "Failed to extract masque binary: ${e.message}")
+    }
+    }.start()
+    }*/
 
     private fun checkUpdateAndWarn() {
         val updatePrefs = getSharedPreferences("AppUpdateTracker", Context.MODE_PRIVATE)
@@ -1877,6 +1909,8 @@ class MainActivity : AppCompatActivity() {
         menu.findItem(R.id.action_cf_scanner)?.isVisible = isPrivateBuild
         menu.findItem(R.id.action_global_dns_scanner)?.isVisible = isPrivateBuild
         menu.findItem(R.id.action_check_sni)?.isVisible = isPrivateBuild
+        // menu.findItem(R.id.action_warp_scanner)?.isVisible = isPrivateBuild
+        menu.findItem(R.id.action_warp_scanner)?.isVisible = true
 
         return true
     }
@@ -2145,6 +2179,39 @@ class MainActivity : AppCompatActivity() {
         if (updateItem != null) {
             // Only show if an update exists AND the tunnel is active
             updateItem.isVisible = (isUpdateAvailable && isVpnConnected)
+        }
+
+        // COLORIZE: Get AmneziaWG Keys menu title to #E91E63
+        val awgItem = menu.findItem(R.id.action_get_awg_keys)
+        if (awgItem != null) {
+            val title = awgItem.title?.toString() ?: "Get AmneziaWG Keys"
+            val spannableTitle = android.text.SpannableString(title).apply {
+                setSpan(
+                    android.text.style.ForegroundColorSpan(Color.parseColor("#E91E63")),
+                    0,
+                    length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            awgItem.title = spannableTitle
+        }
+
+        // COLORIZE: WARP IP Scanner menu title to #00897B
+        val warpItem = menu.findItem(R.id.action_warp_scanner)
+        if (warpItem != null) {
+            val title = warpItem.title?.toString() ?: "WARP IP Scanner"
+            val spannableTitle = android.text.SpannableString(title).apply {
+                setSpan(
+                    android.text.style.ForegroundColorSpan(Color.parseColor("#00897B")),
+                    0,
+                    length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            warpItem.title = spannableTitle
+
+            // Optional: If you add an icon for this item later, tint it too!
+            // warpItem.icon?.mutate()?.setTint(Color.parseColor("#00897B"))
         }
 
         return super.onPrepareOptionsMenu(menu)
@@ -2500,6 +2567,15 @@ class MainActivity : AppCompatActivity() {
                     putExtra("CONFIG_ID", config.id)
                 }
                 startActivity(intent)
+                true
+            }
+
+            R.id.action_warp_scanner -> {
+                if (isVpnConnected) {
+                    Toast.makeText(this, "Please stop the VPN before running a scan.", Toast.LENGTH_LONG).show()
+                    return true
+                }
+                startActivity(Intent(this, WarpScannerActivity::class.java))
                 true
             }
 
@@ -4201,6 +4277,42 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            // 1. Handle Proxy Port Extraction first if in Proxy Mode
+            /**if (isProxyMode) {
+            var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
+            if (proxyPort < 1024 || proxyPort > 65535) {
+            proxyPort = 1080
+            etProxyPort.setText("1080")
+            Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
+            }
+            intent.putExtra("PROXY_PORT", proxyPort.toLong())
+            }
+
+            // 2. Route the Intent to the correct Service Class
+            if (isAutoConnect) {
+            intent.setClass(this@MainActivity, VayAutoConnectService::class.java)
+            } else if (isProxyMode) {
+            intent.setClass(this@MainActivity, VayProxyService::class.java)
+            } else {
+            intent.setClass(this@MainActivity, VayVpnService::class.java)
+            }
+
+            // 3. Ask for Android VPN Permissions if NOT in Proxy Mode
+            if (!isProxyMode) {
+            val vpnIntent = VpnService.prepare(this@MainActivity)
+            if (vpnIntent != null) {
+            vpnPermissionLauncher.launch(vpnIntent)
+            return // Wait for the user to grant permission
+            }
+            }
+
+            // 4. Safely execute the chosen Service
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+            } else {
+            startService(intent)
+            }*/
+
             // =================================================================
             // ARCHITECTURAL FORK: DNS TUNNEL (VAYDNS)
             // =================================================================
@@ -4423,6 +4535,46 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
 
+                    // 1. Identify AutoConnect support for VayDNS profiles
+                    /**val isAutoConnect = config.isDefault && mobile.Mobile.isDefaultConfigRandom(nativeIndex)
+                    intent.putExtra("IS_PROXY_MODE", isProxyMode)
+                    intent.putExtra("IS_AUTO_CONNECT", isAutoConnect)
+
+                    // 2. Handle Proxy Port Extraction first if in Proxy Mode
+                    if (isProxyMode) {
+                    var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
+                    if (proxyPort < 1024 || proxyPort > 65535) {
+                    proxyPort = 1080
+                    etProxyPort.setText("1080")
+                    Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
+                    }
+                    intent.putExtra("PROXY_PORT", proxyPort.toLong())
+                    }
+
+                    // 3. Route the Intent to the correct Service Class
+                    if (isAutoConnect) {
+                    intent.setClass(this@MainActivity, VayAutoConnectService::class.java)
+                    } else if (isProxyMode) {
+                    intent.setClass(this@MainActivity, VayProxyService::class.java)
+                    } else {
+                    intent.setClass(this@MainActivity, VayVpnService::class.java)
+                    }
+
+                    // 4. Ask for Android VPN Permissions if NOT in Proxy Mode
+                    if (!isProxyMode) {
+                    val vpnIntent = VpnService.prepare(this@MainActivity)
+                    if (vpnIntent != null) {
+                    vpnPermissionLauncher.launch(vpnIntent)
+                    return@withContext // Wait for the user to grant permission
+                    }
+                    }
+
+                    // 5. Safely execute the chosen Service
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                    } else {
+                    startService(intent)
+                    }*/
                 }
             }
         }

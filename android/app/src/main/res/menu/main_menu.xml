@@ -81,6 +81,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_warp_scanner"
+        android:title="WARP IP Scanner"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_global_dns_scanner"
         android:title="Global DNS Scanner"
         app:showAsAction="never" />

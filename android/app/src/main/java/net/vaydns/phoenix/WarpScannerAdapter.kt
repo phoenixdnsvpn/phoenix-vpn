@@ -7,10 +7,20 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
+// Dedicated data class for WARP/MASQUE scanner results
+data class WarpResult(
+    val ip: String,
+    val port: Int,
+    val latencyMs: Int,
+    val status: String = "ok"
+) {
+    val displayString: String
+        get() = "$ip:$port"
+}
 
-class CdnAdapter(
-    private val results: List<ResolverResult>
-) : RecyclerView.Adapter<CdnAdapter.ViewHolder>() {
+class WarpScannerAdapter(
+    private val results: List<WarpResult>
+) : RecyclerView.Adapter<WarpScannerAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvIp: TextView = itemView.findViewById(R.id.tv_ip)
@@ -26,18 +36,19 @@ class CdnAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val currentResult = results[position]
 
-        // val displayIp = mobile.Mobile.encryptIP(currentResult.ip)
+        // Encrypt IP while preserving the port in plaintext
+        //val encryptedIp = mobile.Mobile.encryptIP(currentResult.ip)
+        val displayIp = if (currentResult.ip.contains(":")) currentResult.ip else "${currentResult.ip}:${currentResult.port}"
 
-        holder.tvIp.text = currentResult.ip
+        holder.tvIp.text = displayIp
         holder.tvLatency.text = "${currentResult.latencyMs} ms"
 
-        // Optional status styling if applicable
         if (currentResult.latencyMs < 500) {
-            holder.tvLatency.setTextColor(android.graphics.Color.parseColor("#4CAF50")) // Green for fast
+            holder.tvLatency.setTextColor(Color.parseColor("#4CAF50"))
         } else if (currentResult.latencyMs < 1500) {
-            holder.tvLatency.setTextColor(android.graphics.Color.parseColor("#FF9800")) // Orange for moderate
+            holder.tvLatency.setTextColor(Color.parseColor("#FF9800"))
         } else {
-            holder.tvLatency.setTextColor(android.graphics.Color.parseColor("#F44336")) // Red for slow
+            holder.tvLatency.setTextColor(Color.parseColor("#F44336"))
         }
     }
 

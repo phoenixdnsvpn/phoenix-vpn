@@ -32,9 +32,9 @@ class CdnIpAdapter(
         val entry = entries[position]
 
         holder.textWatcher?.let { holder.editText.removeTextChangedListener(it) }
-        val displayIp = if (entry.address.isNotBlank()) mobile.Mobile.encryptIP(entry.address) else ""
+        // val displayIp = if (entry.address.isNotBlank()) mobile.Mobile.encryptIP(entry.address) else ""
 
-        holder.editText.setText(displayIp)
+        holder.editText.setText(entry.address)
         holder.checkBox.setOnCheckedChangeListener(null)
         holder.checkBox.isChecked = entry.isChecked
 
@@ -55,11 +55,12 @@ class CdnIpAdapter(
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val input = s.toString().trim()
-                if (input.isNotEmpty()) {
+                entry.address = input
+                /**if (input.isNotEmpty()) {
                     entry.address = mobile.Mobile.decryptIP(input)
                 } else {
                     entry.address = ""
-                }
+                }*/
             }
             override fun afterTextChanged(s: Editable?) {}
         }

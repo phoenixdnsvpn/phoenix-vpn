@@ -39,6 +39,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var cbDebugLogs: SwitchCompat
     //private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp")
     // private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-xhttp")
+    // Dynamically fetch and parse the comma-separated protocol list from the Go Native Vault
     private val supportedProtocols get() = Mobile.getOverrideProtocols().split(",").map { it.trim() }
     // Notification Management
     private lateinit var etUnlockedDelay: EditText
@@ -294,7 +295,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val releaseType = try { Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
         val fallbackEngine = if (releaseType == "community") "sing-box" else "xray"
 
-        val engineType = tunnelPrefs.getString("tun_engine", fallbackEngine)        
+        val engineType = tunnelPrefs.getString("tun_engine", fallbackEngine)
+
         // val engineType = tunnelPrefs.getString("tun_engine", "xray")
         if (engineType == "xray") {
             rgEngineMode.check(R.id.rb_engine_xray)

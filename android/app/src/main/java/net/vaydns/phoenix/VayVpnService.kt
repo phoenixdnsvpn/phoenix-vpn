@@ -401,10 +401,10 @@ class VayVpnService : VpnService() {
 
                     mobile.Mobile.initVault(filesDir.absolutePath)
                     // Set the binary path inside the isolated :vpn process!
-                    if (tunnelProtocol.lowercase() == "masque") {
+                    /**if (tunnelProtocol.lowercase() == "masque") {
                         val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
                         mobile.Mobile.setUsqueBinaryPath(usquePath)
-                    }
+                    }*/
 
                     var udp = ""
                     var tcp = ""

@@ -15,6 +15,10 @@
 
     <item android:title="Settings">
         <menu>
+            <item
+                android:id="@+id/action_warp_settings"
+                android:icon="@android:drawable/ic_menu_preferences"
+                android:title="WARP Settings" />
 
             <item
                 android:id="@+id/action_tunnel_settings"

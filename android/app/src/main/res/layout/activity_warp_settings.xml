@@ -1,0 +1,367 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/windowBackground"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        app:elevation="4dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="WARP Settings"
+            app:titleTextColor="?attr/colorOnSurface"
+            app:navigationIcon="@drawable/ic_arrow_back_modern"
+            app:navigationIconTint="?attr/colorOnSurface" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="16dp"
+            android:paddingBottom="32dp">
+
+            <!-- PROTOCOL SELECTION -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Protocol Mode:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/rg_protocol_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="16dp">
+
+                <RadioButton
+                    android:id="@+id/rb_proto_wireguard"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="WireGuard"
+                    android:checked="true"
+                    android:buttonTint="#2F4A6F"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <RadioButton
+                    android:id="@+id/rb_proto_quic"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="MASQUE"
+                    android:buttonTint="#2F4A6F"
+                    android:textColor="?attr/colorOnSurface" />
+            </RadioGroup>
+
+            <!-- WARP ROUTING MODE -->
+            <TextView
+                android:id="@+id/tv_warp_mode_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="WARP Routing Mode:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold"
+                android:visibility="gone"
+                android:layout_marginTop="8dp" />
+
+            <RadioGroup
+                android:id="@+id/rg_warp_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                android:layout_marginBottom="16dp">
+
+                <RadioButton
+                    android:id="@+id/rb_warp_standard"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="WARP"
+                    android:checked="true"
+                    android:buttonTint="#2F4A6F"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <RadioButton
+                    android:id="@+id/rb_warp_plus"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="WARP+"
+                    android:buttonTint="#2F4A6F"
+                    android:textColor="?attr/colorOnSurface" />
+            </RadioGroup>
+
+            <Button
+                android:id="@+id/btn_get_warp2_keys"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Get WARP+ Keys"
+                android:textColor="@android:color/white"
+                app:backgroundTint="#2F4A6F"
+                android:visibility="gone"
+                android:layout_marginBottom="16dp" />
+
+            <Button
+                android:id="@+id/btn_get_warp_keys"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Get WARP Keys"
+                android:textColor="@android:color/white"
+                app:backgroundTint="#2F4A6F"
+                android:layout_marginBottom="8dp" />
+
+            <ProgressBar
+                android:id="@+id/pb_loading"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp" />
+
+            <!-- CONNECTION TARGET -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Connection Target:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/rg_endpoint_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="20dp">
+
+                <RadioButton
+                    android:id="@+id/rb_use_endpoint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Use WARP Endpoint (Domain)"
+                    android:checked="true"
+                    android:buttonTint="#2F4A6F"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <RadioButton
+                    android:id="@+id/rb_use_ip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Use WARP IP (Direct IP)"
+                    android:buttonTint="#2F4A6F"
+                    android:textColor="?attr/colorOnSurface" />
+            </RadioGroup>
+
+            <!-- EDITABLE / DISPLAY FIELDS -->
+            <TextView
+                android:id="@+id/tv_public_key_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server Public Key:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_public_key"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tv_private_key_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Client Private Key:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_private_key"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/sw_random_endpoint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use Random Endpoint"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold"
+                app:thumbTint="?attr/colorPrimary"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Endpoint Host (Domain):"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_endpoint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="engage.cloudflareclient.com"
+                android:text="engage.cloudflareclient.com"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tv_custom_ip_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Custom WARP IP:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_custom_ip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="162.159.192.1"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tv_port_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Port:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <Spinner
+                    android:id="@+id/sp_port"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:backgroundTint="?attr/colorOnSurface" />
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/cb_use_all_ports"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Use all Ports"
+                    android:checked="false"
+                    android:textSize="14sp"
+                    android:textColor="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <!-- MASQUE ADVANCED SETTINGS -->
+            <LinearLayout
+                android:id="@+id/ll_masque_advanced"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Custom SNI (MASQUE):"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold" />
+                <EditText
+                    android:id="@+id/et_sni"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="speed.cloudflare.com"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/cb_http2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Use HTTP/2 (TCP) Fallback"
+                    android:textColor="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Internal IPv4 Address:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_ipv4"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="172.16.0.2/32"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Internal IPv6 Address:"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+            <EditText
+                android:id="@+id/et_ipv6"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tv_reserved_bytes"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reserved Bytes: [0, 0, 0]"
+                android:textSize="14sp"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginTop="8dp" />
+
+            <Button
+                android:id="@+id/btn_get_best_ip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Get Best IP"
+                android:textColor="@android:color/white"
+                app:backgroundTint="#2F4A6F"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp" />
+
+            <Button
+                android:id="@+id/btn_warp_ip_manager"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="WARP IP Management"
+                android:textColor="@android:color/white"
+                app:backgroundTint="#2F4A6F"
+                android:layout_marginBottom="16dp" />
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

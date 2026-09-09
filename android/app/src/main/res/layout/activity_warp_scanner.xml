@@ -15,16 +15,16 @@
         app:elevation="4dp">
 
         <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar_cf"
+            android:id="@+id/toolbar_warp_scanner"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Cloud IP Scanner"
+            app:title="WARP Scanner"
             app:titleTextColor="?attr/colorOnSurface"
             app:navigationIcon="@drawable/ic_arrow_back_modern"
             app:navigationIconTint="?attr/colorOnSurface">
 
             <ImageButton
-                android:id="@+id/btn_cf_set"
+                android:id="@+id/btn_warp_set"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:padding="12dp"
@@ -35,7 +35,7 @@
                 android:contentDescription="Set Fastest IP" />
 
             <ImageButton
-                android:id="@+id/btn_cf_share"
+                android:id="@+id/btn_warp_share"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_gravity="end"
@@ -57,15 +57,42 @@
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingTop="8dp"
-        android:paddingBottom="16dp">
+        android:paddingBottom="12dp">
 
-        <!-- NEW: Split First Row -->
+        <!-- Scanner Protocol Selector -->
+        <RadioGroup
+            android:id="@+id/rg_scanner_type"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="6dp">
+
+            <com.google.android.material.radiobutton.MaterialRadioButton
+                android:id="@+id/rb_use_warp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="WIREGUARD"
+                android:checked="true"
+                android:textSize="14sp"
+                android:layout_marginEnd="16dp"
+                app:buttonTint="?attr/colorPrimary" />
+
+            <com.google.android.material.radiobutton.MaterialRadioButton
+                android:id="@+id/rb_use_masque"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MASQUE"
+                android:textSize="14sp"
+                app:buttonTint="?attr/colorPrimary" />
+        </RadioGroup>
+
+        <!-- Inputs Row 1: Scan Count, Target Port, Workers -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="6dp">
 
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
@@ -73,14 +100,31 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginEnd="4dp"
-                android:hint="Number of IPs to scan">
+                android:hint="Count">
 
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/et_cf_scan_count"
+                    android:id="@+id/et_warp_scan_count"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="number"
-                    android:text="512" />
+                    android:text="256" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:hint="Port">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_warp_target_port"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:text="2408" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.textfield.TextInputLayout
@@ -89,22 +133,23 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginStart="4dp"
-                android:hint="Delay Time (sec)">
+                android:hint="Workers">
 
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/et_cf_delay_time"
+                    android:id="@+id/et_warp_workers"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="number"
-                    android:text="30" />
+                    android:text="10" />
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
+        <!-- Inputs Row 2: Timeouts -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="6dp">
 
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
@@ -112,14 +157,14 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginEnd="4dp"
-                android:hint="Dial Timeout (ms)">
+                android:hint="Handshake (ms)">
 
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/et_cf_dial_timeout"
+                    android:id="@+id/et_warp_handshake_timeout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="number"
-                    android:text="3000" />
+                    android:text="800" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.textfield.TextInputLayout
@@ -128,17 +173,36 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginStart="4dp"
-                android:hint="Read Deadline (ms)">
+                android:hint="Max Idle (ms)">
 
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/et_cf_read_deadline"
+                    android:id="@+id/et_warp_max_timeout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="number"
-                    android:text="2000" />
+                    android:text="1500" />
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
+        <!-- Ports Configuration Section -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/cb_warp_all_ports"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Use all Ports"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tv_warp_ports_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Available WIREGUARD: 2408, 500, 4500, 1701"
+            android:textSize="12sp"
+            android:textColor="?android:attr/textColorSecondary"
+            android:layout_marginStart="32dp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Progress and Control Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -147,94 +211,16 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Target CDN Cloud:"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface" />
-
-            <Spinner
-                android:id="@+id/spinner_scanner_cdn"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:backgroundTint="?attr/colorOnSurface" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Protocol Mode:"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface" />
-
-            <Spinner
-                android:id="@+id/spinner_scanner_protocol"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:backgroundTint="?attr/colorOnSurface" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Target Port:"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface" />
-
-            <Spinner
-                android:id="@+id/spinner_scanner_port"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:backgroundTint="?attr/colorOnSurface" />
-        </LinearLayout>
-
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/switch_uniform_distribution"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Use Uniform Distribution"
-            android:checked="true"
-            android:layout_marginBottom="8dp"
-            android:textSize="16sp"
-            android:textColor="?attr/colorOnSurface"
-            app:thumbTint="?attr/colorPrimary" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="2dp"
-            android:layout_marginBottom="8dp">
-
-            <TextView
-                android:id="@+id/tv_cf_progress"
+                android:id="@+id/tv_warp_progress"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="0 / 512"
+                android:text="0 / 256"
                 android:textSize="15sp"
                 android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/tv_cf_passed"
+                android:id="@+id/tv_warp_passed"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -245,7 +231,7 @@
                 android:textColor="#00C853" />
 
             <Button
-                android:id="@+id/btn_cf_start_stop"
+                android:id="@+id/btn_warp_start_stop"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:minHeight="0dp"
@@ -260,10 +246,11 @@
         </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/recycler_cf_results"
+            android:id="@+id/recycler_warp_results"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginTop="4dp" />
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="2dp" />
 
     </LinearLayout>
 </LinearLayout>
