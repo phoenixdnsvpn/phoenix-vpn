@@ -19,6 +19,7 @@ Phoenix VPN is a high-performance hybrid DNS-based & direct protocol tunneling s
 - **sing-box**: The "Universal Protocol" engine. Acting as our highly versatile secondary core, sing-box provides unmatched routing logic and supports advanced censorship-resistant protocols like Hysteria2, Reality-tcp, Reality-Xhttp, VLESS-WS, VLESS-HTTPUpgrade, and vless-gRPC.
 - **Hysteria-core**: The "Native QUIC" engine. Integrated for raw, unfiltered protocol performance, this official Apernet core bypasses intermediate wrappers to handle our high-speed UDP connections natively. By routing traffic directly from the OS TUN interface and C-Tunnel into a lightweight, dedicated proxy pipeline, it powers Hysteria v2 connections with native Salamander obfuscation and brutal congestion control, delivering unparalleled throughput and resilience in heavily censored networks.
 - **amneziawg-go**:The "Stealth WireGuard" engine. Built upon the blazing-fast WireGuard protocol, this core modifies packet headers, handshakes, and junk data parameters to completely mask its traffic profile. It delivers the lightweight performance of native WireGuard while seamlessly slipping past Deep Packet Inspection (DPI) firewalls designed to block standard VPNs.
+- **usque (MASQUE)**: The "HTTP/3 Stealth" engine. Integrated natively to power our MASQUE protocol, it encapsulates VPN traffic entirely within standard HTTP/3 streams. Powered by the robust QUIC transport layer, it delivers evasive, high-speed tunneling that effortlessly slips past modern Deep Packet Inspection (DPI) firewalls by mimicking regular secure web traffic.
 - **hev-socks-tunnel**: The "Network Bridge" layer. Because vaydns and sing-box excel at complex proxy logic rather than raw device routing, hev-socks-tunnel acts as a high-performance, lightweight native C bridge. It captures all full-device IP traffic from the Android TUN interface and transparently feeds it into those engines.
 - **f35**: The "E2E Scanner" layer. A highly concurrent network probing tool embedded directly in the client. It is used to rapidly measure the latency, TLS handshake validity, and true reliability of global DNS resolvers and direct edge nodes across a restricted network.
 
@@ -35,6 +36,10 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 - **Hysteria2 (QUIC/HTTP3):** Introduced full support for Hysteria2. Powered by custom UDP/QUIC transport layers with "Salamander" obfuscation and precise bandwidth flow controls, it effortlessly punches through aggressively throttled networks for brute-force speed.
 
 - **AmneziaWG (Stealth WireGuard):** Integrated the highly obfuscated AmneziaWG protocol to revive WireGuard on heavily censored networks.
+
+- **AmneziaWG (Stealth WireGuard):** Integrated the highly obfuscated AmneziaWG protocol to revive WireGuard on heavily censored networks.
+
+- **Starndar WARP (WireGuard):** Integrated official Cloudflare WARP support driven by our highly optimized sing-box and Xray-core routing engines. This provides a lightning-fast, single-layer WireGuard tunnel that routes your traffic directly through Cloudflare's massive global edge network for superior speed and reliable baseline IP masking.
 
 - **VLESS over WebSockets (WS) & gRPC:** VLESS over WebSockets (WS) & gRPC: Added seamless support for VLESS-WS and high-speed gRPC (HTTP/2-based transport), allowing traffic to be routed and hidden behind massive, trusted Edge networks and CDNs (like Cloudflare and Amazon CloudFront) to keep connections alive even when direct server IPs are heavily blacklisted.
 
@@ -55,6 +60,10 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 - **Universal CDN Scanner (Cloudflare & Amazon CloudFront):** Integrated a native Application-Layer (Layer 7) IP Scanner to automatically discover and map "clean" front-end IPs for both Cloudflare and Amazon CloudFront. This ensures VLESS-WS connections remain completely stable even when server IPs are blocked by aggressive DPI.
 
 - **Global DNS Scanner:** Integrated a native Application-Layer (Layer 7) DoH Scanner to automatically discover and route through "clean" raw IP DNS resolvers. This completely strips the domain name from the TLS SNI, ensuring the initial connection bootstrap remains completely invisible to Deep Packet Inspection (DPI) and national firewalls.
+
+- **Native MASQUE Scanner:** Integrated a highly optimized, multi-threaded QUIC (HTTP/3) scanner to rapidly sweep Cloudflare's edge network and identify the lowest-latency MASQUE endpoints for evasive HTTP/3 tunneling
+
+- **Advanced WARP Scanner:** Implemented a batched WireGuard scanning engine that dynamically spins up parallel Xray tunnels to execute real HTTP trace requests. This guarantees active payload delivery and precise latency mapping for Cloudflare endpoints.
 
 - **Multi-Worker Ping:** Implemented parallel worker processing for ping tests. This significantly increases scanning speed when testing multiple resolvers across various configurations.
 
@@ -261,6 +270,16 @@ This project would not be possible without the incredible work of the following 
 -   **[VLESS-WS & VLESS-HTTPUpgrad](https://github.com/XTLS/Xray-core)**: For pioneering the lightweight VLESS protocol and engineering advanced CDN-compatible transports like HTTPUpgrade to drastically reduce overhead and latency.
 
 -   **[DNS XS](https://github.com/code3-dev/DNS-XS)**: For the comprehensive list of the public DNS servers in json format.
+
+-   **[go socks5](https://github.com/armon/go-socks5)**: For providing a lightweight and reliable local SOCKS5 server implementation, which we use to seamlessly bridge traffic into our native proxy cores.
+
+-   **[usque](https://github.com/Diniboy1123/usque)**: For the robust MASQUE client implementation, enabling our high-performance and evasive HTTP/3 tunneling capabilities.
+
+-   **[quic-go](https://github.com/quic-go/quic-go)**: For the powerful Go implementation of the QUIC protocol, serving as the foundational transport layer for our modern, high-speed encrypted connections.
+
+-   **[wireguard-go](https://github.com/sagernet/wireguard-go)**: For the highly optimized userspace WireGuard networking stack, driving our secure WARP and native WireGuard tunnel integrations.
+
+-   **[Aether](https://github.com/CluvexStudio/Aether)**: We would like to extend our sincere appreciation to the developers of the Aether project. Their innovative concept of circumventing strict network firewalls by nesting a WireGuard tunnel inside another WireGuard carrier served as a profound architectural inspiration for our WARP+ implementation. While the Phoenix VPN dual-layer engine was engineered entirely from the ground up, the conceptual routing strategies demonstrated by Aether's double-WireGuard architecture were instrumental in helping us understand how to overcome complex edge network barriers.
 
 ## License & Disclaimer
 
