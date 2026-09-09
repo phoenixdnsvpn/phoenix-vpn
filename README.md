@@ -37,9 +37,11 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 
 - **AmneziaWG (Stealth WireGuard):** Integrated the highly obfuscated AmneziaWG protocol to revive WireGuard on heavily censored networks.
 
-- **AmneziaWG (Stealth WireGuard):** Integrated the highly obfuscated AmneziaWG protocol to revive WireGuard on heavily censored networks.
+- **WARP+ (Dual-Layer WireGuard):** Engineered an innovative "WARP-in-WARP" architecture that nests an inner WireGuard payload within an outer WireGuard carrier. This cleanly bypasses advanced DPI firewalls and strict IP spoofing checks by tunneling IPv6 packets through a robust IPv4 carrier.
 
-- **Starndar WARP (WireGuard):** Integrated official Cloudflare WARP support driven by our highly optimized sing-box and Xray-core routing engines. This provides a lightning-fast, single-layer WireGuard tunnel that routes your traffic directly through Cloudflare's massive global edge network for superior speed and reliable baseline IP masking.
+- **usque (MASQUE):** The "HTTP/3 Stealth" engine. Integrated natively to power our MASQUE protocol, it encapsulates VPN traffic entirely within standard HTTP/3 streams. Powered by the robust QUIC transport layer, it delivers evasive, high-speed tunneling that effortlessly slips past modern Deep Packet Inspection (DPI) firewalls by mimicking regular secure web traffic.
+
+- **Standard WARP (WireGuard):** Integrated official Cloudflare WARP support driven by our highly optimized sing-box and Xray-core routing engines. This provides a lightning-fast, single-layer WireGuard tunnel that routes your traffic directly through Cloudflare's massive global edge network for superior speed and reliable baseline IP masking.
 
 - **VLESS over WebSockets (WS) & gRPC:** VLESS over WebSockets (WS) & gRPC: Added seamless support for VLESS-WS and high-speed gRPC (HTTP/2-based transport), allowing traffic to be routed and hidden behind massive, trusted Edge networks and CDNs (like Cloudflare and Amazon CloudFront) to keep connections alive even when direct server IPs are heavily blacklisted.
 
