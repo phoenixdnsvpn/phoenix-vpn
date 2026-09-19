@@ -268,6 +268,7 @@ class VayProxyService : Service() {
                 //val protocol = intent.getStringExtra("PROTOCOL") ?: "socks5"
                 //val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                 val ssMethod = intent.getStringExtra("SS_METHOD") ?: ""
+                val masterDnsMethod = intent.getStringExtra("MASTERDNS_METHOD") ?: "XOR"
                 val user = intent.getStringExtra("USER") ?: ""
                 val pass = intent.getStringExtra("PASS") ?: ""
                 val proxyPort = intent.getLongExtra("PROXY_PORT", 1080L)
@@ -342,12 +343,22 @@ class VayProxyService : Service() {
                 val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
                 val sniIndex = intent.getLongExtra("SNI_INDEX", -1L)
                 val useHysteriaCore = intent.getBooleanExtra("USE_HYSTERIA_CORE", false)
+                val disableAutoRoll = intent.getBooleanExtra("DISABLE_AUTO_ROLL", false)
+                val slipstreamCongestion = intent.getStringExtra("SLIPSTREAM_CONGESTION") ?: "BBR"
+                val slipstreamAuthoritative = intent.getBooleanExtra("SLIPSTREAM_AUTHORITATIVE", false)
+                val slipstreamGso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
+
+                if (tunnelProtocol.lowercase() == "slipstream") {
+                    val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
+                    mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
+                }
 
                 PhoenixVpnVerify.bind(this)
                 // RESTORED: Exact, working parameter list matching your native Go layout
                 val result = Mobile.startProxy(
                     engineType,
                     isDefaultConfig,
+                    disableAutoRoll,
                     configIndex,
                     configType,
                     useMultiDomains,
@@ -370,6 +381,7 @@ class VayProxyService : Service() {
                     localProxyProtocol,
                     authProtocol,
                     ssMethod,
+                    masterDnsMethod,
                     user,
                     pass,
                     proxyPort.toLong(),
@@ -382,7 +394,10 @@ class VayProxyService : Service() {
                     getServerIpFromDomain,
                     sniIndex,
                     useHysteriaCore,
-                    dns_mode
+                    dns_mode,
+                    slipstreamCongestion,
+                    slipstreamAuthoritative,
+                    slipstreamGso
                 )
 
                 if (result.startsWith("Success")) {

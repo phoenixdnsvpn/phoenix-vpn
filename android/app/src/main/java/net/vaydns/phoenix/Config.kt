@@ -23,6 +23,7 @@ data class Config(
     val user: String = "",
     val pass: String = "",
     val ssMethod: String = "chacha20-ietf-poly1305",
+    val masterDnsMethod: String = "XOR",
     val isDefault: Boolean = false,
     val freeScanner: Boolean = false,
     val useMultiDomains: Boolean = false,
@@ -30,5 +31,8 @@ data class Config(
     val vlessIp: String = "",
     val vlessPort: Int = 443,
     val domainIndex: Int = 0,
-    var lastLatency: Long = -1L
+    var lastLatency: Long = -1L,
+    val slipstreamCongestion: String = "BBR",
+    val slipstreamAuthoritative: Boolean = false,
+    val slipstreamGso: Boolean = false,
 )

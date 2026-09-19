@@ -27,6 +27,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="false"
         android:fullBackupContent="false"
+        android:extractNativeLibs="true"
         android:theme="@style/Theme.Vaydns">
 
         <activity
@@ -113,11 +114,13 @@
             android:exported="false"
             android:foregroundServiceType="specialUse"
             android:process=":autoconnect">
-
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Network scanning and auto-connection" />
         </service>
+        <receiver
+            android:name="net.vaydns.phoenix.AutoconnectHandoffReceiver"
+            android:exported="false" />
 
         <service
             android:name="net.vaydns.phoenix.VayPingService"

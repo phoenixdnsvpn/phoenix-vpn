@@ -18,13 +18,10 @@ import androidx.appcompat.widget.SwitchCompat
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.CheckBox
 import android.text.Editable
 import android.text.TextWatcher
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.util.Log
-import androidx.appcompat.widget.AppCompatCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,9 +30,7 @@ import mobile.Mobile
 class ConfigEditorActivity : AppCompatActivity() {
 
     private var editingConfigId: String? = null
-    private var multipathDialog: androidx.appcompat.app.AlertDialog? = null
     private lateinit var switchMultiDomain: SwitchCompat
-    // Multi-Protocol Credential Caches
     private var sshUserCache = ""
     private var sshPassCache = ""
     private var ssPassCache = ""
@@ -53,8 +48,6 @@ class ConfigEditorActivity : AppCompatActivity() {
     )
 
     private val resolverEntries = mutableListOf<ResolverEntry>()
-    private lateinit var layoutResolverContainer: LinearLayout
-    // Remember last values for each mode
     private var lastUdp = "8.8.8.8:53"
     private var lastTcp = "8.8.8.8:53"
     private var lastDot = "8.8.8.8:853"
@@ -117,23 +110,44 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
     }
 
+    private fun isValidTLSCertificate(certData: String): Boolean {
+        if (certData.isBlank()) return false
+        return try {
+            val cf = java.security.cert.CertificateFactory.getInstance("X.509")
+            val stream = if (certData.contains("-----BEGIN CERTIFICATE-----")) {
+                java.io.ByteArrayInputStream(certData.toByteArray(Charsets.UTF_8))
+            } else {
+                val decoded = android.util.Base64.decode(
+                    certData,
+                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
+                )
+                java.io.ByteArrayInputStream(decoded)
+            }
+            cf.generateCertificate(stream)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun isValidSSHPrivateKey(keyData: String): Boolean {
+        if (keyData.isBlank()) return false
+        // Check for standard PEM/OpenSSH headers and footers
+        return keyData.contains("-----BEGIN ") && keyData.contains(" PRIVATE KEY-----")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_config_editor)
 
-//        Mobile.getDefaultConfigCount()
         val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar_editor)
-
-        toolbar.setNavigationOnClickListener {
-            finish() // Closes this window and returns to the Main Menu
-        }
+        toolbar.setNavigationOnClickListener { finish() }
 
         val etName = findViewById<EditText>(R.id.et_config_name)
         val etDomain = findViewById<EditText>(R.id.et_domain)
         switchMultiDomain = findViewById(R.id.switch_multi_domain)
         val etPubkey = findViewById<EditText>(R.id.et_pubkey)
         val etDns = findViewById<EditText>(R.id.et_dns)
-        //val btnLoadSavedResolvers = findViewById<ImageButton>(R.id.btn_load_saved_resolvers)
         val rgMode = findViewById<RadioGroup>(R.id.rg_mode)
         val spRecordType = findViewById<Spinner>(R.id.sp_record_type)
         val etIdleTimeout = findViewById<EditText>(R.id.et_idle_timeout)
@@ -155,30 +169,94 @@ class ConfigEditorActivity : AppCompatActivity() {
         val swUseDefaultResolvers = findViewById<SwitchCompat>(R.id.sw_use_default_resolvers)
         swUseDefaultResolvers.visibility = View.GONE
         val tvProxyProtocolLabel = findViewById<TextView>(R.id.tv_proxy_protocol_label)
-        // MULTIPATH BINDINGS
+        val tvPubkeyLabel = findViewById<TextView>(R.id.tv_pubkey_label)
+        val layoutSlipstreamParams = findViewById<LinearLayout>(R.id.layout_slipstream_params)
+        val spSlipstreamCongestion = findViewById<Spinner>(R.id.sp_slipstream_congestion)
+        val swSlipstreamAuthoritative = findViewById<SwitchCompat>(R.id.sw_slipstream_authoritative)
+        val swSlipstreamGso = findViewById<SwitchCompat>(R.id.sw_slipstream_gso)
+
+        val congestionAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, arrayOf("BBR", "DCUBIC"))
+        congestionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spSlipstreamCongestion.adapter = congestionAdapter
+
+        swSlipstreamAuthoritative.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                Toast.makeText(this, "Only use when DNS resolver is your own server. Public resolvers (Google, Cloudflare, etc.) will rate limit and block your connection.", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        val tvSlipstreamAuthWarning = findViewById<TextView>(R.id.tv_slipstream_auth_warning)
+        swSlipstreamAuthoritative.setOnCheckedChangeListener { _, isChecked ->
+            // Replaces the Toast with the inline red text
+            tvSlipstreamAuthWarning.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        val swSlipstreamCert = findViewById<SwitchCompat>(R.id.sw_slipstream_cert)
+        swSlipstreamCert.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                etPubkey.visibility = View.VISIBLE
+                etPubkey.hint = "Paste Public Certificate (PEM) here..."
+                etPubkey.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                etPubkey.minLines = 15
+                etPubkey.maxLines = 60
+                etPubkey.setHorizontallyScrolling(false)
+                etPubkey.gravity = android.view.Gravity.TOP
+            } else {
+                etPubkey.visibility = View.GONE
+                //etPubkey.setText("")
+            }
+        }
+
         tvMultipathStatus = findViewById(R.id.tv_multipath_status)
         btnSelectMultipath = findViewById(R.id.btn_select_multipath)
         layoutMultipathControls = findViewById(R.id.layout_multipath_controls)
         tvMultipathLabel = findViewById(R.id.tv_multipath_label)
         tvMultipathDesc = findViewById(R.id.tv_multipath_desc)
 
-        val btnBestCfIp = findViewById<Button>(R.id.btn_best_cf_ip)
+        // NEW: MasterDNS Spinner Initialization
+        val tvMasterDnsMethodLabel = findViewById<TextView>(R.id.tv_masterdns_method_label)
+        val spMasterDnsMethod = findViewById<Spinner>(R.id.sp_masterdns_method)
+        val masterDnsMethods = arrayOf("None", "XOR", "Chacha20", "AES-128-GCM", "AES-192-GCM", "AES-256-GCM")
+        val masterDnsAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, masterDnsMethods)
+        masterDnsAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spMasterDnsMethod.adapter = masterDnsAdapter
 
+        // =================================================================
+        // Toggle Encryption Key visibility when MasterDNS method changes
+        // =================================================================
+        spMasterDnsMethod.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>, view: View?, position: Int, id: Long) {
+                val selectedMethod = parent.getItemAtPosition(position).toString()
+                val currentTunnelProto = findViewById<Spinner>(R.id.spinner_tunnel_protocol)?.selectedItem?.toString()?.lowercase()?.trim()
+
+                // Only toggle if MasterDNS is actually the active protocol tab
+                if (currentTunnelProto == "masterdns") {
+                    if (selectedMethod.equals("None", ignoreCase = true)) {
+                        tvPubkeyLabel?.visibility = View.GONE
+                        etPubkey.visibility = View.GONE
+                    } else {
+                        tvPubkeyLabel?.visibility = View.VISIBLE
+                        etPubkey.visibility = View.VISIBLE
+                        tvPubkeyLabel?.text = "Encryption Key:"
+                    }
+                }
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
+        }
+
+        val btnBestCfIp = findViewById<Button>(R.id.btn_best_cf_ip)
         btnBestCfIp.setOnClickListener { buttonView ->
             val btn = buttonView as Button
             btn.text = "Scanning ..."
             btn.isEnabled = false
 
-            // Grab the currently selected CDN and Tunnel Protocol from the Editor
             val selectedCdn = findViewById<Spinner>(R.id.spinner_editor_cdn).selectedItem?.toString() ?: "CloudX"
             val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
             val selectedTunnelProtocol = spinnerTunnelProtocol?.selectedItem?.toString() ?: "vaydns"
-
             val spinnerEditorPort = findViewById<Spinner>(R.id.spinner_editor_port)
             val selectedPortStr = spinnerEditorPort?.selectedItem?.toString() ?: "443"
             val selectedPort = selectedPortStr.toLongOrNull() ?: 443L
 
-            // GUARDRAIL 1 & 2: Check if CDN supports both the selected VLESS protocol AND the selected port
             if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
                 val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
                 if (!supported) {
@@ -187,7 +265,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                     btn.isEnabled = true
                     return@setOnClickListener
                 }
-
                 val portSupported = Mobile.cdnSupportsPort(selectedCdn, selectedPort)
                 if (!portSupported) {
                     Toast.makeText(this, "CDN '$selectedCdn' does not support port '$selectedPortStr'!", Toast.LENGTH_LONG).show()
@@ -197,7 +274,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 }
             }
 
-            // Fetch ALL IPs from the JSON Vault for the Layer 7 scanner
             val prefs = getSharedPreferences("CloudflareVault", Context.MODE_PRIVATE)
             val jsonString = prefs.getString("vault_ips_json", "[]") ?: "[]"
             val allIpsList = mutableListOf<String>()
@@ -207,25 +283,15 @@ class ConfigEditorActivity : AppCompatActivity() {
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val ipCdn = obj.optString("cdn", "CloudX")
-
-                    // FILTER: Only race IPs that belong to the Target CDN
                     if (ipCdn.equals(selectedCdn, ignoreCase = true)) {
                         val rawIp = obj.getString("ip")
-                        // Log.e("KOTLIN", "rawIp: ${rawIp}")
                         val decryptedIp = CryptoHelper.decrypt(rawIp)
-                        val fakedIP = mobile.Mobile.encryptIP(decryptedIp)
-
-                        // Log.e("KOTLIN", "decryptedIp: ${decryptedIp}")
-                        // Log.e("KOTLIN", "fakedIP: ${fakedIP}")
-                        if (decryptedIp.isNotBlank()) {
-                            allIpsList.add(decryptedIp)
-                        }
+                        if (decryptedIp.isNotBlank()) allIpsList.add(decryptedIp)
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
 
             val savedIps = allIpsList.joinToString(",")
-
             if (savedIps.isBlank()) {
                 Toast.makeText(this, "No IPs found for $selectedCdn in Global Settings!", Toast.LENGTH_SHORT).show()
                 btn.text = "Get best IP from Vault"
@@ -234,42 +300,24 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
 
             Toast.makeText(this, "Racing $selectedCdn IPs in background...", Toast.LENGTH_SHORT).show()
-
-            // Layer 7 latency measurement
             Thread {
                 val isDefault = editingConfigId?.startsWith("default_") == true
                 val cIndex = if (isDefault) editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: -1L else -1L
-
-                // Grab the domain currently typed into the editor
-                val etDomain = findViewById<EditText>(R.id.et_domain)
-                val currentDomain = etDomain?.text?.toString()?.trim() ?: ""
-                // Log.e("KOTLIN", "savedIps: ${savedIps}")
-                // Call the NEW Layer 7 Scanner
+                val currentDomain = findViewById<EditText>(R.id.et_domain)?.text?.toString()?.trim() ?: ""
                 val result = Mobile.getFastestCloudflareIP(
-                    isDefault,
-                    cIndex,
-                    savedIps,
-                    currentDomain,
-                    selectedCdn,
-                    selectedPort.toLong(),
-                    selectedTunnelProtocol
+                    isDefault, cIndex, savedIps, currentDomain, selectedCdn, selectedPort.toLong(), selectedTunnelProtocol
                 )
 
                 runOnUiThread {
-                    // Restore button text and state instantly
                     btn.text = "Get best IP from Vault"
                     btn.isEnabled = true
-
                     if (result.isNotEmpty() && result.contains("|")) {
                         val parts = result.split("|")
                         val bestIp = parts[0]
                         val latency = parts[1]
-                        // Log.e("KOTLIN", "bestIp: ${bestIp}")
-                        val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
                         realVlessIp = bestIp
                         val mappedWinner = mobile.Mobile.encryptIP(bestIp)
-                        // Log.e("KOTLIN", "mappedWinner: ${mappedWinner}")
-                        etVlessIp.setText(mappedWinner)
+                        findViewById<EditText>(R.id.et_vless_ip).setText(mappedWinner)
                         Toast.makeText(this@ConfigEditorActivity, "Winner: $mappedWinner (${latency}ms)", Toast.LENGTH_LONG).show()
                     } else {
                         Toast.makeText(this@ConfigEditorActivity, "All IPs failed the Layer 7 Handshake.", Toast.LENGTH_LONG).show()
@@ -280,23 +328,31 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
 
+        editingConfigId = intent.getStringExtra("CONFIG_ID")
+        val isDefault = editingConfigId?.startsWith("default_") == true
+
+        val currentProtocolEarly = if (editingConfigId != null) {
+            if (isDefault) {
+                getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    .getString("${editingConfigId}_tunnelProtocol", null) ?: "vaydns"
+            } else {
+                val configs = loadAllConfigs(this)
+                val config = configs.find { it.id == editingConfigId }
+                config?.tunnelProtocol ?: "vaydns"
+            }
+        } else {
+            "vaydns"
+        }
+
         val ssMethods = arrayOf("chacha20-ietf-poly1305", "aes-128-gcm", "aes-256-gcm", "xchacha20-ietf-poly1305")
         val ssAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, ssMethods)
         ssAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spSsMethod.adapter = ssAdapter
 
         val recordTypes = arrayOf("TXT", "NULL", "CNAME", "A", "AAAA", "MX", "NS", "SRV", "CAA")
-//        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, recordTypes)
-        val adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_item,
-            recordTypes
-        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, recordTypes)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spRecordType.adapter = adapter
-
-        editingConfigId = intent.getStringExtra("CONFIG_ID")
-        val isDefault = editingConfigId?.startsWith("default_") == true
 
         if (editingConfigId != null && !isDefault) {
             val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
@@ -316,7 +372,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                         val legacyUser = obj.optString("user", "")
                         val legacyPass = obj.optString("pass", "")
 
-                        // Migrate legacy credentials into the proper cache if they are empty
                         if (activeAuth == "ssh" && sshUserCache.isEmpty() && sshPassCache.isEmpty()) {
                             sshUserCache = legacyUser
                             sshPassCache = legacyPass
@@ -333,10 +388,8 @@ class ConfigEditorActivity : AppCompatActivity() {
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // Load Data into memory (does not build UI yet)
         setupMultipathData(editingConfigId ?: "new_temp_config")
 
-        // The clock icon now opens the dedicated Full Screen Activity window
         btnSelectMultipath.setOnClickListener {
             val mode = when (rgMode.checkedRadioButtonId) {
                 R.id.rb_tcp -> "tcp"
@@ -352,10 +405,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         if (editingConfigId != null) {
-
             if (isDefault) {
-                //  HIDE ALL MULTIPATH UI FOR DEFAULTS
-
                 val index = editingConfigId!!.removePrefix("default_").toLongOrNull() ?: 0L
                 etName.setText(mobile.Mobile.getDefaultConfigName(index))
                 etDomain.setText("----------")
@@ -389,7 +439,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                     override fun afterTextChanged(s: android.text.Editable?) {
                         val currentText = s?.toString() ?: ""
                         if (!currentText.startsWith(originalName)) {
-                            // If they delete any part of the original name, force it back
                             etName.setText(originalName)
                             etName.setSelection(originalName.length)
                         }
@@ -400,13 +449,11 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swUseDefaultResolvers.setOnCheckedChangeListener { _, isChecked ->
                     if (isChecked) {
                         val defaultResolversStr = mobile.Mobile.getDefaultConfigDisplayResolvers(index)
-
                         if (defaultResolversStr.isEmpty()) {
                             Toast.makeText(this, "No default resolvers found. Update from menu.", Toast.LENGTH_SHORT).show()
                             swUseDefaultResolvers.isChecked = false
                         } else {
                             val ipArray = defaultResolversStr.split(",").toTypedArray()
-
                             MaterialAlertDialogBuilder(this)
                                 .setTitle("Select Official Resolver")
                                 .setItems(ipArray) { _, which ->
@@ -417,12 +464,9 @@ class ConfigEditorActivity : AppCompatActivity() {
                                         R.id.rb_tls -> lastDot = ipArray[which]
                                         R.id.rb_https -> lastDoh = ipArray[which]
                                     }
-                                    // Uncheck toggle so it can be clicked again later if needed
                                     swUseDefaultResolvers.isChecked = false
                                 }
-                                .setNegativeButton("Cancel") { _, _ ->
-                                    swUseDefaultResolvers.isChecked = false
-                                }
+                                .setNegativeButton("Cancel") { _, _ -> swUseDefaultResolvers.isChecked = false }
                                 .show()
                         }
                     }
@@ -438,7 +482,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                 etMtu.setText(savedMtu.toString())
                 val rt = mobile.Mobile.getDefaultConfigRecordType(index)
                 val rtIndex = recordTypes.indexOf(rt.uppercase())
-                if (rtIndex >= 0) spRecordType.setSelection(rtIndex) // Set selection for defaults
+                if (rtIndex >= 0) spRecordType.setSelection(rtIndex)
 
                 etIdleTimeout.setText(mobile.Mobile.getDefaultConfigIdleTimeout(index))
                 etKeepAlive.setText(mobile.Mobile.getDefaultConfigKeepAlive(index))
@@ -451,15 +495,13 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val pass = ""
                 val useSshKey = mobile.Mobile.getDefaultConfigUseSshKey(index)
 
-                // EXTRACT NATIVE PROTOCOLS
                 val nativeProto = mobile.Mobile.getDefaultConfigProtocol(index)
                 val authProto = if (nativeProto == "ssh" || nativeProto == "shadowsocks") nativeProto else "basic"
 
                 etUser.setText(user)
                 etPass.setText(pass)
 
-                // SET RADIO BUTTONS
-                rgProxyProtocol.check(R.id.rb_proxy_socks) // Official servers are always SOCKS5 proxy
+                rgProxyProtocol.check(R.id.rb_proxy_socks)
 
                 when(authProto.lowercase()) {
                     "ssh" -> rgAuthProtocol.check(R.id.rb_auth_ssh)
@@ -469,13 +511,10 @@ class ConfigEditorActivity : AppCompatActivity() {
 
                 swSshKey.isChecked = useSshKey
                 swSshKey.isEnabled = false
-
                 etPass.transformationMethod = android.text.method.HideReturnsTransformationMethod.getInstance()
-
-                swAuth.isChecked = (user.isNotEmpty() || pass.isNotEmpty())
+                swAuth.isChecked = false
                 swAuth.isEnabled = false
 
-                // Check for a user override first; fallback to native default
                 val defaultProxyType = mobile.Mobile.getDefaultConfigProxy(index)
                 val savedProxyType = prefs.getString("${editingConfigId}_localProxyProtocol", defaultProxyType) ?: defaultProxyType
 
@@ -488,7 +527,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 tvProxyProtocolLabel.visibility = View.VISIBLE
                 rgProxyProtocol.visibility = View.VISIBLE
 
-                // ENABLE user interaction for SOCKS5 / HTTP on default configs
                 for (i in 0 until rgProxyProtocol.childCount) {
                     val v = rgProxyProtocol.getChildAt(i)
                     v.isEnabled = true
@@ -501,7 +539,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                     v.alpha = 0.5f
                 }
 
-                swAuth.isEnabled = false
                 etUser.isEnabled = false
                 etPass.isEnabled = false
                 etDomain.isEnabled = false
@@ -523,7 +560,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 etMtu.visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tv_mtu_label).visibility = View.VISIBLE
 
-                // HIDE ADVANCED INPUTS FROM DEFAULTS
                 spRecordType.visibility = View.GONE
                 etIdleTimeout.visibility = View.GONE
                 etKeepAlive.visibility = View.GONE
@@ -532,13 +568,13 @@ class ConfigEditorActivity : AppCompatActivity() {
                 swAuth.visibility = View.GONE
                 swSshKey.visibility = View.GONE
                 spSsMethod.visibility = View.GONE
+                spMasterDnsMethod.visibility = View.GONE
+                tvMasterDnsMethodLabel?.visibility = View.GONE
                 etUser.visibility = View.GONE
                 etPass.visibility = View.GONE
                 rgProxyProtocol.visibility = View.VISIBLE
                 rgAuthProtocol.visibility = View.GONE
                 tvAuthProtocolLabel.visibility = View.GONE
-                // Hide the new Radio Groups
-                //rgProxyProtocol.visibility = View.GONE
 
                 val parentLayout = etName.parent as ViewGroup
                 for (i in 0 until parentLayout.childCount) {
@@ -546,19 +582,16 @@ class ConfigEditorActivity : AppCompatActivity() {
                     if (view is TextView && view !is Button && view !is EditText) {
                         val txt = view.text.toString()
                         val forbiddenLabels = listOf(
-                            "Tunnel Domain:", "Server Public Key:",
+                            "Tunnel Domain:", "Server Public Key:", "Encryption Key:",
                             "Following parameters", "Record Type:",
-                            "Idle Timeout:", "Keep Alive:",
-                            // "Client ID Size:", "Local Proxy Protocol:", "Authentication Protocol"
+                            "Idle Timeout:", "Keep Alive:", "Tunnel Encryption Method:"
                         )
                         if (forbiddenLabels.any { txt.contains(it) }) {
                             view.visibility = View.GONE
                         }
                     }
                 }
-
             } else {
-                // 1. Load the data to calculate the index and values before calling the helper
                 val configs = loadAllConfigs(this)
                 val config = configs.find { it.id == editingConfigId }
                 tvProxyProtocolLabel.visibility = View.GONE
@@ -567,38 +600,25 @@ class ConfigEditorActivity : AppCompatActivity() {
                 if (config != null) {
                     val rtIndex = recordTypes.indexOf(config.recordType.uppercase())
 
-                    // 2. Call the helper with the calculated values
                     loadConfigForEditing(
-                        etName, config.name,
-                        etDomain, config.domain,
-                        etPubkey, config.pubkey,
-                        etDns, config.dnsAddress,
-                        rgMode, config.mode,
-                        spRecordType, rtIndex,
-                        etIdleTimeout, config.idleTimeout,
-                        etKeepAlive, config.keepAlive,
-                        etClientIdSize, config.clientIdSize,
-                        etMtu, config.mtu,
-                        swDnstt, config.dnsttCompatible,
-                        swAuth, config.useAuth,
-                        swSshKey, config.useSshKey,
-                        rgProxyProtocol, config.localProxyProtocol,
-                        rgAuthProtocol, config.authProtocol,
-                        spSsMethod, config.ssMethod,
-                        etUser, config.user,
-                        etPass, config.pass,
-                        tvUserLabel, tvPassLabel,
-                        config.useMultiDomains,
-                        config.domainIndex
+                        etName, config.name, etDomain, config.domain, etPubkey, config.pubkey,
+                        etDns, config.dnsAddress, rgMode, config.mode, spRecordType, rtIndex,
+                        etIdleTimeout, config.idleTimeout, etKeepAlive, config.keepAlive,
+                        etClientIdSize, config.clientIdSize, etMtu, config.mtu,
+                        swDnstt, config.dnsttCompatible, swAuth, config.useAuth, swSshKey, config.useSshKey,
+                        rgProxyProtocol, config.localProxyProtocol, rgAuthProtocol, config.authProtocol,
+                        spSsMethod, config.ssMethod, spMasterDnsMethod, config.masterDnsMethod,
+                        etUser, config.user, etPass, config.pass, tvUserLabel, tvPassLabel,
+                        config.useMultiDomains, config.domainIndex,
+                        spSlipstreamCongestion, swSlipstreamAuthoritative, swSlipstreamGso,
+                        config.slipstreamCongestion, config.slipstreamAuthoritative,
+                        config.slipstreamGso
                     )
                 }
                 toolbar.title = "Edit Config"
             }
         } else {
-            // --- 3. ADD NEW CONFIG MODE ---
             toolbar.title = "Add New Config"
-
-            // Set standard defaults
             rgMode.check(R.id.rb_udp)
             etDns.setText(lastUdp)
             etIdleTimeout.setText("10s")
@@ -606,14 +626,11 @@ class ConfigEditorActivity : AppCompatActivity() {
             etClientIdSize.setText("2")
             tvProxyProtocolLabel.visibility = View.GONE
             rgProxyProtocol.visibility = View.GONE
-            // Set Default Protocols
             swAuth.isChecked = false
             rgProxyProtocol.check(R.id.rb_proxy_socks)
             rgAuthProtocol.check(R.id.rb_auth_socks)
             swSshKey.isChecked = false
 
-            // --- THIS IS THE MANUALLY TRIGGERED INITIAL STATE ---
-            // Even though the views are visible, we lock Auth inputs because swAuth is false
             etUser.isEnabled = false
             etPass.isEnabled = false
             swSshKey.isEnabled = false
@@ -622,10 +639,11 @@ class ConfigEditorActivity : AppCompatActivity() {
             etPass.visibility = View.VISIBLE
             swSshKey.visibility = View.VISIBLE
             spSsMethod.visibility = View.VISIBLE
+            spMasterDnsMethod.visibility = View.GONE
+            tvMasterDnsMethodLabel?.visibility = View.GONE
             tvUserLabel.visibility = View.VISIBLE
             tvPassLabel.visibility = View.VISIBLE
 
-            // Only disable the AUTH group, NOT the Proxy group!
             for (i in 0 until rgAuthProtocol.childCount) {
                 val v = rgAuthProtocol.getChildAt(i)
                 v.isEnabled = false
@@ -635,9 +653,7 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         swSshKey.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
-                // Clear and lock User field
                 etUser.setText("User")
-                //etUser.hint = "Optional"
                 etUser.isEnabled = true
                 etPass.isEnabled = true
                 tvPassLabel.text = "SSH Private Key:"
@@ -649,32 +665,26 @@ class ConfigEditorActivity : AppCompatActivity() {
                 etPass.gravity = android.view.Gravity.TOP
                 etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
             } else {
-                // Restore defaults for Password mode
                 tvUserLabel.text = "User:"
                 etUser.hint = "Optional"
                 tvPassLabel.text = "Password:"
                 etPass.hint = "Optional"
-                //etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
                 etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT
                 etPass.minLines = 1
                 etPass.maxLines = 1
                 etPass.gravity = android.view.Gravity.CENTER_VERTICAL
-                //etPass.transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
                 etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
             }
         }
 
         etDomain.addTextChangedListener(object: TextWatcher {
             override fun afterTextChanged(s: Editable?) {
-                if (editingConfigId?.startsWith("default_") != true) {
-                    updateDomainRadioGroup()
-                }
+                if (editingConfigId?.startsWith("default_") != true) updateDomainRadioGroup()
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
 
-        // Smart mode switching with value memory
         rgMode.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.rb_udp -> etDns.setText(lastUdp)
@@ -685,7 +695,6 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         rgAuthProtocol.setOnCheckedChangeListener { _, checkedId ->
-            // 1. Sync currently typed text into the OLD mode's cache before switching
             if (isInitializing) return@setOnCheckedChangeListener
 
             val typedUser = etUser.text.toString()
@@ -696,7 +705,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 "socks", "basic" -> { basicUserCache = typedUser; basicPassCache = typedPass }
             }
 
-            // 2. Switch UI and restore the NEW mode's cache onto the screen
             when (checkedId) {
                 R.id.rb_auth_ssh -> {
                     currentAuthMode = "ssh"
@@ -742,19 +750,15 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         swAuth.setOnCheckedChangeListener { _, isChecked ->
-            // 1. Enable/Disable User and Password fields
             etUser.isEnabled = isChecked
             etPass.isEnabled = isChecked
 
-            // 2. Enable/Disable the Protocol RadioGroup buttons
             for (i in 0 until rgAuthProtocol.childCount) {
                 val v = rgAuthProtocol.getChildAt(i)
                 v.isEnabled = isChecked
                 v.alpha = if (isChecked) 1.0f else 0.5f
             }
 
-            // 3. Handle the SSH Key toggle logic
-            // It should only be enabled if Auth is ON AND the selected protocol is SSH
             if (isChecked && rgAuthProtocol.checkedRadioButtonId == R.id.rb_auth_ssh) {
                 swSshKey.isEnabled = true
                 swSshKey.alpha = 1.0f
@@ -768,33 +772,48 @@ class ConfigEditorActivity : AppCompatActivity() {
         val spinnerVlessProtocol = findViewById<Spinner>(R.id.spinner_vless_protocol)
         val layoutVlessProtocol = findViewById<LinearLayout>(R.id.layout_vless_protocol)
 
-        // 1. Determine which protocols this specific config is allowed to use
         val baseSupportedProtocols = if (isDefault) {
             val nativeIndex = editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: 0L
             val types = mobile.Mobile.getDefaultConfigType(nativeIndex).split(",").map { it.trim().lowercase() }
-            if (types.isEmpty() || types[0] == "") listOf("vaydns") else types
+            if (types.isEmpty() || types[0] == "") listOf("vaydns", "masterdns", "slipstream") else types
         } else {
-            listOf("vaydns")
+            listOf("vaydns", "masterdns", "slipstream")
         }
 
-        // 2. Load Master Spinner universally (NO CDN filtering here)
         val tpAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, baseSupportedProtocols)
         tpAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerTunnelProtocol.adapter = tpAdapter
 
-        val currentProtocol = if (isDefault) {
-            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                .getString("${editingConfigId}_tunnelProtocol", null) ?: baseSupportedProtocols.firstOrNull() ?: "vaydns"
-        } else {
-            val configs = loadAllConfigs(this)
-            val config = configs.find { it.id == editingConfigId }
-            config?.tunnelProtocol ?: "vaydns"
-        }
-
+        val currentProtocol = currentProtocolEarly
         val pIndex = baseSupportedProtocols.indexOf(currentProtocol)
         if (pIndex >= 0) spinnerTunnelProtocol.setSelection(pIndex)
 
-        // 3. Helper function to synchronize VLESS Protocols dynamically
+        // =================================================================
+        // UX LOCK: Prevent protocol swapping on existing configs
+        // =================================================================
+        if (editingConfigId != null && !isDefault) {
+            // High-Contrast Lock: Keep enabled for readability, but block all taps
+            spinnerTunnelProtocol.isEnabled = true
+            spinnerTunnelProtocol.setOnTouchListener { _, _ -> true }
+            spinnerTunnelProtocol.alpha = 1.0f
+            findViewById<TextView>(R.id.tv_tunnel_protocol_label)?.alpha = 1.0f
+
+            // High-Contrast Lock for VLESS spinner
+            spinnerVlessProtocol.isEnabled = true
+            spinnerVlessProtocol.setOnTouchListener { _, _ -> true }
+            spinnerVlessProtocol.alpha = 1.0f
+        } else {
+            // New Config: Enable selection and remove the touch blocker
+            spinnerTunnelProtocol.isEnabled = true
+            spinnerTunnelProtocol.setOnTouchListener(null)
+            spinnerTunnelProtocol.alpha = 1.0f
+            findViewById<TextView>(R.id.tv_tunnel_protocol_label)?.alpha = 1.0f
+
+            spinnerVlessProtocol.isEnabled = true
+            spinnerVlessProtocol.setOnTouchListener(null)
+            spinnerVlessProtocol.alpha = 1.0f
+        }
+
         fun updateVlessProtocolSpinner(selectedCdn: String): Boolean {
             val vlessProtosInConfig = baseSupportedProtocols.filter { it.startsWith("vless") }
             val supportedByCdn = vlessProtosInConfig.filter { mobile.Mobile.cdnSupportsProtocol(selectedCdn, it) }
@@ -824,10 +843,7 @@ class ConfigEditorActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val input = s.toString().trim()
                 if (input.isNotEmpty()) {
-                    // Try to decrypt it (assuming it is a Fake IP)
                     var decrypted = mobile.Mobile.decryptIP(input)
-
-                    // Fallback: If Go returns empty, the user pasted a Real IP
                     if (decrypted.isEmpty() || decrypted == input) {
                         decrypted = input
                     }
@@ -839,14 +855,12 @@ class ConfigEditorActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        // Setup Target CDN Spinner ---
         val spinnerEditorCdn = findViewById<Spinner>(R.id.spinner_editor_cdn)
         val layoutEditorCdn = findViewById<LinearLayout>(R.id.layout_editor_cdn)
         val spinnerEditorPort = findViewById<Spinner>(R.id.spinner_editor_port)
         val layoutEditorPort = findViewById<LinearLayout>(R.id.layout_editor_port)
 
         val cdnList = mutableListOf<String>()
-        // 1. If it's a default config, fetch its explicitly allowed CDNs
         if (isDefault) {
             val nativeIndex = editingConfigId?.removePrefix("default_")?.toLongOrNull() ?: 0L
             val configCloudsStr = mobile.Mobile.getDefaultConfigClouds(nativeIndex)
@@ -855,7 +869,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
 
-        // 2. Fallback: If it's a Custom Config (or the JSON didn't have the "clouds" array), load the Global list
         if (cdnList.isEmpty()) {
             val cdnCount = mobile.Mobile.getCdnCount()
             for (i in 0 until cdnCount) {
@@ -882,12 +895,10 @@ class ConfigEditorActivity : AppCompatActivity() {
             config?.vlessPort ?: 443
         }
 
-        // Load Global Override settings
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
         val globalCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
 
-        // Load this config's saved CDN (bypass the Config data class to prevent data loss)
         val currentConfigCdn = if (isDefault) {
             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 .getString("${editingConfigId}_cdn", "CloudX") ?: "CloudX"
@@ -896,7 +907,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 .getString("${editingConfigId}_cdn", "CloudX") ?: "CloudX"
         }
 
-        // Helper function to populate port spinner
         fun updatePortSpinner(selectedCdn: String, targetPort: Int) {
             val portsCsv = mobile.Mobile.getCdnPortsCsv(selectedCdn)
             val cdnFilteredPorts = if (portsCsv.isNotEmpty()) {
@@ -919,20 +929,14 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
 
-        // Apply Logic: If Global Override is ON, force it to the Global setting initially
         val cdnToSelect = if (globalOverride) globalCdn else currentConfigCdn
         var cdnIndex = cdnList.indexOf(cdnToSelect)
 
-        // Safety: If their previously saved CDN isn't in this config's allowed 'clouds' array, force it to the first available one
-        if (cdnIndex < 0 && cdnList.isNotEmpty()) {
-            cdnIndex = 0
-        }
+        if (cdnIndex < 0 && cdnList.isNotEmpty()) cdnIndex = 0
 
         if (cdnIndex >= 0) spinnerEditorCdn.setSelection(cdnIndex)
 
-        // Initialize sub-spinners safely
         updateVlessProtocolSpinner(cdnToSelect)
-        // Initialize port spinner with initial CDN
         updatePortSpinner(cdnToSelect, currentConfigPort)
 
         var isInitialCdnSetup = true
@@ -941,7 +945,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>, view: View?, position: Int, id: Long) {
                 val selectedCdn = parent.getItemAtPosition(position).toString()
 
-                // 1. Synchronize Vless-Protocol with newly selected CDN
                 val masterProto = spinnerTunnelProtocol.selectedItem?.toString()?.lowercase()?.trim() ?: ""
                 if (masterProto.startsWith("vless")) {
                     val success = updateVlessProtocolSpinner(selectedCdn)
@@ -955,17 +958,14 @@ class ConfigEditorActivity : AppCompatActivity() {
                     }
                 }
 
-                // 2. Update ports available for the newly selected CDN
                 val currentSelectedPort = spinnerEditorPort.selectedItem?.toString()?.toIntOrNull() ?: currentConfigPort
                 updatePortSpinner(selectedCdn, currentSelectedPort)
 
-                // Ignore the IP clearing logic on initial view rendering
                 if (isInitialCdnSetup) {
                     isInitialCdnSetup = false
                     return
                 }
 
-                // Instantly clear the existing IP to prevent a CDN/IP mismatch
                 realVlessIp = ""
                 etVlessIp.setText("")
 
@@ -985,12 +985,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                             val rawIp = obj.getString("ip")
                             val decryptedIp = CryptoHelper.decrypt(rawIp)
 
-                            // 1. Save the very first IP we see as a safety fallback
-                            if (fallbackIp.isEmpty()) {
-                                fallbackIp = decryptedIp
-                            }
+                            if (fallbackIp.isEmpty()) fallbackIp = decryptedIp
 
-                            // 2. If this specific IP is checked, use it and stop searching immediately!
                             val isChecked = obj.optBoolean("isChecked", false)
                             if (isChecked) {
                                 firstIp = decryptedIp
@@ -1002,22 +998,18 @@ class ConfigEditorActivity : AppCompatActivity() {
                     e.printStackTrace()
                 }
 
-                // 3. If the loop finished and we never found a checked IP, use the fallback
                 if (firstIp.isEmpty() && fallbackIp.isNotEmpty()) {
                     firstIp = fallbackIp
                 }
 
-                // Replace with the retrieved IP (if one was found)
                 if (firstIp.isNotEmpty()) {
                     realVlessIp = firstIp
                     etVlessIp.setText(mobile.Mobile.encryptIP(firstIp))
                 }
-
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
         }
 
-        // 1. Load the currently saved value
         val currentVlessIp = if (isDefault) {
             val encrypted = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                 .getString("${editingConfigId}_vlessIp", "") ?: ""
@@ -1036,21 +1028,23 @@ class ConfigEditorActivity : AppCompatActivity() {
         }
 
         if (!mobile.Mobile.isOfficialBuild()) {
-            // 1. Hide the Tunnel Protocol Selection
             findViewById<TextView>(R.id.tv_tunnel_protocol_label)?.visibility = View.GONE
             spinnerTunnelProtocol.visibility = View.GONE
-
-            // 2. Hide the VLESS IP configuration
             tvVlessIpLabel.visibility = View.GONE
             etVlessIp.visibility = View.GONE
         }
 
-        // 2. Add Listener to toggle visibility and states dynamically
+        // =================================================================
+        // DYNAMIC TUNNEL PROTOCOL LISTENER
+        // =================================================================
         spinnerTunnelProtocol.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>, view: View?, position: Int, id: Long) {
                 val selected = parent.getItemAtPosition(position).toString().lowercase().trim()
                 val isVaydns = selected == "vaydns"
-                val visibilityState = if (isVaydns) View.VISIBLE else View.GONE
+                val isMasterDns = selected == "masterdns"
+                val isSlipstream = selected == "slipstream"
+                val isDnsBase = isVaydns || isMasterDns || isSlipstream
+                val visibilityState = if (isDnsBase) View.VISIBLE else View.GONE
                 val isVless = selected.startsWith("vless")
 
                 val tvModeLabel = findViewById<TextView>(R.id.tv_mode_label)
@@ -1060,7 +1054,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                 val rbTls = findViewById<RadioButton>(R.id.rb_tls)
                 val rbHttps = findViewById<RadioButton>(R.id.rb_https)
 
-                // 1. Handle Vless Block universally
                 if (isVless) {
                     tvVlessIpLabel.visibility = View.VISIBLE
                     etVlessIp.visibility = View.VISIBLE
@@ -1069,7 +1062,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                     layoutVlessProtocol.visibility = View.VISIBLE
                     layoutEditorPort.visibility = View.VISIBLE
 
-                    // Fallback to CloudX if the current CDN is invalid for the VLESS block
                     val selectedCdn = spinnerEditorCdn.selectedItem?.toString() ?: "CloudX"
                     val success = updateVlessProtocolSpinner(selectedCdn)
                     if (!success) {
@@ -1118,29 +1110,88 @@ class ConfigEditorActivity : AppCompatActivity() {
 
                     for (v in vaydnsFields) {
                         v?.visibility = visibilityState
-                        v?.isEnabled = isVaydns
-                        v?.alpha = if (isVaydns) 1.0f else 0.3f
+                        v?.isEnabled = isDnsBase
+                        v?.alpha = if (isDnsBase) 1.0f else 0.3f
                     }
 
-                    if (!isVaydns) {
+                    if (!isDnsBase) {
                         swAuth.isChecked = false
                         swSshKey.isChecked = false
-                    } else {
-                        // Smart Recovery for Custom Configs
+                        layoutSlipstreamParams.visibility = View.GONE
+                        tvMasterDnsMethodLabel?.visibility = View.GONE
+                        spMasterDnsMethod.visibility = View.GONE
+                    } else if (isSlipstream) {
+                        // =================================================================
+                        // SLIPSTREAM LOGIC
+                        // =================================================================
+                        layoutSlipstreamParams.visibility = View.VISIBLE
+                        switchMultiDomain.visibility = View.GONE
+                        etDomain.hint = "t.example.com"
+
+                        tvPubkeyLabel?.text = "Public Certificate:"
+                        etPubkey.hint = "Optional"
+
+                        tvPubkeyLabel?.visibility = View.GONE
+                        layoutSlipstreamParams.visibility = View.VISIBLE
+                        switchMultiDomain.visibility = View.GONE
+
+                        val certSwitch = findViewById<SwitchCompat>(R.id.sw_slipstream_cert)
+                        if (certSwitch?.isChecked == true) {
+                            etPubkey.hint = "Paste Public Certificate (PEM) here..."
+                            etPubkey.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                            etPubkey.minLines = 15
+                            etPubkey.maxLines = 60
+                            etPubkey.setHorizontallyScrolling(false)
+                            etPubkey.gravity = android.view.Gravity.TOP
+                        } else {
+                            etPubkey.visibility = View.GONE
+                        }
+
+                        spRecordType.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_record_type_label)?.visibility = View.GONE
+                        etIdleTimeout.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_idle_timeout_label)?.visibility = View.GONE
+                        etClientIdSize.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_client_id_size_label)?.visibility = View.GONE
+                        swDnstt.visibility = View.GONE
+
+                        tvMasterDnsMethodLabel?.visibility = View.GONE
+                        spMasterDnsMethod.visibility = View.GONE
+
+                        // Force UDP Mode
+                        tvModeLabel?.visibility = View.GONE
+                        rgMode?.visibility = View.GONE
+                        rgMode?.check(R.id.rb_udp)
+
+                        // Force Local Proxy Protocol
+                        rgProxyProtocol.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_proxy_protocol_label)?.visibility = View.GONE
+                        rgProxyProtocol.check(R.id.rb_proxy_socks)
+
+                        // Default Keep Alive logic
+                        if (etKeepAlive.text.toString() == "2s" || etKeepAlive.text.toString().isEmpty()) {
+                            etKeepAlive.setText("5s")
+                        }
+
+                        // Retain Auth Block
+                        swAuth.visibility = View.VISIBLE
+                        rgAuthProtocol.visibility = View.VISIBLE
+                        findViewById<TextView>(R.id.tv_auth_protocol_label)?.visibility = View.VISIBLE
+                        swSshKey.visibility = View.VISIBLE
+
                         val isAuthOn = swAuth.isChecked
                         val authProtoId = rgAuthProtocol.checkedRadioButtonId
-                        val tvSsMethodLabelLocal = findViewById<TextView>(R.id.tv_ss_method_label)
                         val tvUserLabelLocal = findViewById<TextView>(R.id.tv_user_label)
 
                         if (authProtoId == R.id.rb_auth_shadowsocks) {
                             tvUserLabelLocal?.visibility = View.GONE
                             etUser.visibility = View.GONE
-                            tvSsMethodLabelLocal?.visibility = View.VISIBLE
+                            tvSsMethodLabel.visibility = View.VISIBLE
                             spSsMethod.visibility = View.VISIBLE
                         } else {
                             tvUserLabelLocal?.visibility = View.VISIBLE
                             etUser.visibility = View.VISIBLE
-                            tvSsMethodLabelLocal?.visibility = View.GONE
+                            tvSsMethodLabel.visibility = View.GONE
                             spSsMethod.visibility = View.GONE
                         }
 
@@ -1157,14 +1208,151 @@ class ConfigEditorActivity : AppCompatActivity() {
                             child.isEnabled = isAuthOn
                             child.alpha = if (isAuthOn) 1.0f else 0.5f
                         }
+                    } else if (isMasterDns) {
+                        // =================================================================
+                        // MASTERDNS LOGIC
+                        // =================================================================
+                        switchMultiDomain.visibility = View.GONE
+                        etDomain.hint = "t.example.com"
+
+                        spRecordType.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_record_type_label)?.visibility = View.GONE
+                        etIdleTimeout.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_idle_timeout_label)?.visibility = View.GONE
+                        etKeepAlive.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_keep_alive_label)?.visibility = View.GONE
+                        etClientIdSize.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_client_id_size_label)?.visibility = View.GONE
+                        swDnstt.visibility = View.GONE
+                        layoutSlipstreamParams.visibility = View.GONE
+                        switchMultiDomain.visibility = View.GONE
+                        // Force proxy protocol to SOCKS5 and disable changing
+                        rgProxyProtocol.check(R.id.rb_proxy_socks)
+                        for (i in 0 until rgProxyProtocol.childCount) {
+                            val child = rgProxyProtocol.getChildAt(i)
+                            child.isEnabled = false
+                            child.alpha = 0.5f
+                        }
+
+                        tvMasterDnsMethodLabel?.visibility = View.VISIBLE
+                        spMasterDnsMethod.visibility = View.VISIBLE
+
+                        // DYNAMICALLY SHOW/HIDE ENCRYPTION KEY BASED ON "NONE"
+                        if (spMasterDnsMethod.selectedItem?.toString().equals("None", ignoreCase = true)) {
+                            tvPubkeyLabel?.visibility = View.GONE
+                            etPubkey.visibility = View.GONE
+                        } else {
+                            tvPubkeyLabel?.visibility = View.VISIBLE
+                            etPubkey.visibility = View.VISIBLE
+                            tvPubkeyLabel?.text = "Encryption Key:"
+                        }
+
+                        etPubkey.hint = "Tunnel Encryption Key ..."
+                        etPubkey.inputType = android.text.InputType.TYPE_CLASS_TEXT
+                        etPubkey.minLines = 1
+                        etPubkey.maxLines = 1
+                        etPubkey.gravity = android.view.Gravity.CENTER_VERTICAL
+
+                        // Show Auth block normally, but ensure SS spinner hides and MasterDNS cipher stays
+                        swAuth.visibility = View.VISIBLE
+                        rgAuthProtocol.visibility = View.VISIBLE
+                        findViewById<TextView>(R.id.tv_auth_protocol_label)?.visibility = View.VISIBLE
+                        swSshKey.visibility = View.VISIBLE
+
+                        val isAuthOn = swAuth.isChecked
+                        val authProtoId = rgAuthProtocol.checkedRadioButtonId
+                        val tvUserLabelLocal = findViewById<TextView>(R.id.tv_user_label)
+
+                        if (authProtoId == R.id.rb_auth_shadowsocks) {
+                            tvUserLabelLocal?.visibility = View.GONE
+                            etUser.visibility = View.GONE
+                            tvSsMethodLabel.visibility = View.VISIBLE
+                            spSsMethod.visibility = View.VISIBLE
+                        } else {
+                            tvUserLabelLocal?.visibility = View.VISIBLE
+                            etUser.visibility = View.VISIBLE
+                            tvSsMethodLabel.visibility = View.GONE
+                            spSsMethod.visibility = View.GONE
+                        }
+
+                        etUser.isEnabled = isAuthOn
+                        etPass.isEnabled = isAuthOn
+
+                        val sshAllowed = isAuthOn && authProtoId == R.id.rb_auth_ssh
+                        swSshKey.isEnabled = sshAllowed
+                        swSshKey.alpha = if (sshAllowed) 1.0f else 0.3f
+                        if (!sshAllowed) swSshKey.isChecked = false
+
+                        for (i in 0 until rgAuthProtocol.childCount) {
+                            val child = rgAuthProtocol.getChildAt(i)
+                            child.isEnabled = isAuthOn
+                            child.alpha = if (isAuthOn) 1.0f else 0.5f
+                        }
+
+                    } else {
+                        // =================================================================
+                        // VAYDNS LOGIC
+                        // =================================================================
+                        layoutSlipstreamParams.visibility = View.GONE
+                        etDomain.hint = "t.example.com,t.domain.com"
+                        tvPubkeyLabel?.text = "Server Public Key:"
+
+                        etPubkey.visibility = View.VISIBLE
+                        etPubkey.inputType = android.text.InputType.TYPE_CLASS_TEXT
+                        etPubkey.minLines = 1
+                        etPubkey.maxLines = 1
+                        etPubkey.gravity = android.view.Gravity.CENTER_VERTICAL
+                        etPubkey.hint = "Your Server Key"
+
+                        tvMasterDnsMethodLabel?.visibility = View.GONE
+                        spMasterDnsMethod.visibility = View.GONE
+
+                        swAuth.visibility = View.VISIBLE
+                        rgAuthProtocol.visibility = View.VISIBLE
+                        findViewById<TextView>(R.id.tv_auth_protocol_label)?.visibility = View.VISIBLE
+                        swSshKey.visibility = View.VISIBLE
+
+                        val isAuthOn = swAuth.isChecked
+                        val authProtoId = rgAuthProtocol.checkedRadioButtonId
+                        val tvUserLabelLocal = findViewById<TextView>(R.id.tv_user_label)
+
+                        if (authProtoId == R.id.rb_auth_shadowsocks) {
+                            tvUserLabelLocal?.visibility = View.GONE
+                            etUser.visibility = View.GONE
+                            tvSsMethodLabel.visibility = View.VISIBLE
+                            spSsMethod.visibility = View.VISIBLE
+                        } else {
+                            tvUserLabelLocal?.visibility = View.VISIBLE
+                            etUser.visibility = View.VISIBLE
+                            tvSsMethodLabel.visibility = View.GONE
+                            spSsMethod.visibility = View.GONE
+                        }
+
+                        etUser.isEnabled = isAuthOn
+                        etPass.isEnabled = isAuthOn
+
+                        val sshAllowed = isAuthOn && authProtoId == R.id.rb_auth_ssh
+                        swSshKey.isEnabled = sshAllowed
+                        swSshKey.alpha = if (sshAllowed) 1.0f else 0.3f
+                        if (!sshAllowed) swSshKey.isChecked = false
+
+                        for (i in 0 until rgAuthProtocol.childCount) {
+                            val child = rgAuthProtocol.getChildAt(i)
+                            child.isEnabled = isAuthOn
+                            child.alpha = if (isAuthOn) 1.0f else 0.5f
+                        }
+
+                        for (i in 0 until rgProxyProtocol.childCount) {
+                            val child = rgProxyProtocol.getChildAt(i)
+                            child.isEnabled = true
+                            child.alpha = 1.0f
+                        }
                     }
 
                 } else {
                     // =================================================================
                     // OFFICIAL (DEFAULT) CONFIGS: Strict Lockdown
                     // =================================================================
-
-                    // 1. Only toggle these few allowed fields for Phoenix
                     val allowedDefaultFields = listOf<View?>(
                         etMtu, findViewById(R.id.tv_mtu_label),
                         switchMultiDomain, swUseDefaultResolvers,
@@ -1178,18 +1366,42 @@ class ConfigEditorActivity : AppCompatActivity() {
                         v?.visibility = visibilityState
                     }
 
-                    // Enable proxy protocol buttons when VayDNS is active, disable them for Direct
-                    for (i in 0 until rgProxyProtocol.childCount) {
-                        val child = rgProxyProtocol.getChildAt(i)
-                        child.isEnabled = isVaydns
-                        child.alpha = if (isVaydns) 1.0f else 0.5f
+                    if (isMasterDns || isSlipstream) {
+                        findViewById<RadioGroup>(R.id.rg_domain_selector)?.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_domain_selector_label)?.visibility = View.GONE
+                        switchMultiDomain.visibility = View.GONE
+
+                        rgProxyProtocol.check(R.id.rb_proxy_socks)
+                        for (i in 0 until rgProxyProtocol.childCount) {
+                            val child = rgProxyProtocol.getChildAt(i)
+                            child.isEnabled = false
+                            child.alpha = 0.5f
+                        }
+                    } else {
+                        for (i in 0 until rgProxyProtocol.childCount) {
+                            val child = rgProxyProtocol.getChildAt(i)
+                            child.isEnabled = isDnsBase
+                            child.alpha = if (isDnsBase) 1.0f else 0.5f
+                        }
                     }
 
-                    // 2. ABSOLUTE HIDE: Ensure forbidden fields are NEVER shown for official configs!
+                    // Explicitly display Congestion and GSO for default Slipstream configs
+                    if (isSlipstream) {
+                        layoutSlipstreamParams.visibility = View.VISIBLE
+                        // Hide the cert switch since default configs rely on the native vault
+                        findViewById<SwitchCompat>(R.id.sw_slipstream_cert)?.visibility = View.GONE
+                        // Hide Authoritative Mode for default configs
+                        swSlipstreamAuthoritative.visibility = View.GONE
+                        findViewById<TextView>(R.id.tv_slipstream_auth_warning)?.visibility = View.GONE
+                    } else {
+                        layoutSlipstreamParams.visibility = View.GONE
+                    }
+
                     val forbiddenDefaultFields = listOf<View?>(
                         etDomain, etPubkey, spRecordType, etIdleTimeout,
                         etKeepAlive, etClientIdSize, swDnstt, swAuth, swSshKey,
                         rgAuthProtocol, spSsMethod, etUser, etPass,
+                        spMasterDnsMethod, tvMasterDnsMethodLabel,
 
                         findViewById(R.id.tv_user_label), findViewById(R.id.tv_pass_label),
                         findViewById(R.id.tv_auth_protocol_label), findViewById(R.id.tv_ss_method_label),
@@ -1199,7 +1411,7 @@ class ConfigEditorActivity : AppCompatActivity() {
                     )
 
                     for (v in forbiddenDefaultFields) {
-                        v?.visibility = View.GONE // Force permanent hide
+                        v?.visibility = View.GONE
                     }
                 }
 
@@ -1207,30 +1419,34 @@ class ConfigEditorActivity : AppCompatActivity() {
                 // TUNNEL MODE (UDP / TCP / DoT / DoH) DYNAMIC VISIBILITY
                 // =================================================================
 
-                if (isVaydns) {
-                    tvModeLabel?.visibility = View.VISIBLE
-                    rgMode?.visibility = View.VISIBLE
-                    rbUdp?.visibility = View.VISIBLE
-                    rbTcp?.visibility = View.VISIBLE
-                    rbTls?.visibility = View.VISIBLE
-                    rbHttps?.visibility = View.VISIBLE
+                if (isDnsBase) {
+                    if (isMasterDns || isSlipstream) {
+                        tvModeLabel?.visibility = View.GONE
+                        rgMode?.visibility = View.GONE
+                        rgMode?.check(R.id.rb_udp)
+                    } else {
+                        tvModeLabel?.visibility = View.VISIBLE
+                        rgMode?.visibility = View.VISIBLE
+                        rbUdp?.visibility = View.VISIBLE
+                        rbTcp?.visibility = View.VISIBLE
+                        rbTls?.visibility = View.VISIBLE
+                        rbHttps?.visibility = View.VISIBLE
 
-                    tvModeLabel?.isEnabled = true
-                    tvModeLabel?.alpha = 1.0f
-                    rgMode?.isEnabled = true
-                    rgMode?.alpha = 1.0f
+                        tvModeLabel?.isEnabled = true
+                        tvModeLabel?.alpha = 1.0f
+                        rgMode?.isEnabled = true
+                        rgMode?.alpha = 1.0f
+                    }
                 } else {
                     tvModeLabel?.visibility = View.GONE
                     rgMode?.visibility = View.GONE
                 }
 
-                // Keep the dynamic resolver field safe
                 updateDnsFieldState()
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>) {}
         }
 
-// 2. Add Listener to the new Toolbar Icon
         val btnSaveIcon = findViewById<ImageButton>(R.id.btn_save_icon)
         btnSaveIcon.setOnClickListener {
             val name = etName.text.toString().trim()
@@ -1242,7 +1458,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             var selectedTunnelProtocol = spinnerTunnelProtocol.selectedItem.toString()
             val isDnsProto = selectedTunnelProtocol.lowercase().trim() == "dns"
 
-            // CREATE dns_mode ("UDP", "TCP", "DoT", "DoH")
             val dns_mode = when (rgMode.checkedRadioButtonId) {
                 R.id.rb_udp -> "UDP"
                 R.id.rb_tcp -> "TCP"
@@ -1252,7 +1467,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
             val mode = dns_mode.lowercase()
 
-            // OVERRIDE master protocol with VLESS Protocol spinner if applicable
             if (selectedTunnelProtocol.lowercase().startsWith("vless")) {
                 selectedTunnelProtocol = spinnerVlessProtocol.selectedItem?.toString() ?: selectedTunnelProtocol
             }
@@ -1261,7 +1475,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             val selectedPortStr = spinnerEditorPort.selectedItem?.toString() ?: "443"
             val selectedPort = selectedPortStr.toLongOrNull() ?: 443L
 
-            // GUARDRAIL 1: Protocol compatibility
             if (selectedTunnelProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
                 val supported = Mobile.cdnSupportsProtocol(selectedCdn, selectedTunnelProtocol)
                 if (!supported) {
@@ -1269,7 +1482,6 @@ class ConfigEditorActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
 
-                // GUARDRAIL 2: Port compatibility
                 val portSupported = Mobile.cdnSupportsPort(selectedCdn, selectedPort)
                 if (!portSupported) {
                     Toast.makeText(this, "Cannot Save: CDN '$selectedCdn' does not support port '$selectedPortStr'!", Toast.LENGTH_LONG).show()
@@ -1277,22 +1489,39 @@ class ConfigEditorActivity : AppCompatActivity() {
                 }
             }
 
-            /**val mode = when (rgMode.checkedRadioButtonId) {
-                R.id.rb_tcp -> "tcp"
-                R.id.rb_tls -> "dot"
-                R.id.rb_https -> "doh"
-                else -> "udp"
-            }*/
             val ssMethod = spSsMethod.selectedItem.toString()
+            val masterDnsMethodValue = spMasterDnsMethod.selectedItem.toString() // NEW
             val domain = etDomain.text.toString().trim()
-            val pubkey = etPubkey.text.toString().trim()
+            var pubkey = etPubkey.text.toString().trim()
+
+            val swSlipstreamCertLocal = findViewById<SwitchCompat>(R.id.sw_slipstream_cert)
+
+            // STRICT VALIDATION FOR SLIPSTREAM
+            if (selectedTunnelProtocol.lowercase() == "slipstream") {
+                if (swSlipstreamCertLocal?.isChecked == true) {
+                    if (pubkey.isEmpty()) {
+                        Toast.makeText(this, "Certificate cannot be empty when toggle is ON.", Toast.LENGTH_SHORT).show()
+                        return@setOnClickListener
+                    }
+                    if (!isValidTLSCertificate(pubkey)) {
+                        Toast.makeText(this, "Invalid Public Certificate. Please check your PEM data.", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                } else {
+                    pubkey = "" // Clear it if the switch is off
+                }
+            }
+
             val dns = etDns.text.toString().trim()
             val clientIdSize = etClientIdSize.text.toString().toLongOrNull() ?: 2L
             val configId = intent.getStringExtra("CONFIG_ID") ?: "user_${System.currentTimeMillis()}"
             val mtu = etMtu.text.toString().toLongOrNull() ?: 0L
+            val slipCongestion = spSlipstreamCongestion.selectedItem?.toString() ?: "BBR"
+            val slipAuth = swSlipstreamAuthoritative.isChecked
+            val slipGso = swSlipstreamGso.isChecked
 
-            if ( mtu != 0L && (mtu < 30 || mtu > 130)) {
-                Toast.makeText(this, "Invalid MTU: Please enter a value between 30 and 130, or 0 for default.", Toast.LENGTH_LONG).show()
+            if ( mtu != 0L && (mtu < 40 || mtu > 140)) {
+                Toast.makeText(this, "Invalid MTU: Please enter a value between 40 and 140, or 0 for default.", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             val dnstt = swDnstt.isChecked
@@ -1307,11 +1536,21 @@ class ConfigEditorActivity : AppCompatActivity() {
 
             val useAuth = swAuth.isChecked || authProtocol == "shadowsocks" || authProtocol == "ssh"
 
-            // Fetch the values from the UI
             val finalUser = etUser.text.toString().trim()
             val finalPass = etPass.text.toString().trim()
 
-            // Sync final input to caches before saving (from our previous multi-protocol cache implementation)
+            // STRICT VALIDATION FOR SSH PRIVATE KEY
+            if (useAuth && authProtocol == "ssh" && useSshKey) {
+                if (finalPass.isEmpty()) {
+                    Toast.makeText(this, "SSH Private Key cannot be empty when toggle is ON.", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                if (!isValidSSHPrivateKey(finalPass)) {
+                    Toast.makeText(this, "Invalid SSH Private Key. Ensure it contains the '-----BEGIN...PRIVATE KEY-----' headers.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+            }
+
             when (currentAuthMode) {
                 "ssh" -> { sshUserCache = finalUser; sshPassCache = finalPass }
                 "shadowsocks" -> { ssPassCache = finalPass }
@@ -1330,11 +1569,9 @@ class ConfigEditorActivity : AppCompatActivity() {
                 else -> 0
             }
 
-            // --- SANITY CHECK START ---
             fun normalizeDuration(input: String, default: String): String {
                 val raw = input.lowercase().trim()
                 if (raw.isEmpty()) return default
-
                 return when {
                     raw.endsWith("ms") || raw.endsWith("s") -> raw
                     raw.all { it.isDigit() } -> "${raw}s"
@@ -1352,42 +1589,26 @@ class ConfigEditorActivity : AppCompatActivity() {
                 R.id.rb_https -> lastDoh = dns
             }
 
-            // 1. Save 10 Manual Rows (Persistent inputs)
             val manualAddrs = resolverEntries.filter { it.isManual }.map { it.address }
             java.io.File(filesDir, "manual_resolvers_$configId.txt").writeText(manualAddrs.joinToString("\n"))
 
-            // 2. Save Selected Multipath (Final list for Go engine)
             val selectedAddrs = resolverEntries
                 .filter { it.isChecked && it.address.isNotEmpty() }
                 .mapNotNull { sanitizeResolverInput(it.address, mode) }
-
-            val engineResolvers = if (selectedAddrs.isEmpty()) {
-                listOf(dns)
-            } else {
-                selectedAddrs.map { res ->
-                    when (mode) {
-                        "doh" -> if (res.startsWith("https://") || res.startsWith("http://")) res else "https://$res/dns-query"
-                        "dot" -> if (res.contains(":")) res else "$res:853"
-                        else ->  if (res.contains(":")) res else "$res:53"
-                    }
-                }
-            }
 
             java.io.File(filesDir, "selected_multipath_$configId.txt").writeText(selectedAddrs.joinToString("\n"))
 
             saveOrUpdateConfig(
                 configId,
                 name, domain, pubkey, dns, mode, dns_mode, rt, idle, keep,
-                clientIdSize, mtu,dnstt, useAuth, useSshKey, localProxyProtocol,
-                authProtocol, ssMethod, user, pass, useMultiDomains, selectedTunnelProtocol,
-                selectedVlessIp, selectedDomainIndex, selectedCdn, selectedPort.toInt()
+                clientIdSize, mtu, dnstt, useAuth, useSshKey, localProxyProtocol,
+                authProtocol, ssMethod, masterDnsMethodValue, user, pass, useMultiDomains, selectedTunnelProtocol,
+                selectedVlessIp, selectedDomainIndex, selectedCdn, selectedPort.toInt(), slipCongestion, slipAuth, slipGso
             )
             finish()
         }
 
-        // 2. Add Listener to toggle visibility dynamically
         if (editingConfigId == null) {
-            // Since default is Socks, force SSH Key switch to be disabled
             swSshKey.isChecked = false
             swSshKey.isEnabled = false
             swAuth.isChecked = false
@@ -1402,7 +1623,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         if (parts.size != 4) return false
         return parts.all { part ->
             val num = part.toIntOrNull()
-            num != null && num in 0..255 // Safely checks for null before evaluating range
+            num != null && num in 0..255
         }
     }
 
@@ -1444,14 +1665,11 @@ class ConfigEditorActivity : AppCompatActivity() {
 
         val etDns = findViewById<EditText>(R.id.et_dns)
         val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
-
         val isVaydns = spinnerTunnelProtocol?.selectedItem?.toString()?.lowercase()?.trim() == "vaydns"
 
-        // Only manage the lockouts if the field is actually visible on screen
         if (isVaydns) {
             etDns.isEnabled = !hasSelections
             etDns.alpha = if (hasSelections) 0.5f else 1.0f
-
             if (hasSelections) {
                 etDns.hint = "Disabled (Multipath active)"
             } else {
@@ -1463,11 +1681,10 @@ class ConfigEditorActivity : AppCompatActivity() {
     private fun setupMultipathData(configId: String) {
         resolverEntries.clear()
 
-        // 1. Load Scanner Results FIRST (They will appear at the top of the list)
         val scanFile = java.io.File(filesDir, "resolvers_$configId.txt")
         if (scanFile.exists()) {
             scanFile.readLines().forEach { line ->
-                val parts = line.split(",") // Split the "IP,Latency" format
+                val parts = line.split(",")
                 val ip = parts[0].trim()
                 val latencyVal = if (parts.size > 1) parts[1].trim() else ""
 
@@ -1477,7 +1694,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
 
-        // 2. Load 10 Persistent Manual Rows SECOND (They will appear at the bottom)
         val manualFile = java.io.File(filesDir, "manual_resolvers_$configId.txt")
         val savedManuals = if (manualFile.exists()) manualFile.readLines() else emptyList()
 
@@ -1486,7 +1702,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             resolverEntries.add(ResolverEntry(addr, isChecked = false, isManual = true, latency = ""))
         }
 
-        // 3. Restore Selection State
         val selectedFile = java.io.File(filesDir, "selected_multipath_$configId.txt")
         val currentSelections = if (selectedFile.exists()) selectedFile.readLines().toSet() else emptySet()
 
@@ -1505,29 +1720,20 @@ class ConfigEditorActivity : AppCompatActivity() {
     }
 
     private fun loadConfigForEditing(
-        etName: EditText, nameValue: String,
-        etDomain: EditText, domainValue: String,
-        etPubkey: EditText, pubkeyValue: String,
-        etDns: EditText, dnsValue: String,
-        rgMode: RadioGroup, modeValue: String,
-        spRecordType: Spinner, rtIndex: Int,
-        etIdleTimeout: EditText, idleValue: String,
-        etKeepAlive: EditText, keepValue: String,
-        etClientIdSize: EditText, clientIdValue: Long,
-        etMtu: EditText, mtuValue: Long,
-        swDnstt: SwitchCompat, dnsttValue: Boolean,
-        swAuth: SwitchCompat, useAuth: Boolean,
-        swSshKey: SwitchCompat, useSshKey: Boolean,
-        rgProxyProtocol: RadioGroup, proxyProtocolValue: String,
-        rgAuthProtocol: RadioGroup, authProtocolValue: String,
-        spSsMethod: Spinner, ssMethodValue: String,
-        etUser: EditText, userValue: String,
-        etPass: EditText, passValue: String,
-        tvUserLabel: TextView, tvPassLabel: TextView,
-        useMultiDomains: Boolean,
-        domainIndex: Int
+        etName: EditText, nameValue: String, etDomain: EditText, domainValue: String,
+        etPubkey: EditText, pubkeyValue: String, etDns: EditText, dnsValue: String,
+        rgMode: RadioGroup, modeValue: String, spRecordType: Spinner, rtIndex: Int,
+        etIdleTimeout: EditText, idleValue: String, etKeepAlive: EditText, keepValue: String,
+        etClientIdSize: EditText, clientIdValue: Long, etMtu: EditText, mtuValue: Long,
+        swDnstt: SwitchCompat, dnsttValue: Boolean, swAuth: SwitchCompat, useAuth: Boolean,
+        swSshKey: SwitchCompat, useSshKey: Boolean, rgProxyProtocol: RadioGroup, proxyProtocolValue: String,
+        rgAuthProtocol: RadioGroup, authProtocolValue: String, spSsMethod: Spinner, ssMethodValue: String,
+        spMasterDnsMethod: Spinner, masterDnsMethodValue: String,
+        etUser: EditText, userValue: String, etPass: EditText, passValue: String,
+        tvUserLabel: TextView, tvPassLabel: TextView, useMultiDomains: Boolean, domainIndex: Int,
+        spSlipstreamCongestion: Spinner, swSlipstreamAuthoritative: SwitchCompat, swSlipstreamGso: SwitchCompat,
+        slipCongestion: String, slipAuth: Boolean, slipGso: Boolean
     ) {
-        // 1. Basic Text Fields
         etName.setText(nameValue)
         etDomain.setText(domainValue)
         switchMultiDomain.isChecked = useMultiDomains
@@ -1537,8 +1743,6 @@ class ConfigEditorActivity : AppCompatActivity() {
         etKeepAlive.setText(keepValue)
         etClientIdSize.setText(clientIdValue.toString())
         etMtu.setText(mtuValue.toString())
-        // etUser.setText(userValue)
-        // etPass.setText(passValue)
 
         val selectedId = when (domainIndex) {
             1 -> R.id.rb_domain_2
@@ -1555,43 +1759,41 @@ class ConfigEditorActivity : AppCompatActivity() {
             if (methodIndex >= 0) spSsMethod.setSelection(methodIndex)
         }
 
+        val mdAdapter = spMasterDnsMethod.adapter as? ArrayAdapter<String>
+        if (mdAdapter != null) {
+            val mdIndex = mdAdapter.getPosition(masterDnsMethodValue)
+            if (mdIndex >= 0) spMasterDnsMethod.setSelection(mdIndex)
+        }
+
         etUser.isEnabled = useAuth
         etPass.isEnabled = useAuth
 
-        // ONLY disable the Auth group based on the Auth Switch (leave Proxy Group alone)
         for (i in 0 until rgAuthProtocol.childCount) {
             val v = rgAuthProtocol.getChildAt(i)
             v.isEnabled = useAuth
             v.alpha = if (useAuth) 1.0f else 0.5f
         }
 
-        // 2. Mode Logic & Memory (Restored)
         when (modeValue.lowercase()) {
-            "tcp" -> {
-                rgMode.check(R.id.rb_tcp)
-                lastTcp = dnsValue
-            }
-            "dot" -> {
-                rgMode.check(R.id.rb_tls)
-                lastDot = dnsValue
-            }
-            "doh" -> {
-                rgMode.check(R.id.rb_https)
-                lastDoh = dnsValue
-            }
-            else -> {
-                rgMode.check(R.id.rb_udp)
-                lastUdp = dnsValue
-            }
+            "tcp" -> { rgMode.check(R.id.rb_tcp); lastTcp = dnsValue }
+            "dot" -> { rgMode.check(R.id.rb_tls); lastDot = dnsValue }
+            "doh" -> { rgMode.check(R.id.rb_https); lastDoh = dnsValue }
+            else -> { rgMode.check(R.id.rb_udp); lastUdp = dnsValue }
         }
 
-        // 3. Proxy Protocol Selection
         when (proxyProtocolValue.lowercase()) {
             "http" -> rgProxyProtocol.check(R.id.rb_proxy_http)
             else -> rgProxyProtocol.check(R.id.rb_proxy_socks)
         }
 
-        // 4. Auth Protocol Selection
+        val congAdapter = spSlipstreamCongestion.adapter as? ArrayAdapter<String>
+        if (congAdapter != null) {
+            val idx = congAdapter.getPosition(slipCongestion)
+            if (idx >= 0) spSlipstreamCongestion.setSelection(idx)
+        }
+        swSlipstreamAuthoritative.isChecked = slipAuth
+        swSlipstreamGso.isChecked = slipGso
+
         when (authProtocolValue.lowercase()) {
             "ssh" -> {
                 rgAuthProtocol.check(R.id.rb_auth_ssh)
@@ -1619,7 +1821,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
 
-        // 5. SSH Key Label Logic & Visibility (Restored)
         if (useSshKey && authProtocolValue.lowercase() == "ssh") {
             tvPassLabel.text = "SSH Private Key"
             etPass.hint = "Paste your private key here..."
@@ -1632,16 +1833,13 @@ class ConfigEditorActivity : AppCompatActivity() {
         } else {
             tvPassLabel.text = "Password:"
             etPass.hint = "Optional"
-            //etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
             etPass.inputType = android.text.InputType.TYPE_CLASS_TEXT
             etPass.minLines = 1
             etPass.maxLines = 1
             etPass.gravity = android.view.Gravity.CENTER_VERTICAL
-            //etPass.transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
             etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
         }
 
-        // Dynamic visibility for SS Method vs Username based on auth type
         val tvSsMethodLabel = findViewById<TextView>(R.id.tv_ss_method_label)
         when (authProtocolValue.lowercase()) {
             "ssh", "socks" -> {
@@ -1658,14 +1856,15 @@ class ConfigEditorActivity : AppCompatActivity() {
             }
         }
 
-        // 6. Auth and Extras
         swDnstt.isChecked = dnsttValue
-        // swAuth.isChecked = useAuth || userValue.isNotEmpty() || passValue.isNotEmpty()
         swAuth.isChecked = useAuth
 
         if (rtIndex >= 0) spRecordType.setSelection(rtIndex)
-
         etPass.transformationMethod = HideReturnsTransformationMethod.getInstance()
+
+        if (pubkeyValue.isNotEmpty()) {
+            findViewById<SwitchCompat>(R.id.sw_slipstream_cert)?.isChecked = true
+        }
     }
 
     private fun populateJsonObject(
@@ -1673,8 +1872,9 @@ class ConfigEditorActivity : AppCompatActivity() {
         mode: String, dns_mode: String, recordType: String, idleTimeout: String, keepAlive: String,
         clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean,
         useSshKey: Boolean, localProxyProtocolValue: String, authProtocolValue: String,
-        ssMethod: String, user: String, pass: String, useMultiDomains: Boolean,
-        tunnelProtocol: String, vlessIp: String, domainIndex: Int, vlessPort: Int
+        ssMethod: String, masterDnsMethodValue: String, user: String, pass: String, useMultiDomains: Boolean,
+        tunnelProtocol: String, vlessIp: String, domainIndex: Int, vlessPort: Int,
+        slipCongestion: String, slipAuth: Boolean, slipGso: Boolean
     ) {
         obj.put("name", name)
         obj.put("domain", domain)
@@ -1693,6 +1893,7 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("localProxyProtocol", localProxyProtocolValue)
         obj.put("authProtocol", authProtocolValue)
         obj.put("ssMethod", ssMethod)
+        obj.put("masterDnsMethod", masterDnsMethodValue)
         obj.put("user", user)
         obj.put("pass", pass)
         obj.put("useMultiDomains", useMultiDomains)
@@ -1705,35 +1906,19 @@ class ConfigEditorActivity : AppCompatActivity() {
         obj.put("ssPass", ssPassCache)
         obj.put("basicUser", basicUserCache)
         obj.put("basicPass", basicPassCache)
+        obj.put("slipCongestion", slipCongestion)
+        obj.put("slipAuth", slipAuth)
+        obj.put("slipGso", slipGso)
     }
 
     private fun saveOrUpdateConfig(
-        passedConfigId: String,
-        name: String,
-        domain: String,
-        pubkey: String,
-        dns: String,
-        mode: String,
-        dns_mode: String,
-        recordType: String,
-        idleTimeout: String,
-        keepAlive: String,
-        clientIdSize: Long,
-        mtu: Long,
-        dnsttCompatible: Boolean,
-        useAuth: Boolean,
-        useSshKey: Boolean,
-        localProxyProtocolValue: String,
-        authProtocolValue: String,
-        ssMethod: String,
-        user: String,
-        pass: String,
-        useMultiDomains: Boolean,
-        tunnelProtocol: String,
-        selectedVlessIp: String,
-        domainIndex: Int,
-        selectedCdn: String,
-        selectedPort: Int
+        passedConfigId: String, name: String, domain: String, pubkey: String, dns: String,
+        mode: String, dns_mode: String, recordType: String, idleTimeout: String, keepAlive: String,
+        clientIdSize: Long, mtu: Long, dnsttCompatible: Boolean, useAuth: Boolean, useSshKey: Boolean,
+        localProxyProtocolValue: String, authProtocolValue: String, ssMethod: String, masterDnsMethodValue: String,
+        user: String, pass: String, useMultiDomains: Boolean, tunnelProtocol: String, selectedVlessIp: String,
+        domainIndex: Int, selectedCdn: String, selectedPort: Int,
+        slipCongestion: String, slipAuth: Boolean, slipGso: Boolean
     ) {
         if (editingConfigId?.startsWith("default_") == true) {
             val prefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
@@ -1750,6 +1935,10 @@ class ConfigEditorActivity : AppCompatActivity() {
                 putString("${editingConfigId}_cdn", selectedCdn)
                 putInt("${editingConfigId}_vlessPort", selectedPort)
                 putString("${editingConfigId}_localProxyProtocol", localProxyProtocolValue)
+                putString("${editingConfigId}_masterDnsMethod", masterDnsMethodValue)
+                putString("${editingConfigId}_slipCongestion", slipCongestion)
+                putBoolean("${editingConfigId}_slipAuth", slipAuth)
+                putBoolean("${editingConfigId}_slipGso", slipGso)
             }.apply()
             finish()
             return
@@ -1758,8 +1947,6 @@ class ConfigEditorActivity : AppCompatActivity() {
         val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val configsString = sharedPref.getString("configs", "[]") ?: "[]"
         val jsonArray = JSONArray(configsString)
-
-        // FIX: This tracks the absolute final configuration token string written to memory
         val finalAssignedId: String
 
         if (editingConfigId != null) {
@@ -1769,37 +1956,29 @@ class ConfigEditorActivity : AppCompatActivity() {
                 if (obj.getString("id") == editingConfigId) {
                     populateJsonObject(obj, name, domain, pubkey, dns, mode, dns_mode, recordType,
                         idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
-                        useSshKey, localProxyProtocolValue, authProtocolValue, ssMethod, user, pass,
-                        useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort)
+                        useSshKey, localProxyProtocolValue, authProtocolValue, ssMethod, masterDnsMethodValue, user, pass,
+                        useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort,
+                        slipCongestion, slipAuth, slipGso)
                     break
                 }
             }
         } else {
-            // Generate the real random string ID before making file moves
             finalAssignedId = java.util.UUID.randomUUID().toString()
             val newObj = JSONObject()
             newObj.put("id", finalAssignedId)
             populateJsonObject(newObj, name, domain, pubkey, dns, mode, dns_mode, recordType,
                 idleTimeout, keepAlive, clientIdSize, mtu, dnsttCompatible, useAuth,
-                useSshKey, localProxyProtocolValue, authProtocolValue, ssMethod, user, pass,
-                useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort)
+                useSshKey, localProxyProtocolValue, authProtocolValue, ssMethod, masterDnsMethodValue, user, pass,
+                useMultiDomains, tunnelProtocol, selectedVlessIp, domainIndex, selectedPort,
+                slipCongestion, slipAuth, slipGso)
             jsonArray.put(newObj)
 
-            // File remapping targets now point to finalAssignedId, not temp placeholders!
             val tempManual = java.io.File(filesDir, "manual_resolvers_new_temp_config.txt")
-            if (tempManual.exists()) {
-                tempManual.renameTo(java.io.File(filesDir, "manual_resolvers_${finalAssignedId}.txt"))
-            }
-
+            if (tempManual.exists()) tempManual.renameTo(java.io.File(filesDir, "manual_resolvers_${finalAssignedId}.txt"))
             val tempSelected = java.io.File(filesDir, "selected_multipath_new_temp_config.txt")
-            if (tempSelected.exists()) {
-                tempSelected.renameTo(java.io.File(filesDir, "selected_multipath_${finalAssignedId}.txt"))
-            }
-
+            if (tempSelected.exists()) tempSelected.renameTo(java.io.File(filesDir, "selected_multipath_${finalAssignedId}.txt"))
             val tempScanned = java.io.File(filesDir, "resolvers_new_temp_config.txt")
-            if (tempScanned.exists()) {
-                tempScanned.renameTo(java.io.File(filesDir, "resolvers_${finalAssignedId}.txt"))
-            }
+            if (tempScanned.exists()) tempScanned.renameTo(java.io.File(filesDir, "resolvers_${finalAssignedId}.txt"))
         }
 
         sharedPref.edit().putString("configs", jsonArray.toString()).apply()
@@ -1809,7 +1988,6 @@ class ConfigEditorActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Refresh the subtitle summary values immediately upon returning to window
         val currentId = editingConfigId ?: "new_temp_config"
         setupMultipathData(currentId)
         updateDnsFieldState()
@@ -1824,9 +2002,6 @@ class ConfigEditorActivity : AppCompatActivity() {
 
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                val finalProxyProto = obj.optString("localProxyProtocol", "socks5")
-                val finalAuthProto = obj.optString("authProtocol", "socks")
-
                 list.add(
                     Config(
                         id = obj.getString("id"),
@@ -1843,9 +2018,10 @@ class ConfigEditorActivity : AppCompatActivity() {
                         dnsttCompatible = obj.optBoolean("dnsttCompatible", false),
                         useAuth = obj.optBoolean("useAuth", false),
                         useSshKey = obj.optBoolean("useSshKey", false),
-                        localProxyProtocol = finalProxyProto,
-                        authProtocol = finalAuthProto,
+                        localProxyProtocol = obj.optString("localProxyProtocol", "socks5"),
+                        authProtocol = obj.optString("authProtocol", "socks"),
                         ssMethod = obj.optString("ssMethod", "chacha20-ietf-poly1305"),
+                        masterDnsMethod = obj.optString("masterDnsMethod", "XOR"), // NEW
                         user = obj.optString("user", ""),
                         pass = obj.optString("pass", ""),
                         useMultiDomains = obj.optBoolean("useMultiDomains", false),
@@ -1853,7 +2029,10 @@ class ConfigEditorActivity : AppCompatActivity() {
                         tunnelProtocol = obj.optString("tunnelProtocol", "vaydns"),
                         vlessIp = CryptoHelper.decrypt(obj.optString("vlessIp", "")),
                         vlessPort = obj.optInt("vlessPort", 443),
-                        isDefault = false // User configs are never default
+                        isDefault = false,
+                        slipstreamCongestion = obj.optString("slipCongestion", "BBR"),
+                        slipstreamAuthoritative = obj.optBoolean("slipAuth", false),
+                        slipstreamGso = obj.optBoolean("slipGso", false),
                     )
                 )
             }
@@ -1865,8 +2044,6 @@ class ConfigEditorActivity : AppCompatActivity() {
             val array = JSONArray()
 
             configs.forEach { config ->
-                // We only save custom user configs to SharedPreferences.
-                // Official/Default configs are handled by the .so library or DefaultOverrides.
                 if (!config.isDefault) {
                     val obj = JSONObject().apply {
                         put("id", config.id)
@@ -1881,21 +2058,22 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("clientIdSize", config.clientIdSize)
                         put("mtu", config.mtu)
                         put("dnsttCompatible", config.dnsttCompatible)
-
-                        // --- New Protocol & Auth Fields ---
                         put("useAuth", config.useAuth)
                         put("useSshKey", config.useSshKey)
                         put("localProxyProtocol", config.localProxyProtocol)
                         put("authProtocol", config.authProtocol)
                         put("ssMethod", config.ssMethod)
+                        put("masterDnsMethod", config.masterDnsMethod)
                         put("user", config.user)
                         put("pass", config.pass)
                         put("useMultiDomains", config.useMultiDomains)
                         put("tunnelProtocol", config.tunnelProtocol)
-                        // put("vlessIp", config.vlessIp)
                         put("vlessIp", CryptoHelper.encrypt(config.vlessIp))
                         put("vlessPort", config.vlessPort)
                         put("domainIndex", config.domainIndex)
+                        put("slipCongestion", config.slipstreamCongestion)
+                        put("slipAuth", config.slipstreamAuthoritative)
+                        put("slipGso", config.slipstreamGso)
                     }
                     array.put(obj)
                 }

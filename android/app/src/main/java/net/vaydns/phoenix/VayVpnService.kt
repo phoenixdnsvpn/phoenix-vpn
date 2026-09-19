@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -324,7 +325,14 @@ class VayVpnService : VpnService() {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
-        startForeground(1, notification)
+        //startForeground(1, notification)
+
+        // Android 14+ Crash Prevention
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, notification)
+        }
 
         Thread {
             synchronized(goLock) {
@@ -356,6 +364,7 @@ class VayVpnService : VpnService() {
                     currentProtocol = tunnelProtocol
                     val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
                     val ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
+                    val masterDnsMethod = intent.getStringExtra("MASTERDNS_METHOD") ?: "XOR"
                     val user = intent.getStringExtra("USER") ?: ""
                     val pass = intent.getStringExtra("PASS") ?: ""
                     val engineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
@@ -369,20 +378,24 @@ class VayVpnService : VpnService() {
                     val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
                     val sniIndex = intent.getLongExtra("SNI_INDEX", -1L)
                     val useHysteriaCore = intent.getBooleanExtra("USE_HYSTERIA_CORE", false)
-
+                    val disableAutoRoll = intent.getBooleanExtra("DISABLE_AUTO_ROLL", false)
                     val dns_mode = intent.getStringExtra("DNS_MODE") ?: when ((intent.getStringExtra("MODE") ?: "udp").lowercase()) {
                         "tcp" -> "TCP"
                         "dot" -> "DoT"
                         "doh" -> "DoH"
                         else -> "UDP"
                     }
+                    val slipstreamCongestion = intent.getStringExtra("SLIPSTREAM_CONGESTION") ?: "BBR"
+                    val slipstreamAuthoritative = intent.getBooleanExtra("SLIPSTREAM_AUTHORITATIVE", false)
+                    val slipstreamGso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
 
                     sessionOsRx = 0L
                     sessionOsTx = 0L
 
                     val lowerConfig = configType.lowercase()
                     val lowerProto = tunnelProtocol.lowercase()
-                    var finalMtu = if (lowerConfig == "direct" ||
+                    //var finalMtu = if (lowerConfig == "direct" ||
+                    var finalMtu = if (
                         lowerProto == "hysteria2" || lowerProto == "reality-tcp" || lowerProto == "reality-xhttp" || lowerProto == "dns" ||
                         lowerProto == "vless-httpupgrade" || lowerProto == "vless-ws" || lowerProto == "vless-grpc" || lowerProto == "vless-xhttp" ||
                         lowerProto == "amneziawg" || lowerProto == "wireguard" || lowerProto == "masque" || lowerProto == "warp") {
@@ -405,6 +418,11 @@ class VayVpnService : VpnService() {
                         val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
                         mobile.Mobile.setUsqueBinaryPath(usquePath)
                     }*/
+
+                    if (tunnelProtocol.lowercase() == "slipstream") {
+                        val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
+                        mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
+                    }
 
                     var udp = ""
                     var tcp = ""
@@ -546,7 +564,7 @@ class VayVpnService : VpnService() {
                         }
                     }
 
-                    var bypassIp = dnsAddress
+                    /**var bypassIp = dnsAddress
                     if (bypassIp.startsWith("http")) {
                         try { bypassIp = java.net.URL(bypassIp).host } catch (e: Exception) {}
                     } else if (bypassIp.contains(":")) {
@@ -563,6 +581,49 @@ class VayVpnService : VpnService() {
                                 val ipPrefix = android.net.IpPrefix(inetAddress, 32)
                                 builder.excludeRoute(ipPrefix)
                             } catch (e: Exception) {}
+                        }
+                    }*/
+
+                    // =========================================================
+                    // MULTIPATH DNS BYPASS (CRITICAL FOR MASTERDNS, SLIPSTREAM & VAYDNS)
+                    // =========================================================
+                    // val activeProtocol = tunnelProtocol.lowercase()
+                    val needsDnsBypass = !isDirectMode || tunnelProtocol.lowercase() == "masque" || tunnelProtocol.lowercase() == "masterdns"
+
+                    if (needsDnsBypass && dnsAddress.isNotEmpty()) {
+                        // Split the comma-separated multipath string
+                        val resolvers = dnsAddress.split(",")
+
+                        for (res in resolvers) {
+                            var cleanIp = res.trim()
+
+                            // Strip out HTTP prefixes and Port numbers to isolate the bare IP
+                            if (cleanIp.startsWith("http")) {
+                                try {
+                                    cleanIp = java.net.URL(cleanIp).host
+                                } catch (e: Exception) {
+                                    continue
+                                }
+                            } else if (cleanIp.contains(":")) {
+                                cleanIp = cleanIp.substringBeforeLast(":")
+                            }
+
+                            // Verify using your existing isValidIp function
+                            if (isValidIp(cleanIp)) {
+                                Log.i("VAY_DEBUG", "Excluding Resolver from TUN Route: $cleanIp")
+
+                                // Android 13+ (API 33) supports native route exclusion
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    try {
+                                        val inetAddress = InetAddress.getByName(cleanIp)
+                                        builder.excludeRoute(android.net.IpPrefix(inetAddress, 32))
+                                    } catch (e: Exception) {
+                                        Log.e("VAY_DEBUG", "Failed to bypass resolver: $cleanIp", e)
+                                    }
+                                } else {
+                                    // For Android 12 and below, the Go-side SocketProtector handles the bypass.
+                                }
+                            }
                         }
                     }
 
@@ -655,6 +716,7 @@ class VayVpnService : VpnService() {
                             fd.toLong(),
                             engineType,
                             isDefaultConfig,
+                            disableAutoRoll,
                             configIndex,
                             configType,
                             useMultiDomains,
@@ -677,6 +739,7 @@ class VayVpnService : VpnService() {
                             localProxyProtocol,
                             authProtocol,
                             ssMethod,
+                            masterDnsMethod,
                             user,
                             pass,
                             vlessWsIp,
@@ -689,6 +752,9 @@ class VayVpnService : VpnService() {
                             sniIndex,
                             useHysteriaCore,
                             dns_mode,
+                            slipstreamCongestion,
+                            slipstreamAuthoritative,
+                            slipstreamGso,
                             protector
                         )
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")
@@ -774,14 +840,19 @@ class VayVpnService : VpnService() {
         Thread {
             // val directProtocols = listOf("amneziawg", "wireguard", "masque", "warp", "hysteria2", "reality-tcp", "reality-xhttp", "vless-ws", "vless-xhttp", "vless-grpc", "vless-httpupgrade")
             val directProtocols = Mobile.getDirectProtocols().split(",").map { it.trim().lowercase() }
-            val isDirectMode = activeConfigType.lowercase() == "direct" || currentProtocol.lowercase() in directProtocols
+            //val isDirectMode = activeConfigType.lowercase() == "direct" || currentProtocol.lowercase() in directProtocols
+            val isDirectMode = currentProtocol.lowercase() in directProtocols
 
             // Preserve the 2000ms stabilization delay ONLY for VayDNS
             if (!isDirectMode) {
                 Thread.sleep(2000)
             }
+
+            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+            val maxAttempts = tunnelPrefs.getLong("max_verification_attempts", 2L)
+
             // val verifyResult = Mobile.verifyTunnel()
-            val verifyResult = Mobile.verifyTunnel(currentProtocol)
+            val verifyResult = Mobile.verifyTunnel(currentProtocol, maxAttempts)
 
             if (isStopping) return@Thread
 

@@ -34,6 +34,8 @@ class VayRowPingService : Service() {
         val isWireguardMode = activeProtocol == "wireguard"
         val isMasqueMode = activeProtocol == "masque"
         val isWarpPlusMode = activeProtocol == "warp" // Added WARP+ Support
+        val isMasterDnsMode = activeProtocol == "masterdns"
+        val isSlipstreamMode = activeProtocol == "slipstream"
 
         // ARCHITECTURAL FORK: Check if it is a direct connection by verifying the active protocol string
         val isDirectMode = !configType.lowercase().contains("vaydns") ||
@@ -154,7 +156,74 @@ class VayRowPingService : Service() {
                 }
                 broadcastResult(configId, latency)
             }.start()
+        } else if (isMasterDnsMode) {
+            // =========================================================
+            // DEDICATED MASTERDNS PING (Using Native MTU Probe)
+            // =========================================================
+            val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
+            val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
+            val domain = intent.getStringExtra("DOMAIN") ?: ""
+            val pubkey = intent.getStringExtra("PUBKEY") ?: ""
+            val resolvers = intent.getStringExtra("MULTIPATH_DNS") ?: "8.8.8.8:53"
+            val probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 3000L)
+            var masterDnsMethod = intent.getStringExtra("MASTERDNS_METHOD") ?: "XOR"
 
+            // Recover the cipher if it wasn't passed by the Intent
+            if (masterDnsMethod == "XOR" && !isDefault) {
+                try {
+                    val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this)
+                    val userConfig = currentConfigs.find { it.id == configId }
+                    masterDnsMethod = userConfig?.masterDnsMethod ?: "XOR"
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            Thread {
+                val latency = Mobile.pingMasterDnsRow(
+                    isDefault,
+                    configIndex,
+                    resolvers,
+                    domain,
+                    pubkey,
+                    masterDnsMethod,
+                    probeTimeout
+                )
+                broadcastResult(configId, latency)
+            }.start()
+        } else if (isSlipstreamMode) {
+            // =========================================================
+            // DEDICATED SLIPSTREAM ROW PING (Native L7)
+            // =========================================================
+            val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
+            val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
+            val domain = intent.getStringExtra("DOMAIN") ?: ""
+            val cert = intent.getStringExtra("PUBKEY") ?: ""
+            val resolvers = intent.getStringExtra("MULTIPATH_DNS") ?: ""
+            val probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 15000L)
+
+            // Extract advanced params, using safe defaults if the Intent is missing them
+            val authoritative = intent.getBooleanExtra("SLIPSTREAM_AUTHORITATIVE", false)
+            val congestion = intent.getStringExtra("SLIPSTREAM_CONGESTION") ?: "bbr"
+            val gso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
+
+            val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
+            mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
+
+            Thread {
+                val latency = Mobile.pingSlipstreamRow(
+                    isDefault,
+                    configIndex,
+                    resolvers,
+                    domain,
+                    cert,
+                    authoritative,
+                    congestion,
+                    gso,
+                    probeTimeout
+                )
+                broadcastResult(configId, latency)
+            }.start()
         } else if (isDirectMode) {
             // =========================================================
             // SECURE NATIVE PING (Executes entirely inside Go)

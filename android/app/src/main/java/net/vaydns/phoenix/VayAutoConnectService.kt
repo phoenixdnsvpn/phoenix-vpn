@@ -8,12 +8,17 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import mobile.Mobile
 
 
 class VayAutoConnectService : Service() {
+    companion object {
+        const val NOTIF_ID = 3
+    }
     private var isRunning = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -21,7 +26,14 @@ class VayAutoConnectService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null || intent.action == "ACTION_STOP_VPN") {
             isRunning = false
+            try { Mobile.stopVpn() } catch (_: Exception) {}
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+            nm.cancel(NOTIF_ID)
+            nm.cancel(2)
             stopSelf()
+            Log.i("PhoenixAuto", "Sandbox process exiting")
+            android.os.Process.killProcess(android.os.Process.myPid())
             return START_NOT_STICKY
         }
 
@@ -35,9 +47,9 @@ class VayAutoConnectService : Service() {
 
         // Android 14+ Crash Prevention
         if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(2, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
-            startForeground(2, notification)
+            startForeground(NOTIF_ID, notification)
         }
 
         isRunning = true
@@ -65,6 +77,7 @@ class VayAutoConnectService : Service() {
             val localProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
             val authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
             val ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
+            val masterDnsMethod = intent.getStringExtra("MASTERDNS_METHOD") ?: "XOR"
             val user = intent.getStringExtra("USER") ?: ""
             val pass = intent.getStringExtra("PASS") ?: ""
             val engineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
@@ -80,6 +93,10 @@ class VayAutoConnectService : Service() {
             val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
             val globalDnsServer = tunnelPrefs.getString("global_dns_server", "1.1.1.1") ?: "1.1.1.1"
             val isDebugEnabled = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).getBoolean("debug_logs_enabled", false)
+
+            val slipstreamCongestion = intent.getStringExtra("SLIPSTREAM_CONGESTION") ?: "BBR"
+            val slipstreamAuthoritative = intent.getBooleanExtra("SLIPSTREAM_AUTHORITATIVE", false)
+            val slipstreamGso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
 
             var udp = ""; var tcp = ""; var doh = ""; var dot = ""
             when (mode.lowercase()) {
@@ -123,13 +140,19 @@ class VayAutoConnectService : Service() {
 
                 Log.i("PhoenixAuto", "Attempt $currentAttempt/$maxAttempts: Testing Config Index $candidateIndex with REAL Proxy Engine")
 
-// Start the lightweight Proxy engine using the current candidate index
+                if (tunnelProtocol.lowercase() == "slipstream") {
+                    val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
+                    mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
+                }
+
+                // Start the lightweight Proxy engine using the current candidate index
                 val proxyResult = Mobile.startProxy(
-                    engineType, isDefaultConfig, candidateIndex, configType, useMultiDomains, domainIndex.toLong(),
+                    engineType, isDefaultConfig, true, candidateIndex, configType, useMultiDomains, domainIndex.toLong(),
                     udp, tcp, doh, dot, baseDohUrl, domain, pubkey, recordType, idleTimeout, keepAlive,
                     clientIdSize, mtu, dnsttCompatible, useAuth, tunnelProtocol, localProxyProtocol,
-                    authProtocol, ssMethod, user, pass, 35000L, vlessWsIp, targetCdn, globalDnsServer,
-                    isDebugEnabled, fragment, blockQuic, getServerIpFromDomain, sniIndex, useHysteriaCore, dns_mode
+                    authProtocol, ssMethod, masterDnsMethod, user, pass, 35000L, vlessWsIp, targetCdn, globalDnsServer,
+                    isDebugEnabled, fragment, blockQuic, getServerIpFromDomain, sniIndex, useHysteriaCore, dns_mode,
+                    slipstreamCongestion, slipstreamAuthoritative, slipstreamGso,
                 )
 
                 if (proxyResult.contains("Success")) {
@@ -138,40 +161,34 @@ class VayAutoConnectService : Service() {
                     // Wait exactly 1.5s for the native core to stabilize its routing
                     Thread.sleep(1500)
 
+                    val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                    val maxAttempts = tunnelPrefs.getLong("max_verification_attempts", 2L)
+
                     // Send REAL HTTP traffic through the tunnel to prove DPI isn't dropping the connection
-                    val verifyResult = Mobile.verifyTunnel(tunnelProtocol)
+                    val verifyResult = Mobile.verifyTunnel(tunnelProtocol, maxAttempts)
 
                     if (verifyResult.contains("Success")) {
                         Log.i("PhoenixAuto", "SUCCESS! Config $candidateIndex defeated DPI. Handing off to Main VPN...")
 
-                        // Stop the temporary testing proxy
-                        Mobile.stopVpn()
-                        Thread.sleep(500) // Ensure sockets are freed
-
-                        val targetClass = if (isProxyMode) VayProxyService::class.java else VayVpnService::class.java
-
-                        // 1. Create a fresh intent, copy the extras, and explicitly set the ACTION
-                        val nextIntent = Intent(this@VayAutoConnectService, targetClass).apply {
-                            action = "ACTION_START_VPN"
-                            if (intent?.extras != null) {
-                                putExtras(intent.extras!!)
-                            }
-                            putExtra("CONFIG_INDEX", candidateIndex)
-                            putExtra("DISABLE_AUTO_ROLL", true)
-                        }
-
-                        Log.i("PhoenixAuto", "Dispatching intent to ${targetClass.simpleName}...")
-
-                        try {
-                            // 2. CRITICAL FIX: We MUST use startForegroundService for VpnService too!
-                            // ContextCompat handles the Android version bridging automatically and safely.
-                            androidx.core.content.ContextCompat.startForegroundService(this@VayAutoConnectService, nextIntent)
-                        } catch (e: Exception) {
-                            Log.e("PhoenixAuto", "Failed to dispatch handoff intent: ${e.message}")
-                        }
-
+                        sendBroadcast(
+                            Intent(this@VayAutoConnectService, AutoconnectHandoffReceiver::class.java)
+                                .putExtra("CONFIG_INDEX", candidateIndex)
+                                .putExtra("TUNNEL_PROTOCOL", tunnelProtocol)
+                        )
+                        isRunning = false
                         connected = true
+
+                        Handler(Looper.getMainLooper()).post {
+                            try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
+                            val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+                            nm.cancel(NOTIF_ID)
+                            nm.cancel(2)
+                            Log.i("PhoenixAuto", "Sandbox process exiting")
+                            android.os.Process.killProcess(android.os.Process.myPid())
+                        }
+
                         break
+
                     } else {
                         Log.w("PhoenixAuto", "Config $candidateIndex blocked by DPI during payload transfer. Trying next...")
                     }
@@ -191,13 +208,11 @@ class VayAutoConnectService : Service() {
                     putExtra("message", "Auto-Connect Failed: All eligible servers are blocked by DPI.")
                     setPackage(packageName)
                 })
-            } else if (connected) {
-                // 3. Give the OS Binder time to cross processes and launch the VPN before destroying this process!
-                Thread.sleep(2500)
             }
 
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+
         }.start()
 
         return START_NOT_STICKY

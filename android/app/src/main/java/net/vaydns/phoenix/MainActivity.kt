@@ -1,6 +1,7 @@
 package net.vaydns.phoenix
 
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -39,9 +40,11 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.security.cert.CertificateFactory
 import java.security.MessageDigest
 import net.vaydns.phoenix.ConfigEditorActivity.Companion.loadAllConfigs
 import net.vaydns.phoenix.ConfigEditorActivity.Companion.saveAllConfigs
@@ -61,6 +64,7 @@ private lateinit var btnToggle: Button
 private var isVpnConnected = false // Track state locally for the toggle logic
 private lateinit var recyclerConfigs: RecyclerView
 private lateinit var switchDefault: androidx.appcompat.widget.SwitchCompat
+private lateinit var switchSimpleInterface: androidx.appcompat.widget.SwitchCompat
 private lateinit var layoutNetworkStats: LinearLayout
 private lateinit var tvSpeed: TextView
 private lateinit var tvTotal: TextView
@@ -139,7 +143,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 "ERROR" -> {
                     // 1. Wipe the active ID memory
-                    getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).edit().remove("connected_config_id").apply()
+                    getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).edit()
+                        .remove("connected_config_id")
+                        .remove("connected_protocol")
+                        .apply()
 
                     // 2. TELL SERVICES TO INITIATE GRACEFUL SELF-DESTRUCT
                     startService(Intent(this@MainActivity, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
@@ -158,7 +165,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 "DISCONNECTED", "STOPPED" -> {
                     // 1. Wipe the active ID memory
-                    getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).edit().remove("connected_config_id").apply()
+                    getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE).edit()
+                        .remove("connected_config_id")
+                        .remove("connected_protocol")
+                        .apply()
 
                     // 2. TELL SERVICES TO INITIATE GRACEFUL SELF-DESTRUCT
                     startService(Intent(this@MainActivity, VayVpnService::class.java).apply { action = "ACTION_STOP_VPN" })
@@ -223,19 +233,32 @@ class MainActivity : AppCompatActivity() {
     private fun updateUIState(connected: Boolean) {
         runOnUiThread {
             if (connected) {
-// Read the actual connected config, fallback to selected if missing
+                // Read the actual connected config, fallback to selected if missing
                 val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                 val connectedId = prefs.getString("connected_config_id", selectedConfigId)
 
-                // FIND THE ACTIVE CONFIGURATION NAME FROM THE CACHED LIST
-                val activeConfig = configList.find { it.id == connectedId }
-                if (activeConfig != null) {
-                    supportActionBar?.title = "Phoenix VPN - ${activeConfig.name}"
-                } else {
-                    supportActionBar?.title = "Phoenix VPN"
+                // 1. Always keep the Toolbar title clean
+                supportActionBar?.title = "Phoenix VPN"
+
+                // 2. Find the active config and append its name to the UI text
+                var activeConfig = configList.find { it.id == connectedId }
+                // If the Simple Interface hid the active config, fetch its name from the vault!
+                if (activeConfig == null && connectedId != null && connectedId.startsWith("default_")) {
+                    val allDefaults = DefaultConfigProvider.getDefaultConfigs(this@MainActivity)
+                    activeConfig = allDefaults.find { it.id == connectedId }
                 }
 
-                tvStatus.text = "Status: Connected"
+                // Retrieve the protocol we memorized during startVpnService
+                // val connectedProtocol = prefs.getString("connected_protocol", "")?.uppercase() ?: ""
+                val connectedProtocol = prefs.getString("connected_protocol", "") ?: ""
+                val protoSuffix = if (connectedProtocol.isNotEmpty()) " - $connectedProtocol" else ""
+
+                if (activeConfig != null) {
+                    tvStatus.text = "Connected ${activeConfig.name}$protoSuffix"
+                } else {
+                    tvStatus.text = "Connected$protoSuffix"
+                }
+
                 tvStatus.setTextColor(Color.parseColor("#006400")) // Green text for status
 
                 btnToggle.text = "STOP TUNNEL"
@@ -252,7 +275,7 @@ class MainActivity : AppCompatActivity() {
                 // RESTORE DEFAULT APP HEADER WHEN DISCONNECTED
                 supportActionBar?.title = "Phoenix VPN"
 
-                tvStatus.text = "Status: Disconnected"
+                tvStatus.text = "Disconnected"
                 tvStatus.setTextColor(Color.parseColor("#2F4A6F")) // Original theme color
 
                 btnToggle.text = "START TUNNEL"
@@ -268,6 +291,37 @@ class MainActivity : AppCompatActivity() {
             }
             btnToggle.isEnabled = true
         }
+    }
+
+    private fun consumeAutoconnectHandoff(intent: Intent?) {
+        val prefs = getSharedPreferences("PhoenixVpnPrefs", MODE_PRIVATE)
+        val fromIntent = intent?.action == "ACTION_AUTOCONNECT_HANDOFF"
+        val pending = prefs.getBoolean("pending_autoconnect_handoff", false)
+        if (!fromIntent && !pending) return
+
+        val winner = intent?.getLongExtra("CONFIG_INDEX", -1L)
+            ?.takeIf { it >= 0 }
+            ?: prefs.getLong("handoff_config_index", -1L)
+
+        prefs.edit()
+            .remove("pending_autoconnect_handoff")
+            .remove("handoff_config_index")
+            .apply()
+
+        if (winner < 0) return
+
+        Log.i("PhoenixVPN", "AutoConnect handoff index=$winner")
+        selectedConfigId = "default_$winner"
+        prefs.edit().putString("selected_config_id", selectedConfigId).apply()
+        configAdapter?.updateSelectedId(selectedConfigId)
+
+        startVpnService(checkWarning = false, skipAutoConnect = true)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeAutoconnectHandoff(intent)
     }
 
     private fun initDefaultSettings() {
@@ -345,9 +399,17 @@ class MainActivity : AppCompatActivity() {
     private fun loadSelectedApps() {
         val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         selectedApps = (sharedPref.getStringSet("allowed_apps", emptySet()) ?: emptySet()).toMutableSet()
+
+        // Check if the user selected "All Apps" in Global Settings
+        val tunnelAllApps = sharedPref.getBoolean("tunnel_all_apps", false)
+
         runOnUiThread {
             if (::tvSelectedAppsInfo.isInitialized) {
-                tvSelectedAppsInfo.text = "Selected apps to use the tunnel: ${selectedApps.size}"
+                if (tunnelAllApps) {
+                    tvSelectedAppsInfo.text = "Selected apps to use the tunnel: All Apps"
+                } else {
+                    tvSelectedAppsInfo.text = "Selected apps to use the tunnel: ${selectedApps.size}"
+                }
             }
         }
     }
@@ -616,6 +678,8 @@ class MainActivity : AppCompatActivity() {
         mobile.Mobile.initVault(filesDir.absolutePath)
         /**val usquePath = applicationInfo.nativeLibraryDir + "/libusque.so"
         mobile.Mobile.setUsqueBinaryPath(usquePath)*/
+        val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
+        mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
 
         window.statusBarColor = Color.TRANSPARENT
 
@@ -635,6 +699,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContentView(R.layout.activity_main)
+
+        // consumeAutoconnectHandoff(intent)
 
         // ==========================================
         // 1. INITIALIZE LOGCAT STREAMER (ROBUST JNI FIX)
@@ -802,6 +868,7 @@ class MainActivity : AppCompatActivity() {
         //btnStop = findViewById(R.id.btn_stop)
         recyclerConfigs = findViewById(R.id.recycler_configs)
         switchDefault = findViewById(R.id.switch_default_configs)
+        switchSimpleInterface = findViewById(R.id.switch_simple_interface)
         layoutVpnControls = findViewById(R.id.layout_vpn_controls)
         layoutProxyControls = findViewById(R.id.layout_proxy_controls)
         //tvProxyAddress = findViewById(R.id.tv_proxy_address)
@@ -842,7 +909,7 @@ class MainActivity : AppCompatActivity() {
         if (configCount > 0) {
             switchDefault.visibility = android.view.View.VISIBLE
             switchDefault.isEnabled = true
-            switchDefault.text = "Use default configs"
+            switchDefault.text = "Default Configs"
         } else {
             switchDefault.visibility = android.view.View.GONE
         }
@@ -997,7 +1064,7 @@ class MainActivity : AppCompatActivity() {
         filter.addAction("VPN_STATE_CHANGED")
         filter.addAction("VPN_STATS_UPDATE")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(vpnStateReceiver, filter, RECEIVER_EXPORTED)
+            registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(vpnStateReceiver, filter)
         }
@@ -1394,10 +1461,18 @@ class MainActivity : AppCompatActivity() {
                 finalConfig.authProtocol
             }
 
+            // 4. Resolve MasterDNS Method
+            val activeMasterDnsMethod = if (config.isDefault) {
+                mobile.Mobile.getDefaultConfigEncryption(nativeIndex)
+            } else {
+                finalConfig.masterDnsMethod
+            }
+
             // =========================================================
             // GUARDRAIL: Skip Direct Configs for Custom Resolver Scans
             // =========================================================
-            if (activeTunnelProtocol.lowercase() != "vaydns") {
+            val dnsProtocols = listOf("vaydns", "masterdns", "slipstream")
+            if (activeTunnelProtocol.lowercase() !in dnsProtocols) {
                 continue // Skip Hysteria/Reality configs entirely
             }
 
@@ -1407,13 +1482,18 @@ class MainActivity : AppCompatActivity() {
                 finalConfig.domainIndex
             }
 
+            val slipCongestion = if (config.isDefault) "BBR" else finalConfig.slipstreamCongestion
+            val slipAuth = if (config.isDefault) false else finalConfig.slipstreamAuthoritative
+            val slipGso = if (config.isDefault) false else finalConfig.slipstreamGso
+
             val jsonTaskObj = org.json.JSONObject().apply {
                 put("id", config.id)
                 put("is_default", config.isDefault)
                 put("config_index", nativeIndex)
 
                 // NEW: Inject Direct Protocol parameters
-                put("config_type", "vaydns")
+                // put("config_type", "vaydns")
+                put("config_type", activeTunnelProtocol.lowercase())
                 put("server_ip", targetIp) // The IP the user manually entered in the dialog
 
                 // Pass the safely formatted target straight to the Go workers
@@ -1426,10 +1506,11 @@ class MainActivity : AppCompatActivity() {
                 put("proxy_type", proxyType)
 
                 // Use dynamically resolved variables
-                put("protocol", activeTunnelProtocol)
+                put("tunnel_protocol", activeTunnelProtocol)
                 put("local_proxy_protocol", activeLocalProxyProtocol)
                 put("auth_protocol", activeAuthProtocol)
-                put("protocol", activeAuthProtocol)
+                //put("protocol", activeAuthProtocol)
+                put("masterdns_method", activeMasterDnsMethod)
 
                 val isSS = activeAuthProtocol == "shadowsocks" || activeTunnelProtocol == "shadowsocks"
                 put("user", if (isSS) finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
@@ -1441,6 +1522,9 @@ class MainActivity : AppCompatActivity() {
                 put("keep_alive", finalConfig.keepAlive)
                 put("client_id_size", finalConfig.clientIdSize)
                 put("mtu", finalConfig.mtu)
+                put("slipstream_congestion", slipCongestion)
+                put("slipstream_authoritative", slipAuth)
+                put("slipstream_gso", slipGso)
             }
             jsonArray.put(jsonTaskObj)
         }
@@ -1543,6 +1627,13 @@ class MainActivity : AppCompatActivity() {
                 finalConfig.authProtocol
             }
 
+            // 4. Resolve MasterDNS Method
+            val activeMasterDnsMethod = if (config.isDefault) {
+                mobile.Mobile.getDefaultConfigEncryption(nativeIndex)
+            } else {
+                finalConfig.masterDnsMethod
+            }
+
             val configVlessIp = if (config.isDefault) {
                 val encrypted = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                     .getString("${config.id}_vlessIp", "") ?: ""
@@ -1592,8 +1683,10 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) { e.printStackTrace() }
 
-            val isDirectMode = activeTunnelProtocol.lowercase() != "vaydns"
+            val dnsProtocols = listOf("vaydns", "masterdns", "slipstream")
+            val isDirectMode = activeTunnelProtocol.lowercase() !in dnsProtocols
             val cleanConfigType = if (isDirectMode) "direct" else "vaydns"
+            //val cleanConfigType = if (isDirectMode) "direct" else activeTunnelProtocol.lowercase()
             val cleanProtocol = if (isDirectMode) activeTunnelProtocol else finalConfig.tunnelProtocol
 
             var serverIp = ""
@@ -1616,6 +1709,10 @@ class MainActivity : AppCompatActivity() {
                 finalConfig.domainIndex
             }
 
+            val slipCongestion = if (config.isDefault) "BBR" else finalConfig.slipstreamCongestion
+            val slipAuth = if (config.isDefault) false else finalConfig.slipstreamAuthoritative
+            val slipGso = if (config.isDefault) false else finalConfig.slipstreamGso
+
             val jsonTaskObj = org.json.JSONObject().apply {
                 put("id", config.id)
                 put("is_default", config.isDefault)
@@ -1635,11 +1732,11 @@ class MainActivity : AppCompatActivity() {
                 put("proxy_type", proxyType)
 
                 // Use dynamically resolved variables
-                put("protocol", activeAuthProtocol)
+                //put("protocol", activeAuthProtocol)
                 put("tunnel_protocol", cleanProtocol)
                 put("local_proxy_protocol", activeLocalProxyProtocol)
                 put("auth_protocol", activeAuthProtocol)
-
+                put("masterdns_method", activeMasterDnsMethod)
                 // Mirror authentication parameter construction criteria explicitly
                 val isSS = activeAuthProtocol == "shadowsocks" || activeTunnelProtocol == "shadowsocks"
                 put("user", if (isSS) finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" } else if (finalConfig.useAuth) finalConfig.user.ifEmpty { "none" } else "none")
@@ -1651,6 +1748,9 @@ class MainActivity : AppCompatActivity() {
                 put("keep_alive", finalConfig.keepAlive)
                 put("client_id_size", finalConfig.clientIdSize)
                 put("mtu", finalConfig.mtu)
+                put("slipstream_congestion", slipCongestion)
+                put("slipstream_authoritative", slipAuth)
+                put("slipstream_gso", slipGso)
             }
             jsonArray.put(jsonTaskObj)
         }
@@ -1680,6 +1780,124 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshConfigList() {
+        configList.clear()
+
+        val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+        val useSimpleInterface = appPrefs.getBoolean("use_simple_interface", false)
+        val configCount = mobile.Mobile.getDefaultConfigCount()
+
+        // 1. ALWAYS display the Default Configs switch if servers are present
+        if (configCount > 0) {
+            switchDefault.visibility = android.view.View.VISIBLE
+        } else {
+            switchDefault.visibility = android.view.View.GONE
+        }
+
+        if (useSimpleInterface) {
+            // ========================================================
+            // SIMPLE INTERFACE: Mega Configs Only
+            // ========================================================
+            // Respect the switch toggle!
+            if (switchDefault.isChecked) {
+                val allDefaults = DefaultConfigProvider.getDefaultConfigs(this)
+                val megaConfigs = mutableListOf<Config>()
+
+                // Check each config strictly within the count limit
+                for (config in allDefaults) {
+                    val configIndex = config.id.removePrefix("default_").toLongOrNull() ?: -1L
+
+                    if (configIndex in 0 until configCount) {
+                        val isRandomConfig = mobile.Mobile.getSimpleConfigs(configIndex)
+                        if (isRandomConfig) {
+                            megaConfigs.add(config)
+                        }
+                    }
+                }
+
+                // Add the Mega Configs (excluding the invisible scanner)
+                val filteredList = megaConfigs.filter { !it.freeScanner }
+                configList.addAll(filteredList)
+            }
+        } else {
+            // ========================================================
+            // ADVANCED INTERFACE: Normal Logic
+            // ========================================================
+            val userConfigs = loadAllConfigs(this)
+            val displayVaydnsConfigs = appPrefs.getBoolean("display_vaydns_configs", false)
+
+            val defaultConfigs = if (switchDefault.isChecked) {
+                val allDefaults = DefaultConfigProvider.getDefaultConfigs(this)
+
+                // Filter based on explicit visibility
+                allDefaults.filter { config ->
+                    val nativeIndex = config.id.removePrefix("default_").toLongOrNull() ?: 0L
+                    val configType = mobile.Mobile.getDefaultConfigType(nativeIndex).lowercase().trim()
+
+                    // If the config is PURELY Phoenix (no other protocols attached)
+                    if (configType == "vaydns") {
+                        displayVaydnsConfigs // Show only if the toggle is ON
+                    } else {
+                        true // Always show multi-protocol/modern configs
+                    }
+                }
+            } else {
+                emptyList()
+            }
+
+            // COMBINE AND FILTER: Remove any config marked as freeScanner
+            val filteredList = (userConfigs + defaultConfigs).filter { !it.freeScanner }
+            configList.addAll(filteredList)
+        }
+
+        applyCurrentSort()
+
+        // Check if adapter already exists
+        if (recyclerConfigs.adapter == null) {
+            configAdapter = ConfigAdapter(
+                configList,
+                selectedConfigId,
+                onConfigSelected = { config ->
+                    saveSelectedConfigId(config.id)
+                    // Instead of refreshConfigList(), we just update the ID and notify
+                    configAdapter?.updateSelectedId(config.id)
+                },
+                // locking the Config editor
+                onEditClicked = { config ->
+                    val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                    val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+
+                    if (globalOverride) {
+                        // Lock the editor and explain why
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                            .setTitle("Editor Locked / ویرایشگر قفل است")
+                            .setMessage("Config editing is disabled while Global Protocol Override is active, as native parameters are hidden to prevent conflicts.\n\nPlease disable the override in Global Settings to edit this profile.\n\nدر زمان فعال بودن تغییر سراسری پروتکل، ویرایش تنظیمات غیرفعال است. لطفاً برای ویرایش این پروفایل، ابتدا تغییر سراسری را در تنظیمات خاموش کنید.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    } else {
+                        // Open the editor normally
+                        val intent = Intent(this, ConfigEditorActivity::class.java).apply {
+                            putExtra("CONFIG_ID", config.id)
+                        }
+                        startActivity(intent)
+                    }
+                },
+                onDeleteClicked = { config -> showDeleteConfirmation(config) },
+                onExportClicked = { config ->
+                    if (config.isDefault) {
+                        Toast.makeText(this, "This config cannot be shared.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        exportToVayDnsProfile(config)
+                    }
+                }
+            )
+            recyclerConfigs.adapter = configAdapter
+        } else {
+            // If it exists, just tell the adapter the data changed
+            configAdapter?.notifyDataSetChanged()
+        }
+    }
+
+    /**private fun refreshConfigList() {
         configList.clear()
         val userConfigs = loadAllConfigs(this)
 
@@ -1741,13 +1959,6 @@ class MainActivity : AppCompatActivity() {
                         startActivity(intent)
                     }
                 },
-                /**onEditClicked = { config ->
-                // All configs can now be edited to select their protocol!
-                val intent = Intent(this, ConfigEditorActivity::class.java).apply {
-                putExtra("CONFIG_ID", config.id)
-                }
-                startActivity(intent)
-                },*/
                 onDeleteClicked = { config -> showDeleteConfirmation(config) },
                 onExportClicked = { config ->
                     if (config.isDefault) {
@@ -1763,12 +1974,12 @@ class MainActivity : AppCompatActivity() {
             // without reassining the adapter itself.
             configAdapter?.notifyDataSetChanged()
         }
-    }
+    }*/
 
     /**
      * Constructs the vaydns:// profile and copies it to clipboard
      */
-    private fun generateHumanReadableUrl(config: Config): String {
+    /**private fun generateHumanReadableUrl(config: Config): String {
         val uriBuilder = android.net.Uri.Builder()
             .scheme("dnst")
             .authority(config.domain)
@@ -1819,6 +2030,158 @@ class MainActivity : AppCompatActivity() {
             put("clientid_size", config.clientIdSize)
             put("idle_timeout", config.idleTimeout)
             put("keepalive", config.keepAlive)
+        }
+        json.put("transport", transport)
+
+        // Backend Object
+        val backend = org.json.JSONObject().apply {
+            put("type", config.authProtocol)
+            if (config.useAuth) {
+                put("user", config.user)
+                if (config.useSshKey) {
+                    put("pk", config.pass)
+                } else {
+                    put("password", config.pass)
+                }
+                if (config.authProtocol == "shadowsocks") {
+                    put("method", config.ssMethod)
+                }
+            }
+        }
+        json.put("backend", backend)
+
+        // Encode to Base64URL
+        val jsonString = json.toString()
+        val encoded = android.util.Base64.encodeToString(
+            jsonString.toByteArray(Charsets.UTF_8),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+        )
+
+        return "dnst://$encoded"
+    }*/
+
+    private fun isValidTLSCertificate(certData: String): Boolean {
+        if (certData.isBlank()) return false
+        return try {
+            val cf = java.security.cert.CertificateFactory.getInstance("X.509")
+
+            // Support both standard PEM (with headers) and Base64URL DER encoding
+            val stream = if (certData.contains("-----BEGIN CERTIFICATE-----")) {
+                java.io.ByteArrayInputStream(certData.toByteArray(Charsets.UTF_8))
+            } else {
+                val decoded = android.util.Base64.decode(
+                    certData,
+                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
+                )
+                java.io.ByteArrayInputStream(decoded)
+            }
+
+            // Attempt to generate an X.509 Certificate object. Will throw if invalid.
+            cf.generateCertificate(stream)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("PhoenixVPN", "TLS Certificate Validation Failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun generateHumanReadableUrl(config: Config): String {
+        val transportType = config.tunnelProtocol.lowercase()
+        val uriBuilder = android.net.Uri.Builder()
+            .scheme("dnst")
+            .authority(config.domain)
+            .appendPath(transportType)
+            .appendPath(config.authProtocol)
+
+        // VayDNS-specific parameters should only be added if the transport is actually vaydns
+        if (transportType == "vaydns") {
+            uriBuilder.appendQueryParameter("record-type", config.recordType.lowercase())
+                .appendQueryParameter("clientid-size", config.clientIdSize.toString())
+                .appendQueryParameter("keepalive", config.keepAlive)
+                .appendQueryParameter("idle-timeout", config.idleTimeout)
+
+            if (config.dnsttCompatible) {
+                uriBuilder.appendQueryParameter("dnstt-compat", "true")
+            }
+        }
+
+        // Map the pubkey to the appropriate parameter name based on transport
+        if (transportType == "slipstream") {
+            if (config.pubkey.isNotEmpty()) uriBuilder.appendQueryParameter("cert", config.pubkey)
+        } else if (transportType == "masterdns") {
+            if (config.pubkey.isNotEmpty()) uriBuilder.appendQueryParameter("mkey", config.pubkey)
+            val methodId = when(config.masterDnsMethod) {
+                "None" -> 0
+                "XOR" -> 1
+                "Chacha20" -> 2
+                "AES-128-GCM" -> 3
+                "AES-192-GCM" -> 4
+                "AES-256-GCM" -> 5
+                else -> 1
+            }
+            uriBuilder.appendQueryParameter("mmethod", methodId.toString())
+        } else {
+            uriBuilder.appendQueryParameter("pubkey", config.pubkey)
+        }
+
+        val isSS = config.authProtocol == "shadowsocks" || config.authProtocol == "ss"
+        if (config.useAuth || isSS) {
+            if (isSS) {
+                uriBuilder.appendQueryParameter("method", config.ssMethod)
+                uriBuilder.appendQueryParameter("password", config.pass)
+            } else {
+                uriBuilder.appendQueryParameter("user", config.user)
+                if (config.useSshKey) {
+                    uriBuilder.appendQueryParameter("pk", config.pass)
+                } else {
+                    uriBuilder.appendQueryParameter("password", config.pass)
+                }
+            }
+        }
+
+        uriBuilder.fragment(config.name)
+        return uriBuilder.build().toString()
+    }
+
+    private fun generateBase64Json(config: Config): String {
+        val json = org.json.JSONObject()
+        val transportType = config.tunnelProtocol.lowercase()
+
+        // Root Tag
+        json.put("tag", config.name)
+
+        // Transport Object
+        val transport = org.json.JSONObject().apply {
+            put("type", transportType)
+            put("domain", config.domain)
+
+            // Include VayDNS-specific keys only for vaydns transport
+            if (transportType == "vaydns") {
+                put("record_type", config.recordType.lowercase())
+                put("dnstt_compat", config.dnsttCompatible)
+                put("clientid_size", config.clientIdSize)
+                put("idle_timeout", config.idleTimeout)
+                put("keepalive", config.keepAlive)
+            }
+
+            // Map the pubkey to the appropriate parameter name
+            if (transportType == "slipstream") {
+                if (config.pubkey.isNotEmpty()) put("cert", config.pubkey)
+            } else if (transportType == "masterdns") {
+                if (config.pubkey.isNotEmpty()) put("mkey", config.pubkey)
+                val methodId = when(config.masterDnsMethod) {
+                    "None" -> 0
+                    "XOR" -> 1
+                    "Chacha20" -> 2
+                    "AES-128-GCM" -> 3
+                    "AES-192-GCM" -> 4
+                    "AES-256-GCM" -> 5
+                    else -> 1
+                }
+                put("mmethod", methodId)
+            } else {
+                put("pubkey", config.pubkey)
+            }
         }
         json.put("transport", transport)
 
@@ -1974,6 +2337,190 @@ class MainActivity : AppCompatActivity() {
                 val pathSegments = uri.pathSegments
                 if (pathSegments.size < 2) throw Exception("Invalid path structure. Need /transport/backend")
 
+                val transport = pathSegments[0].lowercase()
+
+                if (transport !in listOf("vaydns", "masterdns", "slipstream")) {
+                    throw Exception("Unsupported transport: '$transport'. This app supports vaydns, masterdns, and slipstream.")
+                }
+
+                val backend = pathSegments[1]    // e.g., "socks", "ssh"
+                val tag = uri.fragment ?: "Imported"
+
+                val isSlipstream = transport == "slipstream"
+                val isMasterDns = transport == "masterdns"
+
+                var parsedPubkey = uri.getQueryParameter("pubkey") ?: ""
+                var slipCongestion = "BBR"
+                var slipAuth = false
+                var slipGso = false
+                var masterDnsMethod = "XOR"
+                var keepAlive = uri.getQueryParameter("keepalive") ?: if (isSlipstream) "5s" else "2s"
+
+                if (isSlipstream) {
+                    val cert = uri.getQueryParameter("cert")
+                    if (!cert.isNullOrEmpty()) {
+                        if (isValidTLSCertificate(cert)) {
+                            parsedPubkey = cert
+                        } else {
+                            android.util.Log.w("PhoenixVPN", "Imported Slipstream cert is invalid. Ignoring.")
+                            parsedPubkey = ""
+                        }
+                    }
+                } else if (isMasterDns) {
+                    val mkey = uri.getQueryParameter("mkey")
+                    if (!mkey.isNullOrEmpty()) {
+                        parsedPubkey = mkey
+                    }
+                    val methodId = uri.getQueryParameter("mmethod")?.toIntOrNull() ?: 1
+                    masterDnsMethod = when (methodId) {
+                        0 -> "None"
+                        1 -> "XOR"
+                        2 -> "Chacha20"
+                        3 -> "AES-128-GCM"
+                        4 -> "AES-192-GCM"
+                        5 -> "AES-256-GCM"
+                        else -> "XOR" // Default
+                    }
+                }
+
+                // Map Query Parameters to Config
+                newConfig = Config(
+                    name = getUniqueName(tag, loadAllConfigs(this)),
+                    domain = domain,
+                    tunnelProtocol = transport,
+                    authProtocol = backend,
+                    localProxyProtocol = "socks5",
+                    pubkey = parsedPubkey,
+                    dnsAddress = "8.8.8.8:53", // Default if not provided
+                    mode = "udp", // Default mode
+                    recordType = uri.getQueryParameter("record-type")?.uppercase() ?: "TXT",
+                    dnsttCompatible = uri.getQueryParameter("dnstt-compat")?.toBoolean() ?: false,
+                    clientIdSize = uri.getQueryParameter("clientid-size")?.toLongOrNull() ?: 2L,
+                    idleTimeout = uri.getQueryParameter("idle-timeout") ?: "10s",
+                    keepAlive = keepAlive,
+                    useAuth = uri.getQueryParameter("user") != null,
+                    ssMethod = uri.getQueryParameter("method") ?: "chacha20-ietf-poly1305",
+                    masterDnsMethod = masterDnsMethod,
+                    slipstreamCongestion = slipCongestion,
+                    slipstreamAuthoritative = slipAuth,
+                    slipstreamGso = slipGso,
+                    user = uri.getQueryParameter("user") ?: "",
+                    pass = uri.getQueryParameter("pk") ?: uri.getQueryParameter("password") ?: "",
+                    useSshKey = uri.getQueryParameter("pk") != null,
+                    isDefault = false
+                )
+            } else {
+                // --- 2. Base64-JSON Form Parsing ---
+                val decodedBytes = android.util.Base64.decode(content, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING)
+                val json = org.json.JSONObject(String(decodedBytes, Charsets.UTF_8))
+
+                val transportObj = json.getJSONObject("transport")
+                val transportType = transportObj.optString("type", "").lowercase()
+
+                if (transportType !in listOf("vaydns", "masterdns", "slipstream")) {
+                    throw Exception("Unsupported transport: '$transportType'. This app supports vaydns, masterdns, and slipstream.")
+                }
+
+                val isSlipstream = transportType == "slipstream"
+                val isMasterDns = transportType == "masterdns"
+
+                var parsedPubkey = transportObj.optString("pubkey", "")
+                var masterDnsMethod = "XOR"
+                var slipCongestion = "BBR"
+                var slipAuth = false
+                var slipGso = false
+                var keepAlive = transportObj.optString("keepalive", if (isSlipstream) "5s" else "2s")
+
+                if (isSlipstream) {
+                    val cert = transportObj.optString("cert", "")
+                    if (cert.isNotEmpty()) {
+                        if (isValidTLSCertificate(cert)) {
+                            parsedPubkey = cert
+                        } else {
+                            android.util.Log.w("PhoenixVPN", "Imported JSON cert is invalid. Ignoring.")
+                            parsedPubkey = ""
+                        }
+                    }
+                } else if (isMasterDns) {
+                    val mkey = transportObj.optString("mkey", "")
+                    if (mkey.isNotEmpty()) parsedPubkey = mkey
+                    val methodId = transportObj.optInt("mmethod", 1)
+                    masterDnsMethod = when (methodId) {
+                        0 -> "None"
+                        1 -> "XOR"
+                        2 -> "Chacha20"
+                        3 -> "AES-128-GCM"
+                        4 -> "AES-192-GCM"
+                        5 -> "AES-256-GCM"
+                        else -> "XOR"
+                    }
+                }
+
+                val backendObj = json.getJSONObject("backend")
+                val tag = json.optString("tag", "Imported")
+
+                newConfig = Config(
+                    name = getUniqueName(tag, loadAllConfigs(this)),
+                    domain = transportObj.getString("domain"),
+                    pubkey = parsedPubkey,
+                    recordType = transportObj.optString("record_type", "TXT").uppercase(),
+                    dnsttCompatible = transportObj.optBoolean("dnstt_compat", false),
+                    clientIdSize = transportObj.optLong("clientid_size", 2L),
+                    idleTimeout = transportObj.optString("idle_timeout", "10s"),
+                    keepAlive = keepAlive,
+                    tunnelProtocol = transportType,
+                    authProtocol = backendObj.getString("type"),
+                    localProxyProtocol = "socks5",
+                    ssMethod = backendObj.optString("method", "chacha20-ietf-poly1305"),
+                    masterDnsMethod = masterDnsMethod,
+                    slipstreamCongestion = slipCongestion,
+                    slipstreamAuthoritative = slipAuth,
+                    slipstreamGso = slipGso,
+                    user = backendObj.optString("user", ""),
+                    pass = backendObj.optString("pk", backendObj.optString("password", "")),
+                    useSshKey = backendObj.has("pk"),
+                    useAuth = backendObj.has("user"),
+                    isDefault = false,
+                    dnsAddress = "8.8.8.8:53",
+                    mode = "udp" // Standard default
+                )
+            }
+
+            // Save to internal storage
+            val currentConfigs = loadAllConfigs(this).toMutableList()
+            currentConfigs.add(newConfig)
+            saveAllConfigs(this, currentConfigs)
+
+            refreshConfigList()
+            Toast.makeText(this, "Imported: ${newConfig.name}", Toast.LENGTH_SHORT).show()
+
+        } catch (e: Exception) {
+            AlertDialog.Builder(this)
+                .setTitle("Import Error")
+                .setMessage(e.message ?: "Failed to parse dnst:// profile")
+                .setPositiveButton("OK", null)
+                .show()
+        }
+    }
+
+    /**private fun processImport(data: String) {
+        try {
+            if (!data.startsWith("dnst://")) {
+                throw Exception("Invalid profile prefix. Must start with dnst://")
+            }
+
+            val content = data.removePrefix("dnst://")
+            val newConfig: Config
+
+            if (content.contains("/")) {
+                // --- 1. Human-readable Form Parsing ---
+                // Grammar: dnst://<domain>/<transport>/<backend>?<params>#<tag>
+                val uri = android.net.Uri.parse(data)
+
+                val domain = uri.host ?: throw Exception("Missing tunnel domain")
+                val pathSegments = uri.pathSegments
+                if (pathSegments.size < 2) throw Exception("Invalid path structure. Need /transport/backend")
+
                 val transport = pathSegments[0] // e.g., "vaydns"
 
                 if (transport != "vaydns") {
@@ -2057,7 +2604,7 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("OK", null)
                 .show()
         }
-    }
+    }*/
 
     private fun getUniqueName(baseName: String, currentConfigs: List<Config>): String {
         var candidate = baseName
@@ -3232,11 +3779,13 @@ class MainActivity : AppCompatActivity() {
             .setIcon(R.mipmap.ic_launcher_round)
             .show()
 
-        // 4. Fetch Public IP asynchronously via lightweight API
+        // 4. Fetch Public IP asynchronously via the compiled Go backend
         Thread {
-            try {
-                val publicIp = java.net.URL("https://api.ipify.org").readText(Charsets.UTF_8)
-                runOnUiThread {
+            // The Go backend securely handles the private/community logic and URLs
+            val publicIp = mobile.Mobile.getPublicIP()
+
+            runOnUiThread {
+                if (publicIp != "Unavailable" && publicIp.isNotBlank()) {
                     tvPublicIp.text = publicIp
 
                     // Re-enable the ripple effect and click listener now that it has loaded
@@ -3250,9 +3799,7 @@ class MainActivity : AppCompatActivity() {
                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Public IP", publicIp))
                         Toast.makeText(this@MainActivity, "Copied: $publicIp", Toast.LENGTH_SHORT).show()
                     }
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
+                } else {
                     tvPublicIp.text = "Unavailable / در دسترس نیست"
                 }
             }
@@ -3968,18 +4515,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun prepareAndStartVpn() {
-        val intent = VpnService.prepare(this)
-        if (intent != null) vpnPermissionLauncher.launch(intent) else startVpnService()
-    }
-
-    private fun startVpnService(checkWarning: Boolean = true) {
+    private fun startVpnService(checkWarning: Boolean = true, skipAutoConnect: Boolean = false) {
 
         if (selectedConfigId == null) {
             Toast.makeText(this, "Please select a config first", Toast.LENGTH_SHORT).show()
             return
         }
-        val config = configList.find { it.id == selectedConfigId } ?: return
+        // val config = configList.find { it.id == selectedConfigId } ?: return
+        // 1. Try to find the config in the visible UI list
+        var config = configList.find { it.id == selectedConfigId }
+
+        // 2. CRITICAL FIX: If the Simple Interface hid the winning Auto-Connect config, fetch it directly from the vault!
+        if (config == null && selectedConfigId!!.startsWith("default_")) {
+            val allDefaults = DefaultConfigProvider.getDefaultConfigs(this)
+            config = allDefaults.find { it.id == selectedConfigId }
+        }
+
+        if (config == null) {
+            Toast.makeText(this, "Invalid or hidden configuration.", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         if (config.domain.isEmpty()) {
             Toast.makeText(this, "Invalid configuration. Please select another.", Toast.LENGTH_SHORT).show()
@@ -4030,7 +4585,7 @@ class MainActivity : AppCompatActivity() {
         val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
         val useHysteriaCore = tunnelPrefs.getBoolean("use_hysteria_core", false)
 
-// 1. Resolve Tunnel Routing Engine (vaydns, hysteria2, etc)
+        // 1. Resolve Tunnel Routing Engine (vaydns, hysteria2, etc)
         var activeTunnelProtocol = if (config.isDefault && globalOverride) {
             globalProtocol
         } else if (config.isDefault) {
@@ -4040,6 +4595,20 @@ class MainActivity : AppCompatActivity() {
         } else {
             // Custom configs bypass overrides and dictate their own protocol
             finalConfig.tunnelProtocol
+        }
+
+        val handoffProto = getSharedPreferences("PhoenixVpnPrefs", MODE_PRIVATE)
+            .getString("handoff_tunnel_protocol", "")
+            ?.trim()
+            .orEmpty()
+
+        if (skipAutoConnect && handoffProto.isNotEmpty()) {
+            Log.i("PhoenixVPN", "Using AutoConnect protocol: $handoffProto")
+            activeTunnelProtocol = handoffProto
+            getSharedPreferences("PhoenixVpnPrefs", MODE_PRIVATE)
+                .edit()
+                .remove("handoff_tunnel_protocol")
+                .apply()
         }
 
         // 2. Resolve Local Proxy Protocol (socks5, http)
@@ -4060,6 +4629,17 @@ class MainActivity : AppCompatActivity() {
             finalConfig.authProtocol
         }
 
+        // 4. Resolve MasterDNS Encryption Method
+        val activeMasterDnsMethod = if (config.isDefault) {
+            mobile.Mobile.getDefaultConfigEncryption(nativeIndex)
+        } else {
+            finalConfig.masterDnsMethod
+        }
+
+        val slipCongestion = if (config.isDefault) "BBR" else finalConfig.slipstreamCongestion
+        val slipAuth = if (config.isDefault) false else finalConfig.slipstreamAuthoritative
+        val slipGso = if (config.isDefault) false else finalConfig.slipstreamGso
+
         if (config.isDefault) {
             val supportedProtocols = configType.lowercase().split(",").map { it.trim() }
             if (!supportedProtocols.contains(activeTunnelProtocol.lowercase())) {
@@ -4075,7 +4655,7 @@ class MainActivity : AppCompatActivity() {
 
                 btnToggle?.isEnabled = true
                 btnToggle?.text = "START TUNNEL"
-                tvStatus?.text = "Status: Disconnected"
+                tvStatus?.text = "Disconnected"
                 val primaryColor = com.google.android.material.color.MaterialColors.getColor(this, android.R.attr.colorPrimary, Color.BLUE)
                 btnToggle?.backgroundTintList = android.content.res.ColorStateList.valueOf(primaryColor)
                 // 2. Abort the VPN launch immediately
@@ -4083,7 +4663,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (checkWarning && activeTunnelProtocol.lowercase() == "vaydns" && selectedApps.size > 5) {
+        // Memorize the finalized protocol so the UI can display it accurately
+        getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("connected_protocol", activeTunnelProtocol)
+            .apply()
+
+        val dnsProtocols = listOf("vaydns", "masterdns", "slipstream")
+        if (checkWarning && activeTunnelProtocol.lowercase() in dnsProtocols && selectedApps.size > 5) {
+        //if (checkWarning && activeTunnelProtocol.lowercase() == "vaydns" && selectedApps.size > 5) {
             val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("hide_vaydns_app_warning", false)) {
 
@@ -4148,7 +4736,8 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) { e.printStackTrace() }
 
-        val isDirectMode = activeTunnelProtocol.lowercase() != "vaydns"
+        // val isDirectMode = activeTunnelProtocol.lowercase() != "vaydns"
+        val isDirectMode = activeTunnelProtocol.lowercase() !in dnsProtocols
         val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val tunnelAllApps = appPrefs.getBoolean("tunnel_all_apps", false)
         val tunnelAndroidServices = appPrefs.getBoolean("tunnel_android_services", false)
@@ -4194,8 +4783,8 @@ class MainActivity : AppCompatActivity() {
 
             // If the JSON is cleanly marked "direct", use the Global Settings override.
 
-            //val finalProtocol = if (configType.lowercase() == "direct") activeProtocol else configType.lowercase()
-            val finalProtocol = if (activeTunnelProtocol != "vaydns") activeTunnelProtocol else configType.split(",").firstOrNull { it != "vaydns" } ?: "hysteria2"
+            val finalProtocol = if (activeTunnelProtocol.lowercase() !in dnsProtocols) activeTunnelProtocol else configType.split(",").firstOrNull { it.trim().lowercase() !in dnsProtocols } ?: "hysteria2"
+            //val finalProtocol = if (activeTunnelProtocol != "vaydns") activeTunnelProtocol else configType.split(",").firstOrNull { it != "vaydns" } ?: "hysteria2"
 
             if (finalProtocol == "vaydns") {
                 Toast.makeText(this@MainActivity, "This is a direct config. Please select Hysteria or Reality in Settings.", Toast.LENGTH_LONG).show()
@@ -4207,21 +4796,26 @@ class MainActivity : AppCompatActivity() {
             // 1. Fetch the engine type first
 //            val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
             var engineType = tunnelPrefs.getString("tun_engine", "xray")
-
+            if (activeTunnelProtocol.lowercase() == "masterdns") {
+                engineType = "masterdns"
+            }else if (activeTunnelProtocol.lowercase() == "slipstream") {
+                engineType = "slipstream"
+            }
             // 2. Silent Engine Guardrail: Direct protocols require either Sing-box or Xray
             if (engineType != "sing-box" && engineType != "xray") {
                 engineType = "sing-box"
             }
 
             // 3. Proceed with Hysteria connection
-            tvStatus.text = "Status: Connecting to Node..."
+            tvStatus.text = "Connecting to Node..."
             tvStatus.setTextColor(Color.parseColor("#008080")) // Teal for Direct Connection
             btnToggle.text = "CONNECTING..."
 
             val useFragmentation = tunnelPrefs.getBoolean("use_fragmentation", false)
             val blockQuic = tunnelPrefs.getBoolean("block_quic", true)
             val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
-            //val isAutoConnect = config.isDefault && Mobile.isDefaultConfigRandom(nativeIndex)
+            // 1. Identify AutoConnect support
+            val isAutoConnect = !skipAutoConnect && config.isDefault && mobile.Mobile.isDefaultConfigRandom(nativeIndex)
 
             val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
                 action = "ACTION_START_VPN"
@@ -4229,6 +4823,7 @@ class MainActivity : AppCompatActivity() {
                 putExtra("TUNNEL_ALL_APPS", tunnelAllApps)
                 putExtra("TUNNEL_ANDROID_SERVICES", tunnelAndroidServices)
                 putExtra("IS_DEFAULT_CONFIG", config.isDefault)
+                putExtra("DISABLE_AUTO_ROLL", skipAutoConnect)
                 putExtra("CONFIG_ID", config.id)
                 putExtra("CONFIG_INDEX", nativeIndex)
                 putExtra("CONFIG_TYPE", "direct")
@@ -4246,9 +4841,14 @@ class MainActivity : AppCompatActivity() {
                 putExtra("SNI_INDEX", sniIndex)
                 putExtra("USE_HYSTERIA_CORE", useHysteriaCore)
                 putExtra("IS_PROXY_MODE", isProxyMode)
-                //putExtra("IS_AUTO_CONNECT", isAutoConnect)
+                putExtra("MASTERDNS_METHOD", activeMasterDnsMethod)
+                putExtra("IS_AUTO_CONNECT", isAutoConnect)
+                putExtra("SLIPSTREAM_CONGESTION", slipCongestion)
+                putExtra("SLIPSTREAM_AUTHORITATIVE", slipAuth)
+                putExtra("SLIPSTREAM_GSO", slipGso)
             }
 
+            // 2. Handle Proxy Port Extraction first if in Proxy Mode
             if (isProxyMode) {
                 var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
                 if (proxyPort < 1024 || proxyPort > 65535) {
@@ -4257,67 +4857,44 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
                 }
                 intent.putExtra("PROXY_PORT", proxyPort.toLong())
-                intent.setClass(this@MainActivity, VayProxyService::class.java)
+            }
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(intent)
-                } else {
-                    startService(intent)
-                }
+            // 3. Route the Intent to the correct Service Class
+            if (isAutoConnect) {
+                intent.setClass(this@MainActivity, VayAutoConnectService::class.java)
+            } else if (isProxyMode) {
+                intent.setClass(this@MainActivity, VayProxyService::class.java)
             } else {
+                intent.setClass(this@MainActivity, VayVpnService::class.java)
+            }
+
+            // 4. Ask for Android VPN Permissions if NOT in Proxy Mode
+            if (!isProxyMode) {
                 val vpnIntent = VpnService.prepare(this@MainActivity)
                 if (vpnIntent != null) {
                     vpnPermissionLauncher.launch(vpnIntent)
-                } else {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
+                    return // Wait for the user to grant permission
                 }
             }
 
-            // 1. Handle Proxy Port Extraction first if in Proxy Mode
-            /**if (isProxyMode) {
-            var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
-            if (proxyPort < 1024 || proxyPort > 65535) {
-            proxyPort = 1080
-            etProxyPort.setText("1080")
-            Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
+            try {
+                if (isAutoConnect || isProxyMode) {
+                    // AutoConnect and Proxy are standard Services and require Foreground elevation
+                    androidx.core.content.ContextCompat.startForegroundService(this@MainActivity, intent)
+                } else {
+                    // Android OS VpnManager intercepts standard startService() calls.
+                    // Calling startForegroundService() on a VpnService subclass is strictly illegal.
+                    startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("PhoenixVPN", "Failed to start service: ${e.message}")
             }
-            intent.putExtra("PROXY_PORT", proxyPort.toLong())
-            }
-
-            // 2. Route the Intent to the correct Service Class
-            if (isAutoConnect) {
-            intent.setClass(this@MainActivity, VayAutoConnectService::class.java)
-            } else if (isProxyMode) {
-            intent.setClass(this@MainActivity, VayProxyService::class.java)
-            } else {
-            intent.setClass(this@MainActivity, VayVpnService::class.java)
-            }
-
-            // 3. Ask for Android VPN Permissions if NOT in Proxy Mode
-            if (!isProxyMode) {
-            val vpnIntent = VpnService.prepare(this@MainActivity)
-            if (vpnIntent != null) {
-            vpnPermissionLauncher.launch(vpnIntent)
-            return // Wait for the user to grant permission
-            }
-            }
-
-            // 4. Safely execute the chosen Service
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-            } else {
-            startService(intent)
-            }*/
 
             // =================================================================
             // ARCHITECTURAL FORK: DNS TUNNEL (VAYDNS)
             // =================================================================
         } else {
-            tvStatus.text = "Status: Verifying Domains..."
+            tvStatus.text = "Verifying Domains..."
             tvStatus.setTextColor(Color.parseColor("#FFA500")) // Orange for verifying
             btnToggle.text = "CONNECTING..."
 
@@ -4368,6 +4945,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
 
+
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             this@MainActivity.registerReceiver(receiver, android.content.IntentFilter("ACTION_DOMAIN_SCAN_RESULT"), Context.RECEIVER_NOT_EXPORTED)
                         } else {
@@ -4405,11 +4983,8 @@ class MainActivity : AppCompatActivity() {
                             putExtra("QUICK_SCAN", engineQuickScan)
                         }
 
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            this@MainActivity.startForegroundService(scanIntent)
-                        } else {
-                            this@MainActivity.startService(scanIntent)
-                        }
+                        // Safely launches the Foreground Service on any Android version
+                        androidx.core.content.ContextCompat.startForegroundService(this@MainActivity, scanIntent)
 
                         continuation.invokeOnCancellation {
                             val stopIntent = Intent(this@MainActivity, VayDomainService::class.java).apply { action = "ACTION_STOP_DOMAIN_SCANNER" }
@@ -4428,7 +5003,7 @@ class MainActivity : AppCompatActivity() {
                         btnToggle.isEnabled = true
                         btnToggle.text = "START TUNNEL"
                         btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
-                        tvStatus.text = "Status: Disconnected"
+                        tvStatus.text = "Disconnected"
                         tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
                         return@withContext
                     }
@@ -4439,16 +5014,17 @@ class MainActivity : AppCompatActivity() {
                         btnToggle.isEnabled = true
                         btnToggle.text = "START TUNNEL"
                         btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
-                        tvStatus.text = "Status: Disconnected"
+                        tvStatus.text = "Disconnected"
                         tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
                         return@withContext
                     }
 
-                    tvStatus.text = "Status: Connecting..."
+                    tvStatus.text = "Connecting..."
 
                     val useFragmentation = tunnelPrefs.getBoolean("use_fragmentation", false)
                     val blockQuic = tunnelPrefs.getBoolean("block_quic", true)
                     val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
+                    val isAutoConnect = !skipAutoConnect && config.isDefault && mobile.Mobile.isDefaultConfigRandom(nativeIndex)
 
                     val intent = Intent(this@MainActivity, VayVpnService::class.java).apply {
                         action = "ACTION_START_VPN"
@@ -4462,7 +5038,8 @@ class MainActivity : AppCompatActivity() {
                         putExtra("IS_DEFAULT_CONFIG", config.isDefault)
                         putExtra("CONFIG_ID", config.id)
                         putExtra("CONFIG_INDEX", nativeIndex)
-                        putExtra("CONFIG_TYPE", "vaydns")
+                        //putExtra("CONFIG_TYPE", "vaydns")
+                        putExtra("CONFIG_TYPE", activeTunnelProtocol.lowercase())
 
                         putExtra("USE_MULTI_DOMAINS", finalConfig.useMultiDomains)
                         putExtra("DOMAIN_INDEX", domainIndex)
@@ -4485,8 +5062,11 @@ class MainActivity : AppCompatActivity() {
                         putExtra("TUNNEL_PROTOCOL", activeTunnelProtocol)
                         putExtra("LOCAL_PROXY_PROTOCOL", activeLocalProxyProtocol)
                         putExtra("AUTH_PROTOCOL", activeAuthProtocol)
-
+                        putExtra("MASTERDNS_METHOD", activeMasterDnsMethod)
                         putExtra("SS_METHOD", finalConfig.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
+                        putExtra("SLIPSTREAM_CONGESTION", slipCongestion)
+                        putExtra("SLIPSTREAM_AUTHORITATIVE", slipAuth)
+                        putExtra("SLIPSTREAM_GSO", slipGso)
 
                         // Check against the newly isolated active variables
                         val isSS = activeAuthProtocol == "shadowsocks" || activeTunnelProtocol == "shadowsocks"
@@ -4505,8 +5085,10 @@ class MainActivity : AppCompatActivity() {
                         putExtra("USE_FRAGMENTATION", useFragmentation)
                         putExtra("BLOCK_QUIC", blockQuic)
                         putExtra("GET_SERVER_IP_FROM_DOMAIN", getServerIpFromDomain)
+                        putExtra("IS_PROXY_MODE", isProxyMode)
+                        putExtra("IS_AUTO_CONNECT", isAutoConnect)
+                        putExtra("DISABLE_AUTO_ROLL", skipAutoConnect)
                     }
-
                     if (isProxyMode) {
                         var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
                         if (proxyPort < 1024 || proxyPort > 65535) {
@@ -4515,66 +5097,34 @@ class MainActivity : AppCompatActivity() {
                             Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
                         }
                         intent.putExtra("PROXY_PORT", proxyPort.toLong())
-                        intent.setClass(this@MainActivity, VayProxyService::class.java)
+                    }
 
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(intent)
-                        } else {
-                            startService(intent)
-                        }
+                    if (isAutoConnect) {
+                        intent.setClass(this@MainActivity, VayAutoConnectService::class.java)
+                    } else if (isProxyMode) {
+                        intent.setClass(this@MainActivity, VayProxyService::class.java)
                     } else {
+                        intent.setClass(this@MainActivity, VayVpnService::class.java)
+                    }
+
+                    if (!isProxyMode) {
                         val vpnIntent = VpnService.prepare(this@MainActivity)
                         if (vpnIntent != null) {
                             vpnPermissionLauncher.launch(vpnIntent)
-                        } else {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                startForegroundService(intent)
-                            } else {
-                                startService(intent)
-                            }
+                            return@withContext // Wait for the user to grant permission
                         }
                     }
 
-                    // 1. Identify AutoConnect support for VayDNS profiles
-                    /**val isAutoConnect = config.isDefault && mobile.Mobile.isDefaultConfigRandom(nativeIndex)
-                    intent.putExtra("IS_PROXY_MODE", isProxyMode)
-                    intent.putExtra("IS_AUTO_CONNECT", isAutoConnect)
-
-                    // 2. Handle Proxy Port Extraction first if in Proxy Mode
-                    if (isProxyMode) {
-                    var proxyPort = etProxyPort.text.toString().toIntOrNull() ?: 1080
-                    if (proxyPort < 1024 || proxyPort > 65535) {
-                    proxyPort = 1080
-                    etProxyPort.setText("1080")
-                    Toast.makeText(this@MainActivity, "Port must be between 1024 and 65535", Toast.LENGTH_SHORT).show()
-                    }
-                    intent.putExtra("PROXY_PORT", proxyPort.toLong())
+                    try {
+                        if (isAutoConnect || isProxyMode) {
+                            androidx.core.content.ContextCompat.startForegroundService(this@MainActivity, intent)
+                        } else {
+                            startService(intent)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("PhoenixVPN", "Failed to start service: ${e.message}")
                     }
 
-                    // 3. Route the Intent to the correct Service Class
-                    if (isAutoConnect) {
-                    intent.setClass(this@MainActivity, VayAutoConnectService::class.java)
-                    } else if (isProxyMode) {
-                    intent.setClass(this@MainActivity, VayProxyService::class.java)
-                    } else {
-                    intent.setClass(this@MainActivity, VayVpnService::class.java)
-                    }
-
-                    // 4. Ask for Android VPN Permissions if NOT in Proxy Mode
-                    if (!isProxyMode) {
-                    val vpnIntent = VpnService.prepare(this@MainActivity)
-                    if (vpnIntent != null) {
-                    vpnPermissionLauncher.launch(vpnIntent)
-                    return@withContext // Wait for the user to grant permission
-                    }
-                    }
-
-                    // 5. Safely execute the chosen Service
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(intent)
-                    } else {
-                    startService(intent)
-                    }*/
                 }
             }
         }
@@ -4632,6 +5182,7 @@ class MainActivity : AppCompatActivity() {
         getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
             .edit()
             .remove("connected_config_id")
+            .remove("connected_protocol")
             .apply()
 
         // TELL SERVICES TO INITIATE GRACEFUL SELF-DESTRUCT
@@ -4649,7 +5200,7 @@ class MainActivity : AppCompatActivity() {
 //        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
 
         // 3. Reset Status Text
-        tvStatus.text = "Status: Disconnected"
+        tvStatus.text = "Disconnected"
         tvStatus.setTextColor(android.graphics.Color.parseColor("#424242"))
 
         supportActionBar?.title = "Phoenix VPN"
@@ -4658,7 +5209,7 @@ class MainActivity : AppCompatActivity() {
             btnToggle.isEnabled = true
             btnToggle.text = "START TUNNEL"
             btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#2F4A6F"))
-            tvStatus.text = "Status: Disconnected"
+            tvStatus.text = "Disconnected"
 
             if (isProxyMode && ::etProxyPort.isInitialized) {
                 etProxyPort.isEnabled = true
@@ -4666,15 +5217,47 @@ class MainActivity : AppCompatActivity() {
         }, 1000)
     }
 
+    companion object {
+        @Volatile
+        var onAutoconnectWinner: ((Long) -> Unit)? = null
+    }
+
+    private fun applyAutoconnectWinner(winnerIndex: Long) {
+        val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        nm.cancel(VayAutoConnectService.NOTIF_ID)
+        nm.cancel(2)
+
+        Log.i("PhoenixVPN", "Received AutoConnect winner: $winnerIndex")
+        selectedConfigId = "default_$winnerIndex"
+        getSharedPreferences("PhoenixVpnPrefs", MODE_PRIVATE)
+            .edit()
+            .putString("selected_config_id", selectedConfigId)
+            .apply()
+        configAdapter?.updateSelectedId(selectedConfigId)
+        startVpnService(checkWarning = false, skipAutoConnect = true)
+    }
+
     override fun onResume() {
         super.onResume()
+
+        onAutoconnectWinner = { applyAutoconnectWinner(it) }
+
+        val prefs = getSharedPreferences("PhoenixVpnPrefs", MODE_PRIVATE)
+        if (prefs.getBoolean("pending_autoconnect_handoff", false)) {
+            val idx = prefs.getLong("handoff_config_index", -1L)
+            prefs.edit()
+                .remove("pending_autoconnect_handoff")
+                .remove("handoff_config_index")
+                .apply()
+            if (idx >= 0) applyAutoconnectWinner(idx)
+        }
 
         // INSTANT MENU REFRESH: Force Android to redraw the toolbar menu based on new settings
         invalidateOptionsMenu()
         checkAppVerificationState()
 
         val manager = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+        // val prefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val connectedId = prefs.getString("connected_config_id", null)
 
         val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
@@ -4685,6 +5268,16 @@ class MainActivity : AppCompatActivity() {
                 logFile.writeText("--- LOG STREAM STARTED ---\n")
             }
             // If your logcat process is already running, this will just append to the existing file
+        }
+
+        val simpleInterfaceEnabled = sharedPrefs.getBoolean("use_simple_interface", false)
+        switchSimpleInterface.setOnCheckedChangeListener(null)
+        switchSimpleInterface.isChecked = simpleInterfaceEnabled
+        switchSimpleInterface.setOnCheckedChangeListener { _, isChecked ->
+            sharedPrefs.edit()
+                .putBoolean("use_simple_interface", isChecked)
+                .apply()
+            refreshConfigList()
         }
 
         if (!isProxyMode) {
@@ -4765,6 +5358,11 @@ class MainActivity : AppCompatActivity() {
         checkForPendingDnsUpdates()
         refreshConfigList()   // refresh after returning from editor
 
+    }
+
+    override fun onPause() {
+        onAutoconnectWinner = null
+        super.onPause()
     }
 
     override fun onDestroy() {

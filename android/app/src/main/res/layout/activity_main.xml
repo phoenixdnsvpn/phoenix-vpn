@@ -181,12 +181,24 @@
                         android:id="@+id/switch_default_configs"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Use default configs"
+                        android:text="Default Configs"
                         android:textColor="?attr/colorOnSurface"
                         android:minHeight="0dp"
                         android:paddingVertical="8dp"
                         android:textSize="15sp"
                         app:thumbTint="?attr/colorPrimary" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/switch_simple_interface"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Simple Interface"
+                        android:textColor="?attr/colorOnSurface"
+                        android:minHeight="0dp"
+                        android:paddingVertical="8dp"
+                        android:textSize="15sp"
+                        app:thumbTint="?attr/colorPrimary"
+                        android:checked="false" />
 
                     <FrameLayout
                         android:layout_width="match_parent"

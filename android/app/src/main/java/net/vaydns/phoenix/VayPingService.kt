@@ -19,6 +19,12 @@ class VayPingService : Service() {
         }
 
         mobile.Mobile.initVault(filesDir.absolutePath)
+        val slipstreamBinary = java.io.File(applicationInfo.nativeLibraryDir, "libslipstream.so")
+        if (slipstreamBinary.exists()) {
+            mobile.Mobile.setSlipstreamBinaryPath(slipstreamBinary.absolutePath)
+        }
+        //val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
+        //mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
 
         val tasksJson = intent.getStringExtra("TASKS_JSON") ?: "[]"
         val workers = intent.getLongExtra("WORKERS", 20L)
@@ -28,6 +34,8 @@ class VayPingService : Service() {
         val retries = intent.getLongExtra("RETRIES", 0L)
         val lightE2EEnabled = intent.getBooleanExtra("LIGHT_E2E", false)
         val engineQuickScan = intent.getBooleanExtra("QUICK_SCAN", false)
+
+
 
         Thread {
             // 1. Run the heavy Go process for Phoenix tunnels (it now internally skips direct configs)

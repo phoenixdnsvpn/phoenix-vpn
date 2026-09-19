@@ -16,6 +16,7 @@ import mobile.Mobile
 class GlobalSettingsActivity : AppCompatActivity() {
 
     private lateinit var cbDefaultAtStart: SwitchCompat
+    private lateinit var cbEnableSimpleInterface: SwitchCompat
     private lateinit var rgTunnelMode: android.widget.RadioGroup
 
     // Menu Toggles
@@ -61,7 +62,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var cbExportApps: SwitchCompat
     private lateinit var cbShowBackupRestore: SwitchCompat
     private lateinit var cbGetServerIpFromDomain: SwitchCompat
-
+    private lateinit var etMaxVerificationAttempts: EditText
     private lateinit var cbUseSniPool: SwitchCompat
     private lateinit var spinnerSniPool: android.widget.Spinner
     private lateinit var cbUseHysteriaCore: SwitchCompat
@@ -86,6 +87,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
 
         // Bind UI Elements
         cbDefaultAtStart = findViewById(R.id.cb_default_configs_at_start)
+        cbEnableSimpleInterface = findViewById(R.id.cb_enable_simple_interface)
         rgTunnelMode = findViewById(R.id.rg_tunnel_mode)
 
         cbUseLayer7Ping = findViewById(R.id.cb_use_layer7_ping)
@@ -107,6 +109,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbExportApps = findViewById(R.id.cb_show_export_apps)
         cbShowBackupRestore = findViewById(R.id.cb_show_backup_restore)
         cbGetServerIpFromDomain = findViewById(R.id.cb_get_server_ip_from_domain)
+        etMaxVerificationAttempts = findViewById(R.id.et_max_verification_attempts)
 
         // Bind Override UI
         cbGlobalProtocolOverride = findViewById(R.id.cb_global_protocol_override)
@@ -257,6 +260,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
 
         // Load Startup Preferences
         cbDefaultAtStart.isChecked = appPrefs.getBoolean("default_configs_at_start", true)
+        cbEnableSimpleInterface.isChecked = appPrefs.getBoolean("use_simple_interface", false)
+
         val isVpnMode = appPrefs.getBoolean("default_to_vpn_mode", true)
         if (isVpnMode) {
             rgTunnelMode.check(R.id.rb_mode_vpn)
@@ -276,6 +281,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbTunnelAndroidServices.isChecked = appPrefs.getBoolean("tunnel_android_services", false)
         // Load Menu Toggles
         cbUseLayer7Ping.isChecked = tunnelPrefs.getBoolean("use_layer7_ping", true)
+        etMaxVerificationAttempts.setText(tunnelPrefs.getLong("max_verification_attempts", 2L).toString())
         cbUpdateConfigs.isChecked = menuPrefs.getBoolean("show_update_configs", false)
         cbUpdateResolvers.isChecked = menuPrefs.getBoolean("show_update_resolvers", false)
         cbUploadConfigs.isChecked = menuPrefs.getBoolean("show_upload_configs", false)
@@ -404,6 +410,9 @@ class GlobalSettingsActivity : AppCompatActivity() {
             putBoolean("use_sni_pool", useSniPool)
             putInt("selected_sni_index", selectedSniIndex)
             putBoolean("use_hysteria_core", cbUseHysteriaCore.isChecked)
+            var maxAttempts = etMaxVerificationAttempts.text.toString().toLongOrNull() ?: 2L
+            maxAttempts = maxAttempts.coerceIn(1L, 5L)
+            putLong("max_verification_attempts", maxAttempts)
         }.apply()
 
         var unlockedDelay = etUnlockedDelay.text.toString().toLongOrNull() ?: 2000L
@@ -426,6 +435,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             val isVpnSelected = rgTunnelMode.checkedRadioButtonId == R.id.rb_mode_vpn
             putBoolean("default_to_vpn_mode", isVpnSelected)
             putBoolean("default_configs_at_start", cbDefaultAtStart.isChecked)
+            putBoolean("use_simple_interface", cbEnableSimpleInterface.isChecked)
             putLong("unlocked_delay_ms", unlockedDelay)
             putLong("locked_delay_ms", lockedDelay)
             putLong("notif_update_ms", notifUpdate)
