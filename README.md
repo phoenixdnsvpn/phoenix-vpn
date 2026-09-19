@@ -12,9 +12,11 @@ We are excited to announce that our Android client, formerly known as VayDNS, ha
 
 Copyright © 2026 The Phoenix (formerly VayDNS) VPN Project. Licensed under the **Phoenix VPN Source-Available License**.
 
-Phoenix VPN is a high-performance hybrid DNS-based & direct protocol tunneling solution. VayDNS Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates five powerful Go-based technologies to provide a full-device VPN experience even in highly restrictive network environments.
+Phoenix VPN is a high-performance hybrid DNS-based & direct protocol tunneling solution. VayDNS Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates multiple powerful Go-based and Rust technologies to provide a full-device VPN experience even in highly restrictive network environments.
 
 - **vaydns**: The "DNS Tunnel" backbone. Serving as the foundational technology for extreme censorship evasion, it encapsulates data into DNS queries (DoH, DoT, TCP, or UDP) to seamlessly bypass strict firewalls and deep packet inspection (DPI) when standard internet access is entirely blocked.
+- **MasterDNS**: The "Encrypted DNS" engine. We have integrated the native Go implementation of MasterDNS to provide a highly resilient, secondary DNS-based tunneling alternative featuring robust payload encryption.
+- **Slipstream**: The "DPI Evasion" engine. Integrated via its high-performance Rust implementation, it establishes stealthy, multiplexed proxy connections specifically engineered to slip past advanced Deep Packet Inspection mechanisms.
 - **Xray-core**: The "Native Direct" engine. Integrated for bleeding-edge protocol support, Xray handles our high-speed direct connections natively. By pulling raw IP traffic directly from the Android TUN interface, it powers next-generation connections like REALITY-TCP (with xtls-rprx-vision flow control) and XHTTP with zero fragmentation and maximum throughput.
 - **sing-box**: The "Universal Protocol" engine. Acting as our highly versatile secondary core, sing-box provides unmatched routing logic and supports advanced censorship-resistant protocols like Hysteria2, Reality-tcp, Reality-Xhttp, VLESS-WS, VLESS-HTTPUpgrade, and vless-gRPC.
 - **Hysteria-core**: The "Native QUIC" engine. Integrated for raw, unfiltered protocol performance, this official Apernet core bypasses intermediate wrappers to handle our high-speed UDP connections natively. By routing traffic directly from the OS TUN interface and C-Tunnel into a lightweight, dedicated proxy pipeline, it powers Hysteria v2 connections with native Salamander obfuscation and brutal congestion control, delivering unparalleled throughput and resilience in heavily censored networks.
@@ -58,6 +60,10 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 - **Light E2E Scanner:** Added a highly optimized "fast-fail" handshake scanner. This bypasses heavy payload checks to rapidly verify raw connectivity, delivering instant Alive/Dead results.
 
 - **Quick DNS Scanner:** Built-in DNS scanner to scan thousands of IP addresses to identify local DNS resolvers as a pre selection IP's to scan with E2E scanner.
+
+- **Native MasterDNS Scanner:** Integrated a dedicated, multi-threaded scanner to rapidly probe and validate MasterDNS endpoints, evaluating payload encryption overhead to ensure optimal routing and latency discovery.
+
+- **Layer 7 Slipstream Scanner:** Added a native Application-Layer proxy scanner that dynamically spins up the Slipstream Rust engine to evaluate endpoint reliability, verify cryptographic certificates, and measure true HTTP latency under heavy censorship conditions.
 
 - **Universal CDN Scanner (Cloudflare & Amazon CloudFront):** Integrated a native Application-Layer (Layer 7) IP Scanner to automatically discover and map "clean" front-end IPs for both Cloudflare and Amazon CloudFront. This ensures VLESS-WS connections remain completely stable even when server IPs are blocked by aggressive DPI.
 
@@ -252,6 +258,10 @@ To enable multi-domain routing, pass a comma-separated list of domains to the -d
 This project would not be possible without the incredible work of the following open-source repositories:
 
 -   **[vaydns](https://github.com/net2share/vaydns)**: For the core DNS tunneling engine and sophisticated transport layers.
+
+-   **[MasterDnsVPN](https://github.com/masterking32/MasterDnsVPN)**: For the robust native Go implementation of the MasterDNS tunneling protocol, which greatly expands our resilient DNS-based circumvention capabilities.
+
+-   **[slipstream-rust](https://github.com/Mygod/slipstream-rust)**: For the high-performance, concurrent Rust implementation of the Slipstream protocol, providing powerful evasive tunneling against sophisticated DPI firewalls.
     
 -   **[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel)**: For the lightweight, high-performance native C implementation of TUN-to-SOCKS5 conversion, enabling fast and efficient system-wide VPN routing.
 
