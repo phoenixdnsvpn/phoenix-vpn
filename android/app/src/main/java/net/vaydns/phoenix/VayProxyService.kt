@@ -347,6 +347,7 @@ class VayProxyService : Service() {
                 val slipstreamCongestion = intent.getStringExtra("SLIPSTREAM_CONGESTION") ?: "BBR"
                 val slipstreamAuthoritative = intent.getBooleanExtra("SLIPSTREAM_AUTHORITATIVE", false)
                 val slipstreamGso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
+                val customConfigJson = intent.getStringExtra("CUSTOM_CONFIG_JSON") ?: ""
 
                 if (tunnelProtocol.lowercase() == "slipstream") {
                     val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
@@ -397,7 +398,8 @@ class VayProxyService : Service() {
                     dns_mode,
                     slipstreamCongestion,
                     slipstreamAuthoritative,
-                    slipstreamGso
+                    slipstreamGso,
+                    customConfigJson
                 )
 
                 if (result.startsWith("Success")) {

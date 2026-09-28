@@ -97,6 +97,7 @@ class VayAutoConnectService : Service() {
             val slipstreamCongestion = intent.getStringExtra("SLIPSTREAM_CONGESTION") ?: "BBR"
             val slipstreamAuthoritative = intent.getBooleanExtra("SLIPSTREAM_AUTHORITATIVE", false)
             val slipstreamGso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
+            val customConfigJson = intent.getStringExtra("CUSTOM_CONFIG_JSON") ?: ""
 
             var udp = ""; var tcp = ""; var doh = ""; var dot = ""
             when (mode.lowercase()) {
@@ -152,7 +153,7 @@ class VayAutoConnectService : Service() {
                     clientIdSize, mtu, dnsttCompatible, useAuth, tunnelProtocol, localProxyProtocol,
                     authProtocol, ssMethod, masterDnsMethod, user, pass, 35000L, vlessWsIp, targetCdn, globalDnsServer,
                     isDebugEnabled, fragment, blockQuic, getServerIpFromDomain, sniIndex, useHysteriaCore, dns_mode,
-                    slipstreamCongestion, slipstreamAuthoritative, slipstreamGso,
+                    slipstreamCongestion, slipstreamAuthoritative, slipstreamGso, customConfigJson
                 )
 
                 if (proxyResult.contains("Success")) {

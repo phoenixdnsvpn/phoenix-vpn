@@ -446,6 +446,8 @@ class VayVpnService : VpnService() {
                     var localIpv4 = "10.0.0.2"
                     var prefixV4 = 24
 
+                    val customConfigJson = intent.getStringExtra("CUSTOM_CONFIG_JSON") ?: ""
+
                     if (tunnelProtocol.lowercase() == "amneziawg") {
                         val prefs = getSharedPreferences("AmneziaKeysPrefs", Context.MODE_PRIVATE)
                         dynamicServerIp = prefs.getString("server_ip", "") ?: ""
@@ -755,6 +757,7 @@ class VayVpnService : VpnService() {
                             slipstreamCongestion,
                             slipstreamAuthoritative,
                             slipstreamGso,
+                            customConfigJson
                             protector
                         )
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")
