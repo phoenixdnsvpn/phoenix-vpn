@@ -757,7 +757,7 @@ class VayVpnService : VpnService() {
                             slipstreamCongestion,
                             slipstreamAuthoritative,
                             slipstreamGso,
-                            customConfigJson
+                            customConfigJson,
                             protector
                         )
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")
