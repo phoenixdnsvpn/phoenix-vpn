@@ -411,7 +411,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             putInt("selected_sni_index", selectedSniIndex)
             putBoolean("use_hysteria_core", cbUseHysteriaCore.isChecked)
             var maxAttempts = etMaxVerificationAttempts.text.toString().toLongOrNull() ?: 2L
-            maxAttempts = maxAttempts.coerceIn(1L, 5L)
+            maxAttempts = maxAttempts.coerceIn(1L, 10L)
             putLong("max_verification_attempts", maxAttempts)
         }.apply()
 
