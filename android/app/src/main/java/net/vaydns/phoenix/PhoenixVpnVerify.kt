@@ -33,5 +33,6 @@ class PhoenixVpnVerify : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        bind(this)
     }
 }
