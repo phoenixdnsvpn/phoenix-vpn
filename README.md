@@ -15,7 +15,7 @@ Copyright © 2026 The Phoenix (formerly VayDNS) VPN Project. Licensed under the 
 Phoenix VPN is a high-performance hybrid DNS-based & direct protocol tunneling solution. VayDNS Originally developed for Linux environments to facilitate robust bypassing of internet filtering, this project adapts the core technology specifically for Android devices. This mobile implementation integrates multiple powerful Go-based and Rust technologies to provide a full-device VPN experience even in highly restrictive network environments.
 
 - **vaydns**: The "DNS Tunnel" backbone. Serving as the foundational technology for extreme censorship evasion, it encapsulates data into DNS queries (DoH, DoT, TCP, or UDP) to seamlessly bypass strict firewalls and deep packet inspection (DPI) when standard internet access is entirely blocked.
-- **MasterDNS**: The "Encrypted DNS" engine. We have integrated the native Go implementation of MasterDNS to provide a highly resilient, secondary DNS-based tunneling alternative featuring robust payload encryption.
+- **MasterDNS, StormDNS, CottenDNS**: We have integrated the native Go implementations of three advanced engines to provide highly resilient, secondary DNS-based tunneling alternatives. MasterDNS, the "Encrypted DNS" engine, serves as a robust foundation featuring ultra-low overhead and payload encryption. StormDNS, the "Multi-Vector DNS" engine, outsmarts advanced protocol filters by dynamically rotating through diverse DNS record types (including TXT, NS, CNAME, and SRV) to seamlessly disguise tunnel traffic and bypass DPI systems that actively target and drop standard TXT payloads. Finally, CottenDNS, the "Persistent Stream" engine, delivers maximum stability on degraded networks by upgrading standard UDP tunneling with a high-throughput, persistent TCP data plane—alongside DoT and DoH fallback—to maintain fast, unbroken connectivity even when conventional DNS ports are aggressively throttled.
 - **Slipstream**: The "DPI Evasion" engine. Integrated via its high-performance Rust implementation, it establishes stealthy, multiplexed proxy connections specifically engineered to slip past advanced Deep Packet Inspection mechanisms.
 - **Xray-core**: The "Native Direct" engine. Integrated for bleeding-edge protocol support, Xray handles our high-speed direct connections natively. By pulling raw IP traffic directly from the Android TUN interface, it powers next-generation connections like REALITY-TCP (with xtls-rprx-vision flow control) and XHTTP with zero fragmentation and maximum throughput.
 - **sing-box**: The "Universal Protocol" engine. Acting as our highly versatile secondary core, sing-box provides unmatched routing logic and supports advanced censorship-resistant protocols like Hysteria2, Reality-tcp, Reality-Xhttp, VLESS-WS, VLESS-HTTPUpgrade, and vless-gRPC.
@@ -62,6 +62,8 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 - **Quick DNS Scanner:** Built-in DNS scanner to scan thousands of IP addresses to identify local DNS resolvers as a pre selection IP's to scan with E2E scanner.
 
 - **Native MasterDNS Scanner:** Integrated a dedicated, multi-threaded scanner to rapidly probe and validate MasterDNS endpoints, evaluating payload encryption overhead to ensure optimal routing and latency discovery.
+
+- **Native MasterDNS, StormDNS, and CottenDNS Scanners:** We have implemented protocol-specific native scanners for all three advanced DNS engines (MasterDNS, StormDNS, and CottenDNS) directly into the client. Rather than relying on generic connection tests, these scanners utilize each engine's actual Go-based routing logic, custom handshake sequences, and MTU discovery mechanisms to accurately probe resolvers in real-time. This ensures the identified IP addresses can successfully process the engine's unique payload formats and encryption overhead before attempting to establish a full VPN connection.
 
 - **Layer 7 Slipstream Scanner:** Added a native Application-Layer proxy scanner that dynamically spins up the Slipstream Rust engine to evaluate endpoint reliability, verify cryptographic certificates, and measure true HTTP latency under heavy censorship conditions.
 
@@ -260,6 +262,10 @@ This project would not be possible without the incredible work of the following 
 -   **[vaydns](https://github.com/net2share/vaydns)**: For the core DNS tunneling engine and sophisticated transport layers.
 
 -   **[MasterDnsVPN](https://github.com/masterking32/MasterDnsVPN)**: For the robust native Go implementation of the MasterDNS tunneling protocol, which greatly expands our resilient DNS-based circumvention capabilities.
+
+-   **[StormDNS](https://github.com/nullroute1970/StormDNS)**: For the multi-vector DNS tunneling implementation that dynamically rotates through diverse DNS record types to gracefully evade advanced DPI filters and protocol blocks.
+
+-   **[CottenDNS](https://github.com/WhiteDNS/CottenDNS)**: For the high-performance stealth engine featuring robust dynamic MTU discovery, asynchronous parallel I/O, and persistent TCP transport capabilities for degraded networks.
 
 -   **[slipstream-rust](https://github.com/Mygod/slipstream-rust)**: For the high-performance, concurrent Rust implementation of the Slipstream protocol, providing powerful evasive tunneling against sophisticated DPI firewalls.
     
