@@ -209,17 +209,6 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tv_selected_apps_info"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:text="Selected apps to use the DNS tunnel: 0"
-                                android:textSize="14sp"
-                                android:gravity="center"
-                                android:textColor="?android:attr/textColorSecondary"
-                                android:paddingTop="8dp"
-                                android:paddingBottom="8dp" />
                         </LinearLayout>
 
                         <LinearLayout
@@ -276,23 +265,13 @@
 
                     </FrameLayout>
 
-                    <TextView
-                        android:id="@+id/tv_status"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:padding="8dp"
-                        android:text="Status: Disconnected"
-                        android:textColor="?attr/colorOnSurface"
-                        android:textSize="16sp" />
-
                     <LinearLayout
                         android:id="@+id/layout_network_stats"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:visibility="gone"
-                        android:paddingBottom="8dp">
+                        android:paddingBottom="0dp">
 
                         <TextView
                             android:id="@+id/tv_speed"
@@ -315,15 +294,34 @@
                             android:layout_marginTop="2dp" />
                     </LinearLayout>
 
-                    <Button
-                        android:id="@+id/btn_toggle"
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="START TUNNEL"
-                        android:textAllCaps="true"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnPrimary"
-                        android:backgroundTint="?attr/colorPrimary" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="8dp">
+
+                        <TextView
+                            android:id="@+id/tv_status"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Disconnected"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="16sp" />
+                            <!-- android:textStyle="bold" /> -->
+
+                        <ImageView
+                            android:id="@+id/btn_toggle"
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:padding="8dp"
+                            android:elevation="6dp"
+                            android:src="@drawable/circle_baby_blue"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:clickable="true"
+                            android:focusable="true" />
+                    </LinearLayout>
 
                 </LinearLayout>
             </androidx.cardview.widget.CardView>

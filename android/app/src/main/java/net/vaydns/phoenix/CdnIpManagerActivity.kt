@@ -21,13 +21,13 @@ import android.widget.ImageButton
 class CdnIpManagerActivity : AppCompatActivity() {
 
     // Added 'port' to the data class to match the scanner's new output
-    data class CfIpEntry(var address: String, var isChecked: Boolean, var latencyMs: Int = -1, var cdn: String = "CloudX", var port: Int = 443)
+    data class CfIpEntry(var address: String, var isChecked: Boolean, var latencyMs: Int = -1, var cdn: String = "Cloudflare", var port: Int = 443)
 
     private val ipEntries = mutableListOf<CfIpEntry>()
     private lateinit var adapter: CdnIpAdapter
     private var isCheckAllActive = true
 
-    private var targetCdn = "CloudX"
+    private var targetCdn = "Cloudflare"
     private var targetPort = 443
     var protocol: String = "vless-ws"
 
@@ -48,7 +48,7 @@ class CdnIpManagerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_cdn_manager)
 
-        targetCdn = intent.getStringExtra("TARGET_CDN") ?: "CloudX"
+        targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
         targetPort = intent.getIntExtra("TARGET_PORT", 443)
 
         val toolbar = findViewById<MaterialToolbar>(R.id.toolbar_cf_manager)
@@ -113,7 +113,7 @@ class CdnIpManagerActivity : AppCompatActivity() {
             val name = mobile.Mobile.getCdnName(i)
             if (name.isNotEmpty()) cdnList.add(name)
         }
-        if (cdnList.isEmpty()) cdnList.addAll(listOf("CloudX", "CloudY", "CloudZ", "CloudV"))
+        if (cdnList.isEmpty()) cdnList.addAll(listOf("Cloudflare", "CloudY", "CloudZ", "CloudV"))
 
         val spinnerCdnAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
         spinnerCdnAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -439,7 +439,7 @@ class CdnIpManagerActivity : AppCompatActivity() {
                 val isChecked = obj.getBoolean("isChecked")
                 val latency = obj.optInt("latency", -1)
 
-                val cdn = obj.optString("cdn", "CloudX")
+                val cdn = obj.optString("cdn", "Cloudflare")
                 val port = obj.optInt("port", 443) // Extract saved port
 
                 // STRICT PARTITION: Must match both the selected CDN AND the selected Port

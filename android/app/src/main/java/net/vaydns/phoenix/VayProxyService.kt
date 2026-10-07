@@ -143,7 +143,7 @@ class VayProxyService : Service() {
 
                             val updateNotification = NotificationCompat.Builder(
                                 this@VayProxyService,
-                                "VAY_PROXY_ACTIVE"
+                                "VAY_PROXY_ACTIVE_SILENT"
                             )
                                 .setContentTitle("Phoenix Proxy Active")
                                 .setContentText(speedStr)
@@ -233,7 +233,7 @@ class VayProxyService : Service() {
         wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Phoenix::ProxyKeepAlive")
         wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12 hours max
 
-        val notification = NotificationCompat.Builder(this, "VAY_PROXY_ACTIVE")
+        val notification = NotificationCompat.Builder(this, "VAY_PROXY_ACTIVE_SILENT")
             .setContentTitle("Phoenix Proxy Active")
             .setContentText("Connecting...")
             .setSmallIcon(R.drawable.ic_vpn_key)
@@ -255,13 +255,21 @@ class VayProxyService : Service() {
                 val domain = intent.getStringExtra("DOMAIN") ?: ""
                 val domainIndex = intent.getIntExtra("DOMAIN_INDEX", 0)
                 val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
-                val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
+                //val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
+                val resolver = intent.getStringExtra("RESOLVER") ?: "8.8.8.8:53"
                 val mode = intent.getStringExtra("MODE") ?: "udp"
                 val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
                 val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
                 val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
                 val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
                 val mtu = intent.getLongExtra("MTU", 0L)
+                val maxMtu = intent.getLongExtra("MAX_MTU", 140L)
+                val upCompression = intent.getIntExtra("UP_COMPRESSION", 2)
+                val downCompression = intent.getIntExtra("DOWN_COMPRESSION", 2)
+                val parallelism = intent.getLongExtra("PARALLELISM", 32L)
+                val cottenPreset = intent.getStringExtra("COTTEN_PRESET") ?: "default"
+                val useToml = intent.getBooleanExtra("USE_TOML", false)
+                val tomlPath = intent.getStringExtra("TOML_PATH") ?: ""
                 val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
                 val useMultiDomains = intent.getBooleanExtra("USE_MULTI_DOMAINS", false)
                 val useAuth = intent.getBooleanExtra("USE_AUTH", false)
@@ -281,18 +289,11 @@ class VayProxyService : Service() {
                 sessionOsRx = 0L
                 sessionOsTx = 0L
 
-                var udp = ""; var tcp = ""; var doh = ""; var dot = ""
-                when (mode.lowercase()) {
-                    "udp" -> udp = dnsAddress
-                    "tcp" -> tcp = dnsAddress
-                    "doh" -> doh = dnsAddress
-                    "dot" -> dot = dnsAddress
-                }
-
                 val dns_mode = intent.getStringExtra("DNS_MODE") ?: when ((intent.getStringExtra("MODE") ?: "udp").lowercase()) {
                     "tcp" -> "TCP"
                     "dot" -> "DoT"
                     "doh" -> "DoH"
+                    "auto" -> "AUTO"
                     else -> "UDP"
                 }
 
@@ -306,12 +307,9 @@ class VayProxyService : Service() {
                     globalDnsServer = "1.1.1.1" // Fallback
                 }
 
-                var finalUdp = udp
-                var finalTcp = tcp
-                var finalDoh = doh
-                var finalDot = dot
+                var finalResolver = resolver
 
-                if (enableScan) {
+                if (enableScan && tunnelProtocol.lowercase() == "vaydns") {
                     Log.i("VAY_DEBUG", "Running Custom Pre-Tunnel Scan...")
                     val proxyType = prefs.getString("proxy_type", "socks5h") ?: "socks5h"
                     val tWait = prefs.getInt("tunnel_wait", 3000).toLong()
@@ -322,14 +320,9 @@ class VayProxyService : Service() {
                     val preScanWorkers = 10L
                     val originalRetries = prefs.getInt("retries", 0).toLong()
                     val preScanRetries = if (originalRetries < 1L) 1L else originalRetries
-
-                    finalUdp = if (udp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), udp, "udp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                    finalTcp = if (tcp.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), tcp, "tcp", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                    finalDoh = if (doh.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), doh, "doh", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
-                    finalDot = if (dot.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), dot, "dot", domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                    finalResolver = if (resolver.isNotEmpty()) Mobile.syncPreScanResolvers(isDefaultConfig, configIndex, domainIndex.toLong(), resolver, dns_mode.lowercase(), domain, pubkey, baseDohUrl, proxyType, authProtocol, user, pass, ssMethod, recordType, idleTimeout, keepAlive, clientIdSize, preScanLightE2E, preScanWorkers, tWait, pTimeout, uTimeout, preScanRetries) else ""
+                    Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
                 }
-
-                Log.i("VAY_DEBUG", "Pre-Scan finished. Establishing TUN interface...")
 
                 val sharedPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
                 val isDebugEnabled = sharedPrefs.getBoolean("debug_logs_enabled", false)
@@ -337,7 +330,7 @@ class VayProxyService : Service() {
                 val engineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
                 val configType = intent.getStringExtra("CONFIG_TYPE") ?: "vaydns"
                 val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
-                val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "CloudX"
+                val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
                 val fragment = intent?.getBooleanExtra("USE_FRAGMENTATION", false) ?: false
                 val blockQuic = intent?.getBooleanExtra("BLOCK_QUIC", true) ?: true
                 val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
@@ -352,9 +345,11 @@ class VayProxyService : Service() {
                 if (tunnelProtocol.lowercase() == "slipstream") {
                     val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
                     mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
+                    mobile.Mobile.setSlipstreamStorageDir(cacheDir.absolutePath)
                 }
 
                 PhoenixVpnVerify.bind(this)
+
                 // RESTORED: Exact, working parameter list matching your native Go layout
                 val result = Mobile.startProxy(
                     engineType,
@@ -364,10 +359,7 @@ class VayProxyService : Service() {
                     configType,
                     useMultiDomains,
                     domainIndex.toLong(),
-                    finalUdp,
-                    finalTcp,
-                    finalDoh,
-                    finalDot,
+                    finalResolver,
                     baseDohUrl,
                     domain,
                     pubkey,
@@ -375,7 +367,14 @@ class VayProxyService : Service() {
                     idleTimeout,
                     keepAlive,
                     clientIdSize,
-                    mtu,
+                    mtu.toLong(),
+                    maxMtu.toLong(),
+                    upCompression.toLong(),
+                    downCompression.toLong(),
+                    parallelism.toLong(),
+                    useToml,
+                    tomlPath,
+                    cottenPreset,
                     dnsttCompatible,
                     useAuth,
                     tunnelProtocol,
@@ -465,7 +464,7 @@ class VayProxyService : Service() {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
-        val notification = NotificationCompat.Builder(this, "VAY_PROXY_ACTIVE")
+        val notification = NotificationCompat.Builder(this, "VAY_PROXY_ACTIVE_SILENT")
             .setContentTitle("Phoenix Proxy Active")
             .setContentText(status)
             .setSmallIcon(R.drawable.ic_vpn_key)
@@ -481,7 +480,7 @@ class VayProxyService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "VAY_PROXY_ACTIVE", "Phoenix Proxy Service", NotificationManager.IMPORTANCE_DEFAULT
+                "VAY_PROXY_ACTIVE_SILENT", "Phoenix Proxy Service", NotificationManager.IMPORTANCE_LOW
             )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }

@@ -33,8 +33,14 @@ class CdnScannerActivity : AppCompatActivity() {
     private var isDefaultConfig = false
     private var configIndex = -1L
     private var configId = ""
-    private var customDomain = ""
 
+    // ==========================================
+    // CUSTOM CONFIG EXTRACTIONS
+    // ==========================================
+    private var customDomain = ""
+    private var customPath = "/"
+    private var customPort = "443"
+    private var isCustomConfigSupported = true
     private lateinit var etScanCount: com.google.android.material.textfield.TextInputEditText
     private lateinit var etDelayTime: com.google.android.material.textfield.TextInputEditText
     private lateinit var etDialTimeout: com.google.android.material.textfield.TextInputEditText
@@ -50,7 +56,6 @@ class CdnScannerActivity : AppCompatActivity() {
             if (intent?.action == "CF_SCANNER_RESULT") {
 
                 val isFinished = intent.getBooleanExtra("IS_FINISHED", true)
-                // 1. Reset Global UI State (Applies to both success and failure)
                 if (isFinished) {
                     isScanning = false
                     btnStartStop.text = "START SCAN"
@@ -66,8 +71,6 @@ class CdnScannerActivity : AppCompatActivity() {
                 }
 
                 val rawResult = intent.getStringExtra("RAW_RESULT") ?: ""
-
-                // 2. Grab the dynamic target count for the UI (Default to 512 if empty)
                 val targetCount = etScanCount.text.toString().ifEmpty { "512" }
 
                 if (rawResult.isNotEmpty()) {
@@ -86,7 +89,6 @@ class CdnScannerActivity : AppCompatActivity() {
                             val obj = jsonArray.getJSONObject(i)
                             val realIp = obj.getString("ip")
                             val latency = obj.getInt("latency")
-                            // Immediately mask the real IP for the UI
                             val fakeIp = mobile.Mobile.encryptIP(realIp)
                             cfResults.add(ResolverResult(fakeIp, latency, "ok"))
                         }
@@ -145,65 +147,73 @@ class CdnScannerActivity : AppCompatActivity() {
         adapter = CdnAdapter(cfResults)
         recycler.adapter = adapter
 
-        // 1. Populate CDN Spinner dynamically from Go Native Vault
         val cdnList = mutableListOf<String>()
+        val allowedCdnProtocols = listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")
+        val configSupportedProtocols = mutableListOf<String>()
+        var savedProtocol = ""
+
         if (isDefaultConfig) {
             val nativeIndex = configId.removePrefix("default_").toLongOrNull() ?: 0L
             val configCloudsStr = mobile.Mobile.getDefaultConfigClouds(nativeIndex)
             if (configCloudsStr.isNotEmpty()) {
                 cdnList.addAll(configCloudsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() })
             }
-        }
 
-        // Fallback: If it's a Custom Config (or the JSON didn't have the "clouds" array), load the Global list
-        if (cdnList.isEmpty()) {
-            val cdnCount = mobile.Mobile.getCdnCount()
-            for (i in 0 until cdnCount) {
-                val name = mobile.Mobile.getCdnName(i)
-                if (name.isNotEmpty()) {
-                    cdnList.add(name)
+            if (cdnList.isEmpty()) {
+                val cdnCount = mobile.Mobile.getCdnCount()
+                for (i in 0 until cdnCount) {
+                    val name = mobile.Mobile.getCdnName(i)
+                    if (name.isNotEmpty()) cdnList.add(name)
                 }
             }
+
+            savedProtocol = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getString("${configId}_tunnelProtocol", "") ?: ""
+
+            val types = mobile.Mobile.getDefaultConfigType(nativeIndex).split(",").map { it.trim().lowercase() }
+            configSupportedProtocols.addAll(types.filter { allowedCdnProtocols.contains(it) })
+
+        } else {
+            // ==========================================
+            // CUSTOM CONFIG LOGIC: Read from Intent Extras
+            // ==========================================
+            val foundNetwork = intent.getStringExtra("CUSTOM_NETWORK") ?: "ws"
+            val foundHost = intent.getStringExtra("CUSTOM_HOST") ?: ""
+            val foundPath = intent.getStringExtra("CUSTOM_PATH") ?: "/"
+            val foundSni = intent.getStringExtra("CUSTOM_SNI") ?: ""
+            customPort = intent.getStringExtra("CUSTOM_PORT") ?: "443" // NEW
+
+            val validCdnNetworks = listOf("ws", "grpc", "httpupgrade", "xhttp")
+
+            if (foundNetwork in validCdnNetworks) {
+                isCustomConfigSupported = true
+
+                // Map it to the format the scanner's dropdown UI expects
+                savedProtocol = "vless-$foundNetwork"
+                configSupportedProtocols.add(savedProtocol)
+
+                // Extract exact Host/SNI and Path for Go
+                customDomain = if (foundSni.isNotBlank()) foundSni else foundHost
+                customPath = if (foundPath.isNotBlank()) foundPath else "/"
+            } else {
+                isCustomConfigSupported = false
+            }
+
+            // Lock Target CDN Cloud to Cloudflare exclusively for Custom Configs
+            cdnList.clear()
+            cdnList.add("Cloudflare")
         }
 
         if (cdnList.isEmpty()) {
-            cdnList.add("CloudX")
-            cdnList.add("CloudY")
-            cdnList.add("CloudZ")
-            cdnList.add("CloudV")
+            cdnList.addAll(listOf("Cloudflare", "CloudY", "CloudZ", "CloudV"))
+        }
+        if (configSupportedProtocols.isEmpty()) {
+            configSupportedProtocols.add("vless-ws")
         }
 
         val spinnerAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, cdnList)
         spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerCdn.adapter = spinnerAdapter
-
-        // 2. Extract the base VLESS protocols supported by THIS CONFIG
-        val allowedCdnProtocols = listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")
-        val configSupportedProtocols = mutableListOf<String>()
-        var savedProtocol = ""
-
-        if (isDefaultConfig) {
-            savedProtocol = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                .getString("${configId}_tunnelProtocol", "") ?: ""
-
-            val nativeIndex = configId.removePrefix("default_").toLongOrNull() ?: 0L
-            val types = mobile.Mobile.getDefaultConfigType(nativeIndex).split(",").map { it.trim().lowercase() }
-
-            // Filter strictly by the VLESS allowlist
-            configSupportedProtocols.addAll(types.filter { allowedCdnProtocols.contains(it) })
-        } else {
-            val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this)
-            val config = currentConfigs.find { it.id == configId }
-            if (config != null) {
-                savedProtocol = config.tunnelProtocol ?: ""
-            }
-            // Custom configs can theoretically use any of the allowed VLESS protocols
-            configSupportedProtocols.addAll(allowedCdnProtocols)
-        }
-
-        if (configSupportedProtocols.isEmpty()) {
-            configSupportedProtocols.add("vless-ws")
-        }
 
         val filter = IntentFilter("CF_SCANNER_RESULT")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -212,29 +222,24 @@ class CdnScannerActivity : AppCompatActivity() {
             registerReceiver(scanReceiver, filter)
         }
 
-        // 3. Add dynamic listener to CDN Spinner to auto-filter the Protocol Spinner
         spinnerCdn.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>, view: android.view.View?, position: Int, id: Long) {
                 val selectedCdn = parent.getItemAtPosition(position).toString()
 
-                // Filter the config's protocols by checking if the newly selected CDN ACTUALLY supports them
                 val cdnFilteredProtocols = configSupportedProtocols.filter { proto ->
                     mobile.Mobile.cdnSupportsProtocol(selectedCdn, proto)
                 }.toMutableList()
 
-                // Failsafe: If the JSON is broken and returns empty, fallback to the config's primary protocol
                 if (cdnFilteredProtocols.isEmpty()) {
                     cdnFilteredProtocols.add(configSupportedProtocols.first())
                 }
 
-                // Try to remember the user's previously selected protocol if they are just flipping CDNs
                 val currentSelectedProto = spinnerProtocol.selectedItem?.toString()?.lowercase() ?: savedProtocol.lowercase()
 
                 val protocolAdapter = android.widget.ArrayAdapter(this@CdnScannerActivity, android.R.layout.simple_spinner_item, cdnFilteredProtocols)
                 protocolAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
                 spinnerProtocol.adapter = protocolAdapter
 
-                // Pre-select the safest matching protocol
                 if (cdnFilteredProtocols.contains(currentSelectedProto)) {
                     spinnerProtocol.setSelection(cdnFilteredProtocols.indexOf(currentSelectedProto))
                 } else if (cdnFilteredProtocols.contains(savedProtocol.lowercase())) {
@@ -244,10 +249,17 @@ class CdnScannerActivity : AppCompatActivity() {
                 }
 
                 val portsCsv = mobile.Mobile.getCdnPortsCsv(selectedCdn)
-                val cdnFilteredPorts = if (portsCsv.isNotEmpty()) {
-                    portsCsv.split(",").map { it.trim() }
+                val cdnFilteredPorts = if (!isDefaultConfig) {
+                    // Lock the list to strictly the custom port for Custom Configs
+                    listOf(customPort)
                 } else {
-                    listOf("443")
+                    // Normal behavior for Default Configs
+                    val portsCsv = mobile.Mobile.getCdnPortsCsv(selectedCdn)
+                    if (portsCsv.isNotEmpty()) {
+                        portsCsv.split(",").map { it.trim() }
+                    } else {
+                        listOf("443")
+                    }
                 }
 
                 val currentSelectedPort = spinnerPort.selectedItem?.toString() ?: "443"
@@ -255,8 +267,11 @@ class CdnScannerActivity : AppCompatActivity() {
                 portAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
                 spinnerPort.adapter = portAdapter
 
+                // Safe fallback selection logic
                 if (cdnFilteredPorts.contains(currentSelectedPort)) {
                     spinnerPort.setSelection(cdnFilteredPorts.indexOf(currentSelectedPort))
+                } else if (!isDefaultConfig && cdnFilteredPorts.contains(customPort)) {
+                    spinnerPort.setSelection(cdnFilteredPorts.indexOf(customPort))
                 } else if (cdnFilteredPorts.contains("443")) {
                     spinnerPort.setSelection(cdnFilteredPorts.indexOf("443"))
                 } else {
@@ -268,17 +283,18 @@ class CdnScannerActivity : AppCompatActivity() {
         }
 
         btnStartStop.setOnClickListener {
+
+            if (!isDefaultConfig && !isCustomConfigSupported) {
+                Toast.makeText(this, "Cannot Scan: This custom config uses an unsupported network. CDN scanning requires ws, grpc, httpupgrade, or xhttp.", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+
             if (!isScanning) {
-
-                // Grab the target CDN early for the validation check
-                val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
-
-                // 1. Fetch the tunnel protocol directly from the Spinner UI
-                val currentProtocol = spinnerProtocol.selectedItem?.toString() ?: "vaydns"
+                val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
+                val currentProtocol = spinnerProtocol.selectedItem?.toString() ?: "vless-ws"
                 val currentPortStr = spinnerPort.selectedItem?.toString() ?: "443"
                 val currentPort = currentPortStr.toLongOrNull() ?: 443L
 
-                // 2. GUARDRAIL: Verify CDN and Protocol compatibility
                 if (currentProtocol.lowercase() in listOf("vless-ws", "vless-grpc", "vless-httpupgrade", "vless-xhttp")) {
                     val supported = mobile.Mobile.cdnSupportsProtocol(selectedCdn, currentProtocol)
                     if (!supported) {
@@ -287,15 +303,12 @@ class CdnScannerActivity : AppCompatActivity() {
                     }
                 }
 
-                // 3. GUARDRAIL: Verify CDN and Port integrity (NEW)
-                // (Note: Gomobile maps Go 'int' to Kotlin 'Long' automatically)
                 val portSupported = mobile.Mobile.cdnSupportsPort(selectedCdn, currentPort)
                 if (!portSupported) {
                     Toast.makeText(this, "Cannot Scan: CDN '$selectedCdn' does not support port '$currentPortStr'.", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
 
-                // Grab the user's requested values
                 val countStr = etScanCount.text.toString()
                 var scanCount = countStr.toIntOrNull() ?: 512
                 val delayTime = etDelayTime.text.toString().toIntOrNull() ?: 30
@@ -303,7 +316,6 @@ class CdnScannerActivity : AppCompatActivity() {
                 val readDeadline = etReadDeadline.text.toString().toIntOrNull() ?: -1
                 val uniformDist = switchUniformDistribution.isChecked
 
-                // Cap the requested scan count to the maximum available IPs
                 try {
                     val countsJsonStr = mobile.Mobile.getCloudIPCounts()
                     val countsJson = org.json.JSONObject(countsJsonStr)
@@ -320,7 +332,6 @@ class CdnScannerActivity : AppCompatActivity() {
                     e.printStackTrace()
                 }
 
-                // Validate the inputs before starting
                 if (dialTimeout <= 0 || readDeadline <= 0 || delayTime < 0) {
                     Toast.makeText(this@CdnScannerActivity, "Invalid numeric values.", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
@@ -358,6 +369,10 @@ class CdnScannerActivity : AppCompatActivity() {
                     putExtra("READ_DEADLINE", readDeadline)
                     putExtra("BATCH_DELAY_SEC", delayTime)
                     putExtra("UNIFORM_DIST", uniformDist)
+
+                    // PASS CUSTOM DOMAIN AND PATH
+                    putExtra("CUSTOM_DOMAIN", customDomain)
+                    putExtra("CUSTOM_PATH", customPath)
                 }
                 startService(serviceIntent)
             } else {
@@ -378,7 +393,7 @@ class CdnScannerActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
+            val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
             val selectedPort = spinnerPort.selectedItem?.toString()?.toIntOrNull() ?: 443
 
             val container = android.widget.LinearLayout(this).apply {
@@ -455,7 +470,7 @@ class CdnScannerActivity : AppCompatActivity() {
                         val jsonArray = org.json.JSONArray(jsonString)
                         for (i in 0 until jsonArray.length()) {
                             val obj = jsonArray.getJSONObject(i)
-                            val ipCdn = obj.optString("cdn", "CloudX")
+                            val ipCdn = obj.optString("cdn", "Cloudflare")
                             val ipPort = obj.optInt("port", 443)
                             val rawIp = obj.optString("ip", "")
                             val ip = CryptoHelper.decrypt(rawIp)
@@ -485,12 +500,10 @@ class CdnScannerActivity : AppCompatActivity() {
                     }
 
                     for ((index, fakeIp) in finalTargetIpsToSave.withIndex()) {
-                        // 1. Recover the Real IP from Go's RAM
                         var realIp = mobile.Mobile.decryptIP(fakeIp)
                         if (realIp.isEmpty()) realIp = fakeIp
 
                         val obj = org.json.JSONObject()
-                        // 2. Encrypt the REAL IP for disk storage
                         obj.put("ip", CryptoHelper.encrypt(realIp))
                         obj.put("isChecked", index == 0)
 
@@ -508,30 +521,27 @@ class CdnScannerActivity : AppCompatActivity() {
 
                     val fastestFakeIp = scannedIps.firstOrNull() ?: ""
                     if (fastestFakeIp.isNotEmpty() && configId.isNotEmpty()) {
-                        // Recover the Real IP before updating the config
                         var realFastestIp = mobile.Mobile.decryptIP(fastestFakeIp)
                         if (realFastestIp.isEmpty()) realFastestIp = fastestFakeIp
 
                         val configCdn = if (isDefaultConfig) {
                             getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                                .getString("${configId}_cdn", "CloudX") ?: "CloudX"
+                                .getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
                         } else {
                             getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
-                                .getString("${configId}_cdn", "CloudX") ?: "CloudX"
+                                .getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
                         }
 
                         if (configCdn.equals(selectedCdn, ignoreCase = true)) {
                             if (isDefaultConfig) {
                                 getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
                                     .edit()
-                                    // Save the Real IP encrypted
                                     .putString("${configId}_vlessIp", CryptoHelper.encrypt(realFastestIp))
                                     .apply()
                             } else {
                                 val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this@CdnScannerActivity).toMutableList()
                                 val cIndex = currentConfigs.indexOfFirst { it.id == configId }
                                 if (cIndex != -1) {
-                                    // Inject the Real IP directly into the config
                                     currentConfigs[cIndex] = currentConfigs[cIndex].copy(vlessIp = realFastestIp)
                                     net.vaydns.phoenix.ConfigEditorActivity.saveAllConfigs(this@CdnScannerActivity, currentConfigs)
                                 }
@@ -551,19 +561,13 @@ class CdnScannerActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // Dynamically grab the CDN and Port directly from the spinners
-            val scannedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
+            val scannedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
             val scannedPort = spinnerPort.selectedItem?.toString() ?: "443"
 
-            // Convert each result to Base64 format
             val encodedIps = cfResults.joinToString("\n") { result ->
-
                 val fakeIp = result.ip
-
-                // 1. Combine exactly as the Manager expects: IP:Port:CDN
                 val combinedString = "$fakeIp:$scannedPort:$scannedCdn"
 
-                // 2. Encode to Base64 (NO_WRAP is critical to prevent broken lines)
                 android.util.Base64.encodeToString(
                     combinedString.toByteArray(Charsets.UTF_8),
                     android.util.Base64.NO_WRAP

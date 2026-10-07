@@ -46,7 +46,10 @@ class DnsScannerActivity : AppCompatActivity() {
     private var selectedDnsAddress = "udp"
     private var configId = ""
     private var selectedMtu = 0L
+    private var selectedMaxMtu = 140L
+    private var selectedParallelism = 32L
     private var selectedTunnelProtocol = "vaydns"
+    private var selectedEncryption = ""
     private var selectedLocalProxyProtocol = "socks5"
     private var selectedAuthProtocol = "socks"
     private var selectedSsMethod = "chacha20-ietf-poly1305"
@@ -123,7 +126,7 @@ class DnsScannerActivity : AppCompatActivity() {
             finish()
         }
         // Get data from selected config
-        selectedDnsAddress = intent.getStringExtra("DNS_ADDRESS") ?: ""
+        selectedDnsAddress = intent.getStringExtra("RESOLVER") ?: ""
         isDefaultConfig = intent.getBooleanExtra("IS_DEFAULT", false)
         selectedDomain = intent.getStringExtra("DOMAIN") ?: ""
         selectedPubkey = intent.getStringExtra("PUBKEY") ?: ""
@@ -135,7 +138,13 @@ class DnsScannerActivity : AppCompatActivity() {
         selectedClientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
         selectedMode = intent.getStringExtra("MODE") ?: "udp"
         selectedMtu = intent.getLongExtra("MTU", 0L)
+        selectedMaxMtu = intent.getLongExtra("MAX_MTU", 140L)
+        selectedParallelism = intent.getLongExtra("PARALLELISM", 32L)
         selectedTunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
+        selectedEncryption = intent.getStringExtra("MASTERDNS_METHOD") ?: ""
+        if (selectedTunnelProtocol.lowercase() == "vaydns") {
+            selectedEncryption = ""
+        }
         selectedLocalProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
         selectedAuthProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
         selectedSsMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
@@ -143,6 +152,12 @@ class DnsScannerActivity : AppCompatActivity() {
         selectedUser = intent.getStringExtra("USER") ?: "none"
         selectedPass = intent.getStringExtra("PASS") ?: "none"
         isQuickScanner = intent.getBooleanExtra("IS_QUICK_SCANNER", false)
+
+        if (selectedTunnelProtocol.lowercase() == "slipstream") {
+            Toast.makeText(this, "Slipstream protocol is not supported in the scanner.", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
 
         initViews()
 
@@ -1267,6 +1282,9 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("KEEP_ALIVE", selectedKeepAlive)
             putExtra("CLIENT_ID_SIZE", selectedClientIdSize)
             putExtra("MTU", selectedMtu)
+            putExtra("MAX_MTU", selectedMaxMtu)
+            putExtra("PARALLELISM", selectedParallelism)
+            putExtra("MASTERDNS_METHOD", selectedEncryption)
             putExtra("TUNNEL_PROTOCOL", selectedTunnelProtocol)
             putExtra("LOCAL_PROXY_PROTOCOL", selectedLocalProxyProtocol)
             putExtra("AUTH_PROTOCOL", selectedAuthProtocol)

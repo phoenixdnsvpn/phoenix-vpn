@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/windowBackground"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        app:elevation="4dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar_amneziawg"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="Add AmneziaWG Config"
+            app:titleTextColor="?attr/colorOnSurface"
+            app:navigationIcon="@drawable/ic_arrow_back_modern"
+            app:navigationIconTint="?attr/colorOnSurface">
+
+            <ImageButton
+                android:id="@+id/btn_save_amneziawg"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="end"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="4dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_check_modern"
+                app:tint="?attr/colorOnSurface" />
+        </com.google.android.material.appbar.MaterialToolbar>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="24dp"
+            android:paddingBottom="32dp">
+
+            <!-- CORE CONFIGURATION -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Core Configuration"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Config Name"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_awg_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="My AmneziaWG Server"
+                android:inputType="text"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server IP (Endpoint)"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_awg_ip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="192.168.1.1 or example.com"
+                android:inputType="textUri"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server Port"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_awg_port"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="e.g. 51820"
+                android:inputType="number"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Internal IP"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_awg_internal_ip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="10.0.0.2/32"
+                android:inputType="text"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <!-- CLIENT KEYS -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Client Keys"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_lock_keys"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Lock Keys "
+                    android:textColor="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Client Private Key (Base64)"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <EditText
+                    android:id="@+id/et_awg_client_priv"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:inputType="textMultiLine"
+                    android:minLines="2"
+                    android:gravity="top|start"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <ImageButton
+                    android:id="@+id/btn_generate_keys"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center_vertical"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_sync_modern"
+                    app:tint="?attr/colorOnSurface"
+                    android:contentDescription="Generate Keys" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Please share this key with server admin."
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="14sp"
+                android:textStyle="italic"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Client Public Key (Base64)"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_awg_client_pub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textMultiLine"
+                android:minLines="2"
+                android:gravity="top|start"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server Public Key (Base64)"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_awg_server_pub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textMultiLine"
+                android:minLines="2"
+                android:gravity="top|start"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="24dp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="16dp"/>
+
+            <!-- WARNING LABEL -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Please note the following parameters must be the same on server."
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="14sp"
+                android:textStyle="italic"
+                android:layout_marginBottom="16dp"/>
+
+            <!-- RANDOM H1-H4 HEADER ROW (Placed just above DPI Evasion) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Random H1-H4"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+
+                <ImageButton
+                    android:id="@+id/btn_awg_random_headers"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_sync_modern"
+                    app:tint="?attr/colorOnSurface"
+                    android:contentDescription="Generate Random H1-H4" />
+            </LinearLayout>
+
+            <!-- DPI EVASION PARAMETERS -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DPI Evasion"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false"
+                android:weightSum="3"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Jc" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_jc" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="120" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Jmin" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_jmin" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="50" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Jmax" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_jmax" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="1000" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false"
+                android:weightSum="2"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="S1" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_s1" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="15" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="S2" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_s2" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="15" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false"
+                android:weightSum="2"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="H1" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_h1" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="1" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="H2" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_h2" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="2" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false"
+                android:weightSum="2"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="H3" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_h3" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="3" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" text="H4" android:textColor="?attr/colorOnSurface"/>
+                    <EditText android:id="@+id/et_awg_h4" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="4" android:inputType="number" android:textColor="?attr/colorOnSurface"/>
+                </LinearLayout>
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

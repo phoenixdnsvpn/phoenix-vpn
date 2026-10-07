@@ -22,6 +22,7 @@ class VayPingService : Service() {
         val slipstreamBinary = java.io.File(applicationInfo.nativeLibraryDir, "libslipstream.so")
         if (slipstreamBinary.exists()) {
             mobile.Mobile.setSlipstreamBinaryPath(slipstreamBinary.absolutePath)
+            Mobile.setSlipstreamStorageDir(cacheDir.absolutePath)
         }
         //val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
         //mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
@@ -50,7 +51,7 @@ class VayPingService : Service() {
             var globalDnsServer = tunnelPrefs.getString("global_dns_server", "")?.trim() ?: ""
             if (globalDnsServer.isEmpty()) globalDnsServer = "1.1.1.1"
 
-            // val targetCdn = tunnelPrefs.getString("target_cdn", "CloudX") ?: "CloudX"
+            // val targetCdn = tunnelPrefs.getString("target_cdn", "Cloudflare") ?: "Cloudflare"
             val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
 
             val useSniPool = tunnelPrefs.getBoolean("use_sni_pool", false)

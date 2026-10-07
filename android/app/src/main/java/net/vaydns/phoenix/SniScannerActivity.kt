@@ -117,7 +117,7 @@ class SniScannerActivity : AppCompatActivity() {
             // Strictly check for SNI-dependent protocols
             val isSniDependent = tunnelProtocol == "reality-tcp" ||
                     tunnelProtocol == "reality-xhttp" ||
-                    tunnelProtocol == "hysteria2" ||
+                    tunnelProtocol == "hysteria" ||
                     configType.contains("reality") ||
                     configType.contains("hysteria")
 

@@ -11,12 +11,11 @@
         android:id="@+id/toolbar_editor"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        app:title="Config parameters"
+        app:title="Custom DNS Config"
         app:titleTextColor="?attr/colorOnSurface"
         app:navigationIcon="@drawable/ic_arrow_back_modern"
         app:navigationIconTint="?attr/colorOnSurface">
 
-        <!-- PERFECTED ALIGNMENT: Wrapping the icon in a LinearLayout exactly like your WarpManager -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
@@ -36,7 +35,6 @@
                 app:tint="?attr/colorOnSurface"
                 android:contentDescription="Save Config" />
         </LinearLayout>
-
     </com.google.android.material.appbar.MaterialToolbar>
 
     <ScrollView
@@ -63,7 +61,7 @@
                 android:id="@+id/et_config_name"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="My Server 1"
+                android:hint="My Custom Server"
                 android:textColor="?attr/colorOnSurface" />
 
             <LinearLayout
@@ -91,113 +89,6 @@
                     android:backgroundTint="?attr/colorOnSurface" />
             </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/layout_editor_cdn"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="18dp"
-                android:layout_marginBottom="12dp"
-                android:visibility="gone">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:text="Target CDN Cloud:"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <Spinner
-                    android:id="@+id/spinner_editor_cdn"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:backgroundTint="?attr/colorOnSurface" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/layout_vless_protocol"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="18dp"
-                android:layout_marginBottom="12dp"
-                android:visibility="gone">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:text="Vless-Protocol:"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <Spinner
-                    android:id="@+id/spinner_vless_protocol"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:backgroundTint="?attr/colorOnSurface" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/layout_editor_port"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="18dp"
-                android:layout_marginBottom="12dp"
-                android:visibility="gone">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:text="Target Port:"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <Spinner
-                    android:id="@+id/spinner_editor_port"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:backgroundTint="?attr/colorOnSurface" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/tv_vless_ip_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Cloud IP (VLESS):"
-                android:textColor="?attr/colorOnSurface"
-                android:layout_marginTop="16dp"
-                android:textStyle="bold"
-                android:visibility="gone" />
-
-            <EditText
-                android:id="@+id/et_vless_ip"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Leave empty to use the internal IP"
-                android:textColorHint="?android:attr/textColorSecondary"
-                android:textColor="?attr/colorOnSurface"
-                android:inputType="text"
-                android:layout_marginTop="8dp"
-                android:visibility="gone" />
-
-            <Button
-                android:id="@+id/btn_best_cf_ip"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Get best IP from Vault"
-                android:backgroundTint="?attr/colorPrimary"
-                android:textColor="?attr/colorOnPrimary"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="8dp"
-                android:visibility="gone" />
-
             <TextView
                 android:id="@+id/tv_domain_label"
                 android:layout_width="wrap_content"
@@ -212,31 +103,7 @@
                 android:layout_height="wrap_content"
                 android:textColor="?attr/colorOnSurface"
                 android:textColorHint="?android:attr/textColorSecondary"
-                android:hint="t.example.com,t.domain.com" />
-
-            <TextView
-                android:id="@+id/tv_domain_selector_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Select Active Domain:"
-                android:textColor="?attr/colorOnSurface"
-                android:layout_marginTop="16dp"
-                android:visibility="gone"
-                android:textStyle="bold" />
-
-            <RadioGroup
-                android:id="@+id/rg_domain_selector"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:layout_marginTop="8dp"
-                android:visibility="gone">
-
-                <RadioButton android:id="@+id/rb_domain_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?attr/colorOnSurface" android:buttonTint="?attr/colorPrimary" android:text="Domain 1" />
-                <RadioButton android:id="@+id/rb_domain_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?attr/colorOnSurface" android:buttonTint="?attr/colorPrimary" android:text="Domain 2" />
-                <RadioButton android:id="@+id/rb_domain_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?attr/colorOnSurface" android:buttonTint="?attr/colorPrimary" android:text="Domain 3" />
-                <RadioButton android:id="@+id/rb_domain_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?attr/colorOnSurface" android:buttonTint="?attr/colorPrimary" android:text="Domain 4" />
-            </RadioGroup>
+                android:hint="t.example.com" />
 
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_multi_domain"
@@ -260,9 +127,15 @@
                 android:id="@+id/et_pubkey"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:inputType="text|textMultiLine|textNoSuggestions"
+                android:minLines="2"
+                android:maxLines="6"
+                android:scrollHorizontally="false"
+                android:gravity="top|start"
                 android:textColor="?attr/colorOnSurface"
                 android:hint="Your Server Key" />
 
+            <!-- Slipstream Params -->
             <LinearLayout
                 android:id="@+id/layout_slipstream_params"
                 android:layout_width="match_parent"
@@ -270,7 +143,6 @@
                 android:orientation="vertical"
                 android:visibility="gone">
 
-                <!-- MOVED: Public Certificate Toggle -->
                 <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/sw_slipstream_cert"
                     android:layout_width="match_parent"
@@ -317,12 +189,11 @@
                     android:textColor="?android:attr/textColorSecondary"
                     android:layout_marginBottom="4dp" />
 
-                <!-- Inline Red Warning Text -->
                 <TextView
                     android:id="@+id/tv_slipstream_auth_warning"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Only use when DNS resolver is your own server. Public resolvers (Google, Cloudflare, etc.) will rate limit and block your connection."
+                    android:text="Only use when DNS resolver is your own server. Public resolvers will rate limit."
                     android:textColor="#D32F2F"
                     android:textSize="12sp"
                     android:textStyle="bold"
@@ -339,9 +210,9 @@
                     android:textStyle="bold"
                     android:textSize="14sp"
                     app:thumbTint="?attr/colorPrimary" />
-
             </LinearLayout>
 
+            <!-- MasterDNS Params -->
             <TextView
                 android:id="@+id/tv_masterdns_method_label"
                 android:layout_width="wrap_content"
@@ -369,33 +240,14 @@
                 android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="8dp" />
 
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/sw_use_default_resolvers"
+            <EditText
+                android:id="@+id/et_dns"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Use default resolvers"
                 android:textColor="?attr/colorOnSurface"
-                android:checked="false"
-                android:textSize="14sp"
-                app:thumbTint="?attr/colorPrimary" />
+                android:text="8.8.8.8:53" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <EditText
-                    android:id="@+id/et_dns"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:textColor="?attr/colorOnSurface"
-                    android:text="8.8.8.8:53" />
-
-            </LinearLayout>
-
+            <!-- Multipath -->
             <TextView
                 android:id="@+id/tv_multipath_label"
                 android:layout_width="wrap_content"
@@ -494,8 +346,19 @@
                     android:layout_weight="1"
                     android:textColor="?attr/colorOnSurface"
                     android:buttonTint="?attr/colorPrimary" />
+
+                <RadioButton
+                    android:id="@+id/rb_auto"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="AUTO"
+                    android:layout_weight="1"
+                    android:textColor="?attr/colorOnSurface"
+                    android:buttonTint="?attr/colorPrimary"
+                    android:visibility="gone" />
             </RadioGroup>
 
+            <!-- Base VayDNS Configs -->
             <TextView
                 android:id="@+id/tv_record_type_label"
                 android:layout_width="wrap_content"
@@ -568,7 +431,7 @@
                 android:id="@+id/tv_mtu_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="MTU:"
+                android:text="Min. Upload MTU:"
                 android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="12dp"
                 android:textStyle="bold" />
@@ -577,11 +440,170 @@
                 android:id="@+id/et_mtu"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="40 &lt; MTU &lt; 140"
+                android:hint="40"
                 android:textColorHint="@android:color/darker_gray"
                 android:textColor="?attr/colorOnSurface"
                 android:inputType="number"
                 android:text="0" />
+
+            <LinearLayout
+                android:id="@+id/layout_extended_mtu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Max. Upload MTU:"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginTop="12dp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/et_max_mtu"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="140"
+                    android:textColor="?attr/colorOnSurface"
+                    android:inputType="number"
+                    android:text="140" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Resolver MTU Parallelism:"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginTop="12dp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/et_parallelism"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="32"
+                    android:textColor="?attr/colorOnSurface"
+                    android:inputType="number"
+                    android:text="32" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_compression"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                android:layout_marginTop="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="4dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Upload Compression:"
+                        android:textSize="12sp"
+                        android:textColor="#808080"/>
+                    <Spinner
+                        android:id="@+id/sp_upload_compression"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="4dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Download Compression:"
+                        android:textSize="12sp"
+                        android:textColor="#808080"/>
+                    <Spinner
+                        android:id="@+id/sp_download_compression"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_cottendns_preset"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="CottenDNS Preset:"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginTop="12dp"
+                    android:textStyle="bold" />
+
+                <Spinner
+                    android:id="@+id/sp_cottendns_preset"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    style="@style/Widget.AppCompat.Spinner.Underlined"
+                    android:backgroundTint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_toml_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_use_toml"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Use toml file"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold"
+                    android:textSize="14sp"
+                    app:thumbTint="?attr/colorPrimary" />
+
+                <LinearLayout
+                    android:id="@+id/layout_toml_import"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tv_toml_filename"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="No file selected"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="14sp" />
+
+                    <ImageButton
+                        android:id="@+id/btn_import_toml"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@drawable/ic_upload_modern"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:padding="12dp"
+                        app:tint="?attr/colorControlNormal"
+                        android:contentDescription="Import Toml" />
+                </LinearLayout>
+            </LinearLayout>
 
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/sw_dnstt"
@@ -594,6 +616,7 @@
                 android:textSize="14sp"
                 app:thumbTint="?attr/colorPrimary" />
 
+            <!-- Proxy & Auth Protocols -->
             <TextView
                 android:id="@+id/tv_proxy_protocol_label"
                 android:layout_width="wrap_content"

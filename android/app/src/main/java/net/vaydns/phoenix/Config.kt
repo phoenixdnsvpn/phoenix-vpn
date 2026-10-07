@@ -6,6 +6,7 @@ data class Config(
     val transport:  String = "vaydns",
     val id: String = UUID.randomUUID().toString(),
     val name: String,
+    val orderIndex: Int = 0,
     val domain: String,
     val pubkey: String,
     val dnsAddress: String,
@@ -35,4 +36,16 @@ data class Config(
     val slipstreamCongestion: String = "BBR",
     val slipstreamAuthoritative: Boolean = false,
     val slipstreamGso: Boolean = false,
+    var maxMtu: Long = 140L,
+    var parallelism: Long = 32L,
+    var useToml: Boolean = false,
+    var tomlFilename: String = "",
+// Extended parameters for V2Ray & Hysteria2
+    val sni: String = "",
+    val obfs: String = "",
+    val obfsParam: String = "",
+
+    // Extended parameter for CottenDNS
+    val cottenPreset: String = "default"
+
 )

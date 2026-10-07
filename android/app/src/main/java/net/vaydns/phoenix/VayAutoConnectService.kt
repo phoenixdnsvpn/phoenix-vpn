@@ -64,13 +64,21 @@ class VayAutoConnectService : Service() {
             val domain = intent.getStringExtra("DOMAIN") ?: ""
             val pubkey = (intent.getStringExtra("PUBKEY") ?: "").replace("\\s".toRegex(), "")
             val baseDohUrl = intent.getStringExtra("BASE_DOH_URL") ?: ""
-            val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
+            //val dnsAddress = intent.getStringExtra("UDP") ?: "8.8.8.8:53"
+            val resolver = intent.getStringExtra("RESOLVER") ?: "8.8.8.8:53"
             val mode = intent.getStringExtra("MODE") ?: "udp"
             val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
             val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
             val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
             val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
             val mtu = intent.getLongExtra("MTU", 0L)
+            val maxMtu = intent.getLongExtra("MAX_MTU", 140L)
+            val parallelism = intent.getLongExtra("PARALLELISM", 32L)
+            val upCompression = intent.getIntExtra("UP_COMPRESSION", 2)
+            val downCompression = intent.getIntExtra("DOWN_COMPRESSION", 2)
+            val cottenPreset = intent.getStringExtra("COTTEN_PRESET") ?: "default"
+            val useToml = intent.getBooleanExtra("USE_TOML", false)
+            val tomlPath = intent.getStringExtra("TOML_PATH") ?: ""
             val dnsttCompatible = intent.getBooleanExtra("DNSTT_COMPATIBLE", false)
             val useAuth = intent.getBooleanExtra("USE_AUTH", false)
             val tunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
@@ -82,7 +90,7 @@ class VayAutoConnectService : Service() {
             val pass = intent.getStringExtra("PASS") ?: ""
             val engineType = intent.getStringExtra("ENGINE_TYPE") ?: "sing-box"
             val vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
-            val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "CloudX"
+            val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
             val fragment = intent.getBooleanExtra("USE_FRAGMENTATION", false)
             val blockQuic = intent.getBooleanExtra("BLOCK_QUIC", true)
             val getServerIpFromDomain = intent.getBooleanExtra("GET_SERVER_IP_FROM_DOMAIN", false)
@@ -99,18 +107,11 @@ class VayAutoConnectService : Service() {
             val slipstreamGso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
             val customConfigJson = intent.getStringExtra("CUSTOM_CONFIG_JSON") ?: ""
 
-            var udp = ""; var tcp = ""; var doh = ""; var dot = ""
-            when (mode.lowercase()) {
-                "udp" -> udp = dnsAddress
-                "tcp" -> tcp = dnsAddress
-                "doh" -> doh = dnsAddress
-                "dot" -> dot = dnsAddress
-            }
-
             val dns_mode = intent.getStringExtra("DNS_MODE") ?: when ((intent.getStringExtra("MODE") ?: "udp").lowercase()) {
                 "tcp" -> "TCP"
                 "dot" -> "DoT"
                 "doh" -> "DoH"
+                "auto" -> "AUTO"
                 else -> "UDP"
             }
 
@@ -118,7 +119,8 @@ class VayAutoConnectService : Service() {
             // 1. FETCH SHUFFLED ELIGIBLE CONFIGS
             // =========================================================================
             // Get the fully shuffled list of all eligible auto-connect indices from Go
-            val indicesCsv = Mobile.getRandomizedConfigIndices()
+            //val indicesCsv = Mobile.getRandomizedConfigIndices()
+            val indicesCsv = Mobile.getRandomizedConfigIndices(tunnelProtocol.lowercase())
             val candidateIndices = indicesCsv.split(",").mapNotNull { it.trim().toLongOrNull() }
 
             // Failsafe: If no configs were marked "randomize" in the JSON, fallback to the original tapped index
@@ -144,13 +146,15 @@ class VayAutoConnectService : Service() {
                 if (tunnelProtocol.lowercase() == "slipstream") {
                     val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
                     mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
+                    mobile.Mobile.setSlipstreamStorageDir(cacheDir.absolutePath)
                 }
 
                 // Start the lightweight Proxy engine using the current candidate index
                 val proxyResult = Mobile.startProxy(
                     engineType, isDefaultConfig, true, candidateIndex, configType, useMultiDomains, domainIndex.toLong(),
-                    udp, tcp, doh, dot, baseDohUrl, domain, pubkey, recordType, idleTimeout, keepAlive,
-                    clientIdSize, mtu, dnsttCompatible, useAuth, tunnelProtocol, localProxyProtocol,
+                    /**udp, tcp, doh, dot*/resolver, baseDohUrl, domain, pubkey, recordType, idleTimeout, keepAlive,
+                    clientIdSize, mtu.toLong(), maxMtu.toLong(), upCompression.toLong(), downCompression.toLong(), parallelism.toLong(),
+                    useToml,tomlPath, cottenPreset, dnsttCompatible, useAuth, tunnelProtocol, localProxyProtocol,
                     authProtocol, ssMethod, masterDnsMethod, user, pass, 35000L, vlessWsIp, targetCdn, globalDnsServer,
                     isDebugEnabled, fragment, blockQuic, getServerIpFromDomain, sniIndex, useHysteriaCore, dns_mode,
                     slipstreamCongestion, slipstreamAuthoritative, slipstreamGso, customConfigJson
@@ -197,9 +201,12 @@ class VayAutoConnectService : Service() {
                     Log.w("PhoenixAuto", "Config $candidateIndex failed to mount proxy: $proxyResult")
                 }
 
+                Log.w("PhoenixAuto", "Config $candidateIndex blocked. Stopping engine before next candidate...")
+                val stopResult = Mobile.stopVpn()
+                Log.i("PhoenixAuto", "stopVpn returned: $stopResult")
                 // Clean up the dead engine before trying the next one in the list
-                Mobile.stopVpn()
-                Thread.sleep(500)
+                //Mobile.stopVpn()
+                //Thread.sleep(500)
             }
 
             if (!connected && isRunning) {

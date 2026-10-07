@@ -23,6 +23,7 @@ class AppSelectorActivity : AppCompatActivity() {
     // Persistent storage arrays for tracking application queries safely across threads
     private var fullAppList = listOf<net.vaydns.phoenix.AppListItem>()
     private var appAdapter: net.vaydns.phoenix.AppAdapter? = null
+    private lateinit var toolbar: com.google.android.material.appbar.MaterialToolbar
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,10 +37,14 @@ class AppSelectorActivity : AppCompatActivity() {
         }
 
         // BIND TOOLBAR AND SET NAVIGATION CLICK LISTENER
-        val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar_app_selector)
+        toolbar = findViewById(R.id.toolbar_app_selector)
         toolbar.setNavigationOnClickListener {
             finish() // Closes this activity and safely returns to MainActivity
         }
+
+        // SET INITIAL COUNT ON LOAD
+        val currentSelectedCount = getSelectedApps().size
+        toolbar.title = "Select Apps $currentSelectedCount"
 
         loadApps()
     }
@@ -63,7 +68,7 @@ class AppSelectorActivity : AppCompatActivity() {
                 if (pkgName == packageName) continue
 
                 appList.add(
-                    _root_ide_package_.net.vaydns.phoenix.AppListItem(
+                    net.vaydns.phoenix.AppListItem(
                         appName,
                         pkgName,
                         icon
@@ -84,7 +89,7 @@ class AppSelectorActivity : AppCompatActivity() {
                     btnToggleAll.text = "Disallow All Applications"
                 }
 
-                appAdapter = _root_ide_package_.net.vaydns.phoenix.AppAdapter(
+                appAdapter = net.vaydns.phoenix.AppAdapter(
                     this@AppSelectorActivity,
                     fullAppList
                 ) { pkgName, isChecked ->
@@ -95,6 +100,9 @@ class AppSelectorActivity : AppCompatActivity() {
                         currentSet.remove(pkgName)
                     }
                     saveSelectedApps(currentSet)
+
+                    // Dynamically update the toolbar title number on individual checkbox clicks
+                    toolbar.title = "Select Apps ${currentSet.size}"
 
                     // Dynamically update the button text if the user manually checks/unchecks everything
                     if (currentSet.isEmpty()) {
@@ -112,11 +120,17 @@ class AppSelectorActivity : AppCompatActivity() {
                         saveSelectedApps(allPkgs)
                         appAdapter?.updateSelectedApps(allPkgs)
                         btnToggleAll.text = "Disallow All Applications"
+
+                        // Update Toolbar dynamically for Bulk Check
+                        toolbar.title = "Select Apps ${allPkgs.size}"
                     } else {
                         // Action: Disallow All Apps
                         saveSelectedApps(emptySet())
                         appAdapter?.updateSelectedApps(emptySet())
                         btnToggleAll.text = "Allow All Applications"
+
+                        // Update Toolbar dynamically for Bulk Uncheck
+                        toolbar.title = "Select Apps 0"
                     }
                 }
 

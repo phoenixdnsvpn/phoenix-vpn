@@ -138,6 +138,7 @@ class VayScannerService : Service() {
         val baseDohUrl = intent.getStringExtra("baseDohUrl") ?: ""
         val proxyType = intent.getStringExtra("proxyType") ?: "socks5h"
         val tunnelProtocol = intent.getStringExtra("tunnelProtocol") ?: "vaydns"
+        val encryption = intent.getStringExtra("encryption") ?: ""
         val localProxyProtocol = intent.getStringExtra("localProxyProtocol") ?: "socks5"
         val authProtocol = intent.getStringExtra("authProtocol") ?: "socks"
         val user = intent.getStringExtra("user") ?: "none"
@@ -149,6 +150,8 @@ class VayScannerService : Service() {
 
         val clientIdSize = intent.getLongExtra("clientIdSize", 2L)
         val mtu = intent.getLongExtra("mtu", 0L)
+        val maxMtu = intent.getLongExtra("maxMtu", 140L)
+        val parallelism = intent.getLongExtra("parallelism", 32L)
         val workers = intent.getLongExtra("workers", 20L)
         val tunnelWait = intent.getLongExtra("tunnelWait", 2000L)
         val udpTimeout = intent.getLongExtra("udpTimeout", 1000L)
@@ -194,7 +197,71 @@ class VayScannerService : Service() {
 
         PhoenixVpnVerify.bind(this)
         // START GO ENGINE
-        val result = Mobile.startF35Scan(
+        val result = if (tunnelProtocol.lowercase() in listOf("stormdns", "cottendns", "masterdns")) {
+            // PATH B: The Native Extended DNS Scanner
+            Mobile.startExtendedDnsScan(
+                isDefaultConfig,
+                configIndex,
+                selectedMode,
+                domain,
+                pubkey,
+                resolvers, // The batch of 1024 IPs
+                baseDohUrl,
+                tunnelProtocol,
+                encryption,
+                recordType,
+                mtu,
+                maxMtu,
+                parallelism,
+                workers,
+                udpTimeout,
+                probeTimeout,
+                retries,
+                engineQuickScan
+            )
+        } else {
+            // PATH A: The Legacy F35 Scanner (VayDNS, Slipstream, etc.)
+            Mobile.startF35Scan(
+                isDefaultConfig,
+                configIndex,
+                domainIndex.toLong(),
+                selectedMode,
+                domain,
+                pubkey,
+                resolvers, // The batch of 1024 IPs
+                baseDohUrl,
+                proxyType,
+                tunnelProtocol,
+                authProtocol,
+                user,
+                pass,
+                ssMethod,
+                encryption,
+                recordType,
+                idleTimeout,
+                keepAlive,
+                clientIdSize,
+                mtu,
+                maxMtu,
+                parallelism,
+                workers,
+                tunnelWait,
+                udpTimeout,
+                probeTimeout,
+                retries,
+                lightE2EEnabled,
+                engineQuickScan
+            )
+        }
+
+        if (result.startsWith("error")) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        // START GO ENGINE
+        /**val result = Mobile.startF35Scan(
             isDefaultConfig,
             configIndex,
             domainIndex.toLong(),
@@ -204,15 +271,19 @@ class VayScannerService : Service() {
             resolvers,
             baseDohUrl,
             proxyType,
+            tunnelProtocol,
             authProtocol,
             user,
             pass,
             ssMethod,
+            encryption,
             recordType,
             idleTimeout,
             keepAlive,
             clientIdSize,
             mtu,
+            maxMtu,
+            parallelism,
             workers,
             tunnelWait,
             udpTimeout,
@@ -226,7 +297,7 @@ class VayScannerService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
-        }
+        }*/
 
         isRunning = true
         pollHandler.removeCallbacks(pollRunnable)

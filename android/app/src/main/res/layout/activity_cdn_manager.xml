@@ -17,7 +17,7 @@
             android:id="@+id/toolbar_cf_manager"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="CloudX IP Manager"
+            app:title="Cloudflare IP Manager"
             app:titleTextColor="?attr/colorOnSurface"
             app:navigationIcon="@drawable/ic_arrow_back_modern"
             app:navigationIconTint="?attr/colorOnSurface">

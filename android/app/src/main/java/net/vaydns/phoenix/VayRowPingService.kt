@@ -35,11 +35,13 @@ class VayRowPingService : Service() {
         val isMasqueMode = activeProtocol == "masque"
         val isWarpPlusMode = activeProtocol == "warp" // Added WARP+ Support
         val isMasterDnsMode = activeProtocol == "masterdns"
+        val isStormDnsMode = activeProtocol == "stormdns"
+        val isCottenDnsMode = activeProtocol == "cottendns"
         val isSlipstreamMode = activeProtocol == "slipstream"
 
         // ARCHITECTURAL FORK: Check if it is a direct connection by verifying the active protocol string
         val isDirectMode = !configType.lowercase().contains("vaydns") ||
-                tunnelProtocol.lowercase() in listOf("hysteria2", "reality-tcp", "reality-xhttp", "dns", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp", "amneziawg")
+                tunnelProtocol.lowercase() in listOf("hysteria", "reality-tcp", "reality-xhttp", "dns", "vless", "trojan", "shadowsocks", "ss", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp", "amneziawg")
 
         // Group Standard WARP and WARP+ together
         if (isWireguardMode || isWarpPlusMode) {
@@ -191,6 +193,80 @@ class VayRowPingService : Service() {
                 )
                 broadcastResult(configId, latency)
             }.start()
+        } else if (isStormDnsMode) {
+            // =========================================================
+            // DEDICATED STORMDNS PING (Using Native MTU Probe)
+            // =========================================================
+            val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
+            val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
+            val domain = intent.getStringExtra("DOMAIN") ?: ""
+            val pubkey = intent.getStringExtra("PUBKEY") ?: ""
+            val resolvers = intent.getStringExtra("MULTIPATH_DNS") ?: "8.8.8.8:53"
+            val probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 3000L).toInt()
+            val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
+            var encryptionMethod = "XOR"
+
+            if (!isDefault) {
+                try {
+                    val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this)
+                    val userConfig = currentConfigs.find { it.id == configId }
+                    encryptionMethod = userConfig?.masterDnsMethod ?: "XOR"
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            Thread {
+                val latency = Mobile.pingStormDnsRow(
+                    isDefault,
+                    configIndex,
+                    resolvers,
+                    domain,
+                    pubkey,
+                    encryptionMethod,
+                    recordType,
+                    probeTimeout.toLong()
+                )
+                broadcastResult(configId, latency)
+            }.start()
+        } else if (isCottenDnsMode) {
+            // =========================================================
+            // DEDICATED COTTENDNS PING (Using Native MTU Probe)
+            // =========================================================
+            val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
+            val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
+            val domain = intent.getStringExtra("DOMAIN") ?: ""
+            val pubkey = intent.getStringExtra("PUBKEY") ?: ""
+            val resolvers = intent.getStringExtra("MULTIPATH_DNS") ?: "8.8.8.8:53"
+            val transportMode = intent.getStringExtra("MODE") ?: "auto"
+            val probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 3000L).toInt()
+            val recordType = intent.getStringExtra("RECORD_TYPE") ?: "TXT"
+            var encryptionMethod = "XOR"
+
+            if (!isDefault) {
+                try {
+                    val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this)
+                    val userConfig = currentConfigs.find { it.id == configId }
+                    encryptionMethod = userConfig?.masterDnsMethod ?: "XOR"
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            Thread {
+                val latency = Mobile.pingCottenDnsRow(
+                    isDefault,
+                    configIndex,
+                    resolvers,
+                    domain,
+                    pubkey,
+                    encryptionMethod,
+                    recordType,
+                    transportMode,
+                    probeTimeout.toLong()
+                )
+                broadcastResult(configId, latency)
+            }.start()
         } else if (isSlipstreamMode) {
             // =========================================================
             // DEDICATED SLIPSTREAM ROW PING (Native L7)
@@ -209,6 +285,7 @@ class VayRowPingService : Service() {
 
             val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
             mobile.Mobile.setSlipstreamBinaryPath(slipstreamPath)
+            Mobile.setSlipstreamStorageDir(cacheDir.absolutePath)
 
             Thread {
                 val latency = Mobile.pingSlipstreamRow(
@@ -230,85 +307,152 @@ class VayRowPingService : Service() {
             // =========================================================
             val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
             val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
-            val serverIp = intent.getStringExtra("SERVER_IP") ?: "" // Only used for custom configs
-            //val protocol = intent.getStringExtra("PROTOCOL") ?: ""
-            var vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
+            var serverIp = intent.getStringExtra("SERVER_IP") ?: ""
             val domain = intent.getStringExtra("DOMAIN") ?: "" // Extract for SNI
 
-            if (vlessWsIp.isEmpty()) {
-                if (isDefault) {
-                    val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                    vlessWsIp = defPrefs.getString("${configId}_vlessIp", "") ?: ""
-                } else {
-                    try {
-                        val currentConfigs = net.vaydns.phoenix.ConfigEditorActivity.loadAllConfigs(this)
-                        val userConfig = currentConfigs.find { it.id == configId }
-                        vlessWsIp = userConfig?.vlessIp ?: ""
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-
             val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-            val useLayer7 = tunnelPrefs.getBoolean("use_layer7_ping", true)
             var globalDnsServer = tunnelPrefs.getString("global_dns_server", "")?.trim() ?: ""
             if (globalDnsServer.isEmpty()) {
                 globalDnsServer = "1.1.1.1"
             }
 
-            val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
-            val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
-            val globalCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
+            if (!isDefault) {
+                // =========================================================
+                // CUSTOM DIRECT CONFIG PING LOGIC
+                // =========================================================
+                val sharedPref = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                val configsString = sharedPref.getString("configs", "[]") ?: "[]"
 
-            val useSniPool = tunnelPrefs.getBoolean("use_sni_pool", false)
-            val selectedSniIndex = tunnelPrefs.getInt("selected_sni_index", -1)
-            val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
+                var network = "tcp"
+                var tlsType = "tls"
+                var domainName = domain
+                var customPath = "/"
+                var actualProtocol = tunnelProtocol.lowercase()
 
-            val targetCdn = if (globalOverride) {
-                globalCdn
-            } else if (isDefault) {
-                val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                defPrefs.getString("${configId}_cdn", "CloudX") ?: "CloudX"
-            } else {
-                val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
-                appPrefs.getString("${configId}_cdn", "CloudX") ?: "CloudX"
-            }
+                try {
+                    val jsonArray = org.json.JSONArray(configsString)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        if (obj.optString("id") == configId) {
+                            actualProtocol = obj.optString("tunnelProtocol", tunnelProtocol).lowercase()
 
-            vlessWsIp = CryptoHelper.decrypt(vlessWsIp)
 
-            Thread {
-                val latency = if (useLayer7) {
-                    Mobile.pingDirectServerLayer7(
-                        isDefault,
-                        configIndex,
-                        serverIp,
-                        tunnelProtocol.lowercase(),
-                        domain,
-                        "/",
-                        globalDnsServer,
-                        getServerIpFromDomain,
-                        targetCdn,
-                        vlessWsIp,
-                        sniIndex
-                    )
-                } else {
-                    Mobile.pingDirectServer(
-                        isDefault,
-                        configIndex,
-                        serverIp,
-                        tunnelProtocol.lowercase(),
-                        globalDnsServer,
-                        getServerIpFromDomain,
-                        targetCdn,
-                        vlessWsIp
-                    )
+                            // If intent missed the IP, securely extract it directly from JSON
+                            if (serverIp.isEmpty()) {
+                                serverIp = obj.optString("vless_ip", obj.optString("domain", ""))
+                            }
+                            Log.e("VAY_DEBUG", "[ACTUAL PROTOCOL]: ${actualProtocol}")
+                            Log.e("VAY_DEBUG", "[SERVER IP]: ${serverIp}")
+
+                            // Extract precise transport, TLS, and PATH properties for the L7/L4 fork
+                            if (actualProtocol == "vless" || actualProtocol == "trojan" || actualProtocol == "shadowsocks" || actualProtocol == "ss") {
+                                network = obj.optString("vless_network", "tcp").lowercase()
+                                tlsType = obj.optString("vless_tls_type", "tls").lowercase()
+                                domainName = if (tlsType == "reality") obj.optString("vless_sni", "") else obj.optString("vless_host", "")
+                                customPath = obj.optString("vless_path", "/")
+                            } /**else if (actualProtocol == "trojan") {
+                                network = obj.optString("vless_network", "tcp").lowercase()
+                                tlsType = obj.optString("vless_tls_type", "tls").lowercase()
+                                domainName = if (tlsType == "reality") obj.optString("vless_sni", "") else obj.optString("vless_host", "")
+                                customPath = obj.optString("vless_path", "/")
+                            } else if (actualProtocol == "shadowsocks" || actualProtocol == "ss") {
+                                network = obj.optString("vless_network", "tcp").lowercase()
+                                tlsType = obj.optString("vless_tls_type", "none").lowercase()
+                                domainName = if (tlsType == "reality") obj.optString("vless_sni", "") else obj.optString("vless_host", "")
+                                customPath = obj.optString("vless_path", "/")
+                            }*/
+                            break
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
-                broadcastResult(configId, latency)
-            }.start()
+                if (customPath.isEmpty()) customPath = "/"
+                if (!customPath.startsWith("/")) customPath = "/$customPath"
+
+                // Construct full standard protocol string (e.g., "vless-ws") if missing
+                var fullProtocol = if (actualProtocol.contains("-")) actualProtocol else "$actualProtocol-$network"
+                if (actualProtocol == "hysteria" || actualProtocol == "amneziawg") fullProtocol = actualProtocol
+
+                Thread {
+                    var latency = -1L
+                    val isReality = tlsType == "reality"
+                    val isTls = tlsType == "tls"
+                    val isL7Network = network in listOf("ws", "httpupgrade", "xhttp")
+
+                    if (isReality) {
+                        // Reality strictly uses Layer 4
+                        fullProtocol = "$tlsType-$network"
+                        latency = Mobile.pingDirectServer(
+                            false, -1L, serverIp, fullProtocol, globalDnsServer, false, "", ""
+                        )
+                    } else if (isTls && isL7Network && domainName.isNotEmpty()) {
+                        // TLS + L7 Network + Domain Name present -> Pass customPath to L7, fallback to L4 if it fails
+                        latency = Mobile.pingDirectServerLayer7(
+                            false, -1L, serverIp, fullProtocol, domainName, customPath, globalDnsServer, false, "", "", -1L
+                        )
+                        if (latency <= 0) {
+                            latency = Mobile.pingDirectServer(
+                                false, -1L, serverIp, fullProtocol, globalDnsServer, false, "", ""
+                            )
+                        }
+                    } else {
+                        // Default Layer 4 for TCP, gRPC, or configurations missing domain parameters
+                        latency = Mobile.pingDirectServer(
+                            false, -1L, serverIp, fullProtocol, globalDnsServer, false, "", ""
+                        )
+                    }
+
+                    broadcastResult(configId, latency)
+                }.start()
+
+            } else {
+                // =========================================================
+                // DEFAULT DIRECT CONFIG PING LOGIC
+                // =========================================================
+                var vlessWsIp = intent.getStringExtra("VLESS_WS_IP") ?: ""
+
+                if (vlessWsIp.isEmpty()) {
+                    val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    vlessWsIp = defPrefs.getString("${configId}_vlessIp", "") ?: ""
+                }
+
+                val useLayer7 = tunnelPrefs.getBoolean("use_layer7_ping", true)
+                val getServerIpFromDomain = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
+                val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+                val globalCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
+
+                val useSniPool = tunnelPrefs.getBoolean("use_sni_pool", false)
+                val selectedSniIndex = tunnelPrefs.getInt("selected_sni_index", -1)
+                val sniIndex = if (useSniPool) selectedSniIndex.toLong() else -1L
+
+                val targetCdn = if (globalOverride) {
+                    globalCdn
+                } else {
+                    val defPrefs = getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                    defPrefs.getString("${configId}_cdn", "Cloudflare") ?: "Cloudflare"
+                }
+
+                vlessWsIp = CryptoHelper.decrypt(vlessWsIp)
+
+                Thread {
+                    val latency = if (useLayer7) {
+                        Mobile.pingDirectServerLayer7(
+                            true, configIndex, serverIp, tunnelProtocol.lowercase(), domain, "/", globalDnsServer, getServerIpFromDomain, targetCdn, vlessWsIp, sniIndex
+                        )
+                    } else {
+                        Mobile.pingDirectServer(
+                            true, configIndex, serverIp, tunnelProtocol.lowercase(), globalDnsServer, getServerIpFromDomain, targetCdn, vlessWsIp
+                        )
+                    }
+
+                    broadcastResult(configId, latency)
+                }.start()
+            }
 
         } else {
+
             // =========================================================
             // HEAVY GO SCANNER FOR VAYDNS TUNNELS
             // =========================================================

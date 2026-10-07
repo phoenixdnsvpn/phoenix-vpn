@@ -98,21 +98,21 @@ class ConfigAdapter(
 
         val targetCdn = if (globalOverride) {
             context.getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
-                .getString("selected_cdn", "CloudX") ?: "CloudX"
+                .getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
         } else if (isDefault) {
             context.getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
-                .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
+                .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
         } else {
             context.getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
-                .getString("${config.id}_cdn", "CloudX") ?: "CloudX"
+                .getString("${config.id}_cdn", "Cloudflare") ?: "Cloudflare"
         }
 
         // Assign striking Material colors based on the protocol
         val protocolColor = when (activeTunnelProtocol.lowercase().trim()) {
-            "hysteria2" -> android.graphics.Color.parseColor("#2E7D32") // Teal
+            "hysteria" -> android.graphics.Color.parseColor("#00897B") // Teal
             "amneziawg" -> android.graphics.Color.parseColor("#E91E63") // Pink
             "wireguard" -> android.graphics.Color.parseColor("#00B7EB") // teal
-            "warp" -> android.graphics.Color.parseColor("#00897B") // teal
+            "warp" -> android.graphics.Color.parseColor("#2E7D32") // teal
             "masque" -> android.graphics.Color.parseColor("#1565C0") // teal
             "reality-tcp"           -> android.graphics.Color.parseColor("#E64A19") // Deep Orange
             "dns"                   -> android.graphics.Color.parseColor("#64DD17") // lime
@@ -125,7 +125,7 @@ class ConfigAdapter(
                 when (targetCdn.trim().lowercase()) {
                     "cloudy" -> android.graphics.Color.parseColor("#CE93D8") // CloudY Color
                     "cloudv" -> android.graphics.Color.parseColor("#D98C8C") // CloudV Color
-                    else -> android.graphics.Color.parseColor("#7B1FA2")     // Default / CloudX Color
+                    else -> android.graphics.Color.parseColor("#7B1FA2")     // Default / Cloudflare Color
                 }
             }
             else                    -> defaultTextColor // Phoenix (Native Black/White)

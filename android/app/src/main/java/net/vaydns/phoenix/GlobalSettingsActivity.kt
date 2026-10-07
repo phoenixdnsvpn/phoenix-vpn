@@ -38,8 +38,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var layoutCdn: View
     private lateinit var spinnerCdn: android.widget.Spinner
     private lateinit var cbDebugLogs: SwitchCompat
-    //private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp")
-    // private val supportedProtocols = listOf("vaydns", "hysteria2", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-xhttp")
+    //private val supportedProtocols = listOf("vaydns", "hysteria", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-grpc", "vless-xhttp")
+    // private val supportedProtocols = listOf("vaydns", "hysteria", "reality-tcp",  "reality-xhttp", "vless-ws", "vless-httpupgrade", "vless-xhttp")
     // Dynamically fetch and parse the comma-separated protocol list from the Go Native Vault
     private val supportedProtocols get() = Mobile.getOverrideProtocols().split(",").map { it.trim() }
     // Notification Management
@@ -115,7 +115,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbGlobalProtocolOverride = findViewById(R.id.cb_global_protocol_override)
         btnCfHistory.setOnClickListener {
             // 1. Grab the currently selected CDN on the screen
-            val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
+            val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
 
             // 2. Save it immediately so it doesn't get lost if the system kills the activity
             getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
@@ -227,7 +227,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         }
         // Fallback options if JSON hasn't loaded yet
         if (cdnList.isEmpty()) {
-            cdnList.add("CloudX")
+            cdnList.add("Cloudflare")
             cdnList.add("CloudY")
             cdnList.add("CloudZ")
             cdnList.add("CloudV")
@@ -281,7 +281,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbTunnelAndroidServices.isChecked = appPrefs.getBoolean("tunnel_android_services", false)
         // Load Menu Toggles
         cbUseLayer7Ping.isChecked = tunnelPrefs.getBoolean("use_layer7_ping", true)
-        etMaxVerificationAttempts.setText(tunnelPrefs.getLong("max_verification_attempts", 2L).toString())
+        etMaxVerificationAttempts.setText(tunnelPrefs.getLong("max_verification_attempts", 3L).toString())
         cbUpdateConfigs.isChecked = menuPrefs.getBoolean("show_update_configs", false)
         cbUpdateResolvers.isChecked = menuPrefs.getBoolean("show_update_resolvers", false)
         cbUploadConfigs.isChecked = menuPrefs.getBoolean("show_upload_configs", false)
@@ -319,7 +319,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         if (pIndex >= 0) spinnerGlobalProtocol.setSelection(pIndex)
 
         // Load saved CDN Selection
-        val savedCdn = tunnelPrefs.getString("selected_cdn", "CloudX") ?: "CloudX"
+        val savedCdn = tunnelPrefs.getString("selected_cdn", "Cloudflare") ?: "Cloudflare"
         for (i in 0 until spinnerCdn.adapter.count) {
             if (spinnerCdn.adapter.getItem(i).toString() == savedCdn) {
                 spinnerCdn.setSelection(i)
@@ -352,7 +352,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             cbUploadConfigs.visibility = View.GONE
             cbUploadResolvers.visibility = View.GONE
 
-            // Note: SNI Pool and CloudX IP fields are automatically hidden
+            // Note: SNI Pool and Cloudflare IP fields are automatically hidden
             // because they are now safely inside the section_advanced_protocols wrapper!
 
         } else if (configCount == 0L) {
@@ -368,7 +368,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
         val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
         val menuPrefs = getSharedPreferences("MenuSettings", Context.MODE_PRIVATE)
-        val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "CloudX"
+        val selectedCdn = spinnerCdn.selectedItem?.toString() ?: "Cloudflare"
 
         val useSniPool = cbUseSniPool.isChecked
         val selectedSniIndex = if (useSniPool) spinnerSniPool.selectedItemPosition else -1
@@ -410,8 +410,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
             putBoolean("use_sni_pool", useSniPool)
             putInt("selected_sni_index", selectedSniIndex)
             putBoolean("use_hysteria_core", cbUseHysteriaCore.isChecked)
-            var maxAttempts = etMaxVerificationAttempts.text.toString().toLongOrNull() ?: 2L
-            maxAttempts = maxAttempts.coerceIn(1L, 10L)
+            var maxAttempts = etMaxVerificationAttempts.text.toString().toLongOrNull() ?: 3L
+            maxAttempts = maxAttempts.coerceIn(1L, 11L)
             putLong("max_verification_attempts", maxAttempts)
         }.apply()
 
@@ -430,9 +430,19 @@ class GlobalSettingsActivity : AppCompatActivity() {
         // Constraint 3: Notification Update must be >= Unlocked State
         if (notifUpdate < unlockedDelay) notifUpdate = unlockedDelay
 
+        val savedVpnMode = appPrefs.getBoolean("default_to_vpn_mode", true)
+        var isVpnSelected = rgTunnelMode.checkedRadioButtonId == R.id.rb_mode_vpn
+        val tunnelActive = appPrefs.getString("connected_config_id", null) != null
+
+        if (isVpnSelected != savedVpnMode && tunnelActive) {
+            Toast.makeText(this, "Please stop the tunnel before changing VPN/Proxy Mode.", Toast.LENGTH_LONG).show()
+            isVpnSelected = savedVpnMode
+            rgTunnelMode.check(if (savedVpnMode) R.id.rb_mode_vpn else R.id.rb_mode_proxy)
+        }
+
         // 2. Save App Preferences
         appPrefs.edit().apply {
-            val isVpnSelected = rgTunnelMode.checkedRadioButtonId == R.id.rb_mode_vpn
+            //val isVpnSelected = rgTunnelMode.checkedRadioButtonId == R.id.rb_mode_vpn
             putBoolean("default_to_vpn_mode", isVpnSelected)
             putBoolean("default_configs_at_start", cbDefaultAtStart.isChecked)
             putBoolean("use_simple_interface", cbEnableSimpleInterface.isChecked)

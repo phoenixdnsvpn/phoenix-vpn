@@ -1,0 +1,389 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/windowBackground"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        app:elevation="4dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar_trojan"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="Add Trojan Config"
+            app:titleTextColor="?attr/colorOnSurface"
+            app:navigationIcon="@drawable/ic_arrow_back_modern"
+            app:navigationIconTint="?attr/colorOnSurface">
+
+            <ImageButton
+                android:id="@+id/btn_save_trojan"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="end"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="4dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_check_modern"
+                app:tint="?attr/colorOnSurface" />
+        </com.google.android.material.appbar.MaterialToolbar>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="24dp"
+            android:paddingBottom="32dp">
+
+            <!-- CORE CONFIGURATION -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Core Configuration"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Config Name"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_trojan_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="My Trojan Server"
+                android:inputType="text"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server IP"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_trojan_ip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="192.168.1.1 or example.com"
+                android:inputType="textUri"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server Port"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_trojan_port"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="443"
+                android:inputType="number"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Password"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_trojan_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Your Password"
+                android:inputType="textVisiblePassword"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="24dp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <!-- TRANSPORT SECTION -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Transport Section"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Network"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+                <Spinner
+                    android:id="@+id/sp_trojan_network"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_trojan_host_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="websocket host"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_trojan_host"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="example.com"
+                android:inputType="textUri"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tv_trojan_path_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="websocket path"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_trojan_path"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="/path"
+                android:inputType="text"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="16dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="24dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Transport Layer Encryption"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+                <Spinner
+                    android:id="@+id/sp_trojan_tls_type"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/dividerVertical"
+                android:layout_marginBottom="24dp"/>
+
+            <!-- TLS SETTINGS CONTAINER -->
+            <LinearLayout
+                android:id="@+id/layout_tls_settings"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="TLS Settings"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Fingerprint"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="16sp" />
+                    <Spinner
+                        android:id="@+id/sp_tls_fingerprint"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:backgroundTint="?attr/colorOnSurface" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="ALPN"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="16sp" />
+                    <Spinner
+                        android:id="@+id/sp_tls_alpn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:backgroundTint="?attr/colorOnSurface" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Allow Insecure"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="16sp" />
+                    <Spinner
+                        android:id="@+id/sp_tls_allow_insecure"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:backgroundTint="?attr/colorOnSurface" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Certificate fingerprint (SHA-256)"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+                <EditText
+                    android:id="@+id/et_tls_sha256"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Optional"
+                    android:inputType="textMultiLine"
+                    android:minLines="2"
+                    android:gravity="top|start"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginBottom="24dp" />
+            </LinearLayout>
+
+            <!-- REALITY SETTINGS CONTAINER -->
+            <LinearLayout
+                android:id="@+id/layout_reality_settings"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Reality Settings"
+                    android:textColor="?attr/colorPrimary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Fingerprint"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="16sp" />
+                    <Spinner
+                        android:id="@+id/sp_reality_fingerprint"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:backgroundTint="?attr/colorOnSurface" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="SNI"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+                <EditText
+                    android:id="@+id/et_reality_sni"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginBottom="16dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="PublicKey"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+                <EditText
+                    android:id="@+id/et_reality_pubkey"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textMultiLine"
+                    android:minLines="2"
+                    android:gravity="top|start"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginBottom="16dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Shortid"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+                <EditText
+                    android:id="@+id/et_reality_shortid"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginBottom="24dp" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

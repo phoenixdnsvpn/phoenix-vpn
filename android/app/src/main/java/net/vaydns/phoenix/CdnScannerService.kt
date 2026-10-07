@@ -23,12 +23,14 @@ class CdnScannerService : Service() {
                 val isDefault = intent.getBooleanExtra("IS_DEFAULT", false)
                 val configIndex = intent.getLongExtra("CONFIG_INDEX", -1L)
                 val scanCount = intent.getIntExtra("SCAN_COUNT", 512)
-                val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "CloudX"
+                val targetCdn = intent.getStringExtra("TARGET_CDN") ?: "Cloudflare"
                 val dialTimeout = intent.getIntExtra("DIAL_TIMEOUT", 2000)
                 val readDeadline = intent.getIntExtra("READ_DEADLINE", 1000)
                 val batchDelaySec = intent.getIntExtra("BATCH_DELAY_SEC", 30)
                 val uniformDist = intent.getBooleanExtra("UNIFORM_DIST", true)
                 val targetPort = intent.getIntExtra("TARGET_PORT", 443)
+                val customDomain = intent.getStringExtra("CUSTOM_DOMAIN") ?: ""
+                val customPath = intent.getStringExtra("CUSTOM_PATH") ?: "/"
 
                 Thread {
                     // Start the scanner and pass the parameters down to Gomobile
@@ -42,6 +44,8 @@ class CdnScannerService : Service() {
                         readDeadline.toLong(),
                         batchDelaySec.toLong(),
                         uniformDist,
+                        customDomain,
+                        customPath,
                         object : CdnScannerCallback {
                             override fun onUpdate(result: String) {
                                 broadcastUpdate(result)

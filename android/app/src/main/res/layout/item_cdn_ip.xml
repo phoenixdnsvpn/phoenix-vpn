@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:background="@android:color/transparent"
-        android:hint="CloudX IP"
+        android:hint="Cloudflare IP"
         android:inputType="textUri"
         android:textSize="15sp"
         android:textColor="?attr/colorOnSurface"

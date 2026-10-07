@@ -57,6 +57,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private var pubkey = ""
     private var proxyType = ""
     private var tunnelProtocol = ""
+    private var encryption = ""
     private var localProxyProtocol = ""
     private var authProtocol = ""
     private var ssMethod = ""
@@ -69,6 +70,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private var keepAlive = ""
     private var clientIdSize = 2L
     private var mtu = 0L
+    private var maxMtu = 140L
+    private var parallelism = 32L
     private var selectedMode = ""
     private var workers = 20L
     private var tunnelWait = 2000L
@@ -147,6 +150,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         pubkey = intent.getStringExtra("PUBKEY") ?: ""
         proxyType = intent.getStringExtra("PROXY_TYPE") ?: "socks5h"
         tunnelProtocol = intent.getStringExtra("TUNNEL_PROTOCOL") ?: "vaydns"
+        encryption = intent.getStringExtra("MASTERDNS_METHOD") ?: ""
         localProxyProtocol = intent.getStringExtra("LOCAL_PROXY_PROTOCOL") ?: "socks5"
         authProtocol = intent.getStringExtra("AUTH_PROTOCOL") ?: "socks"
         ssMethod = intent.getStringExtra("SS_METHOD") ?: "chacha20-ietf-poly1305"
@@ -159,6 +163,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
         keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
         clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
         mtu = intent.getLongExtra("MTU", 0L)
+        maxMtu = intent.getLongExtra("MAX_MTU", 140L)
+        parallelism = intent.getLongExtra("PARALLELISM", 32L)
         selectedMode = intent.getStringExtra("MODE") ?: "udp"
         workers = intent.getLongExtra("WORKERS", 20L)
         tunnelWait = intent.getLongExtra("TUNNEL_WAIT", 2000L)
@@ -395,6 +401,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 putExtra("baseDohUrl", baseDohUrl)
                 putExtra("proxyType", proxyType)
                 putExtra("tunnelProtocol", tunnelProtocol)
+                putExtra("encryption", encryption)
                 putExtra("localProxyProtocol", localProxyProtocol)
                 putExtra("authProtocol", authProtocol)
                 putExtra("user", user)
@@ -405,6 +412,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 putExtra("keepAlive", keepAlive)
                 putExtra("clientIdSize", clientIdSize)
                 putExtra("mtu", mtu)
+                putExtra("maxMtu", maxMtu)
+                putExtra("parallelism", parallelism)
                 putExtra("workers", workers)
                 putExtra("tunnelWait", tunnelWait)
                 putExtra("udpTimeout", udpTimeout)
