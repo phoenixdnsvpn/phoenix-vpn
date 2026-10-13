@@ -66,6 +66,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
     private lateinit var cbUseSniPool: SwitchCompat
     private lateinit var spinnerSniPool: android.widget.Spinner
     private lateinit var cbUseHysteriaCore: SwitchCompat
+    private lateinit var cbUseResolverPools: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -110,6 +111,12 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbShowBackupRestore = findViewById(R.id.cb_show_backup_restore)
         cbGetServerIpFromDomain = findViewById(R.id.cb_get_server_ip_from_domain)
         etMaxVerificationAttempts = findViewById(R.id.et_max_verification_attempts)
+        cbUseResolverPools = findViewById(R.id.cb_use_resolver_pools)
+
+        val btnGlobalResolverPool = findViewById<android.widget.ImageButton>(R.id.btn_global_resolver_pool)
+        btnGlobalResolverPool.setOnClickListener {
+            startActivity(Intent(this, GlobalResolverPoolActivity::class.java))
+        }
 
         // Bind Override UI
         cbGlobalProtocolOverride = findViewById(R.id.cb_global_protocol_override)
@@ -295,7 +302,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
         cbBlockQuic.isChecked = tunnelPrefs.getBoolean("block_quic", true)
         cbGetServerIpFromDomain.isChecked = tunnelPrefs.getBoolean("get_server_ip_from_domain", false)
         cbUseHysteriaCore.isChecked = tunnelPrefs.getBoolean("use_hysteria_core", false)
-
+        val useGlobalPool = tunnelPrefs.getBoolean("use_global_resolver_pool", false)
+        cbUseResolverPools.isChecked = useGlobalPool
         // Load VLESS IP Fallback
         //etVlessWsIp.setText(tunnelPrefs.getString("vless_ws_ip", ""))
         val releaseType = try { Mobile.getReleaseType().lowercase() } catch (e: Exception) { "community" }
@@ -413,6 +421,7 @@ class GlobalSettingsActivity : AppCompatActivity() {
             var maxAttempts = etMaxVerificationAttempts.text.toString().toLongOrNull() ?: 3L
             maxAttempts = maxAttempts.coerceIn(1L, 11L)
             putLong("max_verification_attempts", maxAttempts)
+            putBoolean("use_global_resolver_pool", cbUseResolverPools.isChecked)
         }.apply()
 
         var unlockedDelay = etUnlockedDelay.text.toString().toLongOrNull() ?: 2000L

@@ -34,7 +34,11 @@ class ResolverAdapter(
             val clipboard = view.context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             val clip = android.content.ClipData.newPlainText("IP Address", item.ip)
             clipboard.setPrimaryClip(clip)
-            android.widget.Toast.makeText(view.context, "Copied: ${item.ip}", android.widget.Toast.LENGTH_SHORT).show()
+
+            // Prevent double toast on Android 13+
+            if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.S_V2) {
+                android.widget.Toast.makeText(view.context, "Copied: ${item.ip}", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
 
         if (isQuickScanner) {

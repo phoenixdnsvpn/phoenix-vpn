@@ -22,7 +22,17 @@
             app:title="Scanned Resolvers"
             app:titleTextColor="?attr/colorOnSurface"
             app:navigationIcon="@drawable/ic_arrow_back_modern"
-            app:navigationIconTint="?attr/colorOnSurface" />
+            app:navigationIconTint="?attr/colorOnSurface" >
+
+        <ImageView
+            android:id="@+id/iv_scan_progress"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="end"
+            android:layout_marginEnd="16dp"
+            android:src="@drawable/circle_red"
+            android:visibility="gone" />
+        </com.google.android.material.appbar.MaterialToolbar>
     </com.google.android.material.appbar.AppBarLayout>
 
     <!-- MAIN CONTENT BODY -->

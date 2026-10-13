@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.util.Log
 import mobile.Mobile
 
 data class ResolverResult(
@@ -78,6 +79,12 @@ class DnsScannerResultActivity : AppCompatActivity() {
     private var udpTimeout = 1000L
     private var probeTimeout = 15L
     private var retries = 0L
+    private var slipCongestion = ""
+    private var slipAuth = false
+    private var slipGso = false
+
+    private lateinit var ivScanProgress: android.widget.ImageView
+    private var rotateAnimator: android.animation.ObjectAnimator? = null
 
     private val saveFileLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
@@ -140,6 +147,14 @@ class DnsScannerResultActivity : AppCompatActivity() {
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // --- 1. LOAD CONFIGURATION ---
+        ivScanProgress = findViewById(R.id.iv_scan_progress)
+
+        // Fades smoothly from 100% opacity to 20% opacity and back up
+        rotateAnimator = android.animation.ObjectAnimator.ofFloat(ivScanProgress, "alpha", 1f, 0.2f, 1f).apply {
+            duration = 2000 // 1.2 seconds for a complete pulse cycle
+            repeatCount = android.animation.ObjectAnimator.INFINITE
+            interpolator = android.view.animation.AccelerateDecelerateInterpolator() // Makes the breathing effect natural
+        }
         isQuickScanner = intent.getBooleanExtra("IS_QUICK_SCANNER", false)
         configId = intent.getStringExtra("CONFIG_ID") ?: ""
         isDefaultConfig = configId.startsWith("default_")
@@ -172,6 +187,10 @@ class DnsScannerResultActivity : AppCompatActivity() {
         probeTimeout = intent.getLongExtra("PROBE_TIMEOUT", 15L)
         retries = intent.getLongExtra("RETRIES", 0L)
 
+        slipCongestion = intent.getStringExtra("SLIPSTREAM_CONGESTION") ?: "BBR"
+        slipAuth = intent.getBooleanExtra("SLIPSTREAM_AUTHORITATIVE", false)
+        slipGso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
+
         val resolversFilePath = intent.getStringExtra("RESOLVERS_FILE") ?: ""
         val resolversCommaSeparated = if (resolversFilePath.isNotEmpty()) {
             try { java.io.File(resolversFilePath).readText() } catch (e: Exception) { "" }
@@ -179,6 +198,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
             intent.getStringExtra("RESOLVERS") ?: ""
         }
         allResolvers = resolversCommaSeparated.split(",").filter { it.isNotBlank() }
+
+        Log.i("VAY_DEBUG_SLIPSTREAM", "DnsScannerResultActivity [onCreate] | Protocol: $tunnelProtocol, Pubkey length: ${pubkey.length}")
 
         // --- 2. INITIALIZE UI ---
         val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar_results)
@@ -311,12 +332,39 @@ class DnsScannerResultActivity : AppCompatActivity() {
                     } else {
                         val dataToSave = filteredAndSorted.joinToString("\n") { "${it.ip},${it.latencyMs}" }
                         try {
+                            // 1. Save to the specific Config ID
+                            val file = java.io.File(filesDir, "resolvers_$configId.txt")
+                            val dataToSave = filteredAndSorted.joinToString("\n") { "${it.ip},${it.latencyMs}" }
+                            file.writeText(dataToSave)
+
+                            // 2. Append to the Global Protocol Pool
+                            val dnsProtocols = listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream")
+                            val currentProto = tunnelProtocol.lowercase()
+
+                            if (currentProto in dnsProtocols) {
+                                val globalFile = java.io.File(filesDir, "global_resolvers_$currentProto.txt")
+                                val existingLines = if (globalFile.exists()) globalFile.readLines().filter { it.isNotBlank() } else emptyList()
+
+                                val existingIps = existingLines.map { it.split(",")[0].trim() }
+                                val newEntries = filteredAndSorted
+                                    .filter { !existingIps.contains(it.ip) }
+                                    .map { "${it.ip},${it.latencyMs}" }
+
+                                val combined = existingLines + newEntries
+                                globalFile.writeText(combined.joinToString("\n"))
+                            }
+
+                            Toast.makeText(this@DnsScannerResultActivity, "Saved ${filteredAndSorted.size} resolvers!", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(this@DnsScannerResultActivity, "Error saving: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                        /**try {
                             val file = java.io.File(filesDir, "resolvers_$configId.txt")
                             file.writeText(dataToSave)
                             Toast.makeText(this, "Saved ${filteredAndSorted.size} resolvers!", Toast.LENGTH_SHORT).show()
                         } catch (e: Exception) {
                             Toast.makeText(this, "Error saving: ${e.message}", Toast.LENGTH_SHORT).show()
-                        }
+                        }*/
                     }
                 }
                 .setNegativeButton("Cancel", null)
@@ -347,6 +395,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
         adapter.notifyDataSetChanged()
         tvProgress.text = "$scannedCount / $totalResolvers"
         tvPassed.text = "$passedCount passed"
+
+        updateProgressAnimation(isRunning)
     }
 
     override fun onPause() {
@@ -359,6 +409,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
             stopService(Intent(this, VayScannerService::class.java))
             btnStopResume.text = "Resume"
             isRunning = false
+
+            updateProgressAnimation(false) // Stop animation
         }
     }
 
@@ -373,6 +425,8 @@ class DnsScannerResultActivity : AppCompatActivity() {
         btnStopResume.text = "STOP"
         adapter.notifyDataSetChanged()
 
+        updateProgressAnimation(true) // Start animation
+
         startNextBatch()
     }
 
@@ -381,6 +435,7 @@ class DnsScannerResultActivity : AppCompatActivity() {
         if (startIndex >= allResolvers.size) {
             isRunning = false
             btnStopResume.text = "Resume"
+            updateProgressAnimation(false) // Stop animation on completion
             Toast.makeText(this, "Scan complete!", Toast.LENGTH_SHORT).show()
             return
         }
@@ -426,8 +481,12 @@ class DnsScannerResultActivity : AppCompatActivity() {
                 putExtra("totalResolvers", totalResolvers)
                 putExtra("scannedSoFar", scannedCount)
                 putExtra("passedSoFar", passedCount)
-            }
 
+                putExtra("slipCongestion", slipCongestion)
+                putExtra("slipAuth", slipAuth)
+                putExtra("slipGso", slipGso)
+            }
+            Log.i("VAY_DEBUG_SLIPSTREAM", "DnsScannerResultActivity -> VayScannerService | Protocol: $tunnelProtocol, Pubkey length: ${pubkey.length}, Congestion: $slipCongestion, Auth: $slipAuth, GSO: $slipGso")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent)
             } else {
@@ -435,6 +494,20 @@ class DnsScannerResultActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             Toast.makeText(this, "Failed to start batch: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun updateProgressAnimation(running: Boolean) {
+        if (::ivScanProgress.isInitialized) {
+            if (running) {
+                ivScanProgress.visibility = android.view.View.VISIBLE
+                if (rotateAnimator?.isRunning == false) {
+                    rotateAnimator?.start()
+                }
+            } else {
+                ivScanProgress.visibility = android.view.View.GONE
+                rotateAnimator?.cancel()
+            }
         }
     }
 

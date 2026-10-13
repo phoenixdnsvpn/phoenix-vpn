@@ -52,7 +52,9 @@ class ConfigEditorActivity : AppCompatActivity() {
                         idleTimeout = obj.optString("idleTimeout", "10s"),
                         keepAlive = obj.optString("keepAlive", "2s"),
                         clientIdSize = obj.optLong("clientIdSize", 2),
-                        mtu = obj.optLong("mtu", 0L),
+                        mtu = obj.optLong("mtu", 40L),
+                        maxMtu = obj.optLong("maxMtu", 140L),
+                        disableMtuDiscovery = obj.optBoolean("disableMtuDiscovery", false),
                         dnsttCompatible = obj.optBoolean("dnsttCompatible", false),
                         useAuth = obj.optBoolean("useAuth", false),
                         useSshKey = obj.optBoolean("useSshKey", false),
@@ -97,6 +99,8 @@ class ConfigEditorActivity : AppCompatActivity() {
                         put("keepAlive", config.keepAlive)
                         put("clientIdSize", config.clientIdSize)
                         put("mtu", config.mtu)
+                        put("maxMtu", config.maxMtu)
+                        put("disableMtuDiscovery", config.disableMtuDiscovery)
                         put("dnsttCompatible", config.dnsttCompatible)
                         put("useAuth", config.useAuth)
                         put("useSshKey", config.useSshKey)

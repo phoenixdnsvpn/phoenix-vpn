@@ -22,7 +22,8 @@ class CheckBoxResolverAdapter(
     private val tunnelMode: String,
     private val onStatusChanged: () -> Unit,
     private val sanitizePointer: (String, String) -> String?,
-    private val onStartDrag: (RecyclerView.ViewHolder) -> Unit
+    private val onStartDrag: (RecyclerView.ViewHolder) -> Unit,
+    private val showDragHandle: Boolean = true
 ) : RecyclerView.Adapter<CheckBoxResolverAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -56,7 +57,11 @@ class CheckBoxResolverAdapter(
                 val clipboard = view.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 val clip = ClipData.newPlainText("Resolver IP", entry.address)
                 clipboard.setPrimaryClip(clip)
-                Toast.makeText(view.context, "Copied: ${entry.address}", Toast.LENGTH_SHORT).show()
+
+                // Only show custom Toast on Android 12 and below. Android 13+ has native feedback.
+                if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.S_V2) {
+                    Toast.makeText(view.context, "Copied: ${entry.address}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
@@ -135,11 +140,17 @@ class CheckBoxResolverAdapter(
             onStatusChanged()
         }
 
-        holder.dragHandle.setOnTouchListener { v, event ->
-            if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
-                onStartDrag(holder)
+        if (showDragHandle) {
+            holder.dragHandle.visibility = View.VISIBLE
+            holder.dragHandle.setOnTouchListener { v, event ->
+                if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                    onStartDrag(holder)
+                }
+                false
             }
-            false
+        } else {
+            holder.dragHandle.visibility = View.GONE
+            holder.dragHandle.setOnTouchListener(null)
         }
     }
 

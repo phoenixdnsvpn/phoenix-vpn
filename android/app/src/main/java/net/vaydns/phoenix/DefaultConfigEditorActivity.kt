@@ -59,8 +59,11 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
         val rbAuto = findViewById<RadioButton>(R.id.rb_auto)
         val etMtu = findViewById<EditText>(R.id.et_mtu)
         val etMaxMtu = findViewById<EditText>(R.id.et_max_mtu)
+        val swDisableMtuDiscovery = findViewById<SwitchCompat>(R.id.sw_disable_mtu_discovery)
         val etParallelism = findViewById<EditText>(R.id.et_parallelism)
         val tvMtuLabel = findViewById<TextView>(R.id.tv_mtu_label)
+        val tvMaxMtuLabel = findViewById<TextView>(R.id.tv_max_mtu_label)
+        val tvParallelismLabel = findViewById<TextView>(R.id.tv_parallelism_label)
         val swUseDefaultResolvers = findViewById<SwitchCompat>(R.id.sw_use_default_resolvers)
         val rgProxyProtocol = findViewById<RadioGroup>(R.id.rg_proxy_protocol)
         val spinnerTunnelProtocol = findViewById<Spinner>(R.id.spinner_tunnel_protocol)
@@ -84,6 +87,11 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
         val tvVlessIpLabel = findViewById<TextView>(R.id.tv_vless_ip_label)
         val etVlessIp = findViewById<EditText>(R.id.et_vless_ip)
         val btnBestCfIp = findViewById<Button>(R.id.btn_best_cf_ip)
+
+        val layoutMaxQnameLen = findViewById<LinearLayout>(R.id.layout_max_qname_len)
+        val tvMaxQnameLenLabel = findViewById<TextView>(R.id.tv_max_qname_len_label)
+        val sliderMaxQnameLen = findViewById<com.google.android.material.slider.Slider>(R.id.slider_max_qname_len)
+        val rgDomainSelector = findViewById<RadioGroup>(R.id.rg_domain_selector)
 
         etVlessIp.isEnabled = false
         etVlessIp.alpha = 0.5f
@@ -127,6 +135,7 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
         val savedMtu = prefs.getLong("${editingConfigId}_mtu", 0L)
         val savedUseMulti = prefs.getBoolean("${editingConfigId}_useMultiDomains", false)
         val savedDomainIndex = prefs.getInt("${editingConfigId}_domainIndex", 0)
+        val savedDisableMtuDiscovery = prefs.getBoolean("${editingConfigId}_disableMtuDiscovery", false)
 
         // Load Record Type
         val defaultRecordType = Mobile.getDefaultConfigRecordType(configIndex)
@@ -207,6 +216,38 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
             }
             override fun afterTextChanged(s: Editable?) {}
         })
+
+        // Helper function to calculate and update Max MTU
+        fun updateCalculatedMaxMtu() {
+            val qnameLen = sliderMaxQnameLen.value.toInt()
+            val domainIdx = when (rgDomainSelector.checkedRadioButtonId) {
+                R.id.rb_domain_2 -> 1L
+                R.id.rb_domain_3 -> 2L
+                R.id.rb_domain_4 -> 3L
+                else -> 0L
+            }
+
+            // Secure: Fetch only the length from Go without exposing the domain string
+            val domainLen = Mobile.getDefaultConfigDomainLength(configIndex, domainIdx).toInt()
+            val clientIdSize = try { Mobile.getDefaultConfigClientIdSize(configIndex).toInt() } catch (e: Exception) { 2 }
+
+            // Formula: ((max-qname-len - len(domain) - 4) * 5 / 8) - client_ID_size
+            val calculatedMaxMtu = ((qnameLen - domainLen - 4) * 5 / 8) - clientIdSize
+            etMaxMtu.setText(calculatedMaxMtu.coerceAtLeast(0).toString())
+        }
+
+        sliderMaxQnameLen.addOnChangeListener { _, value, fromUser ->
+            val qnameLen = value.toInt()
+            tvMaxQnameLenLabel.text = "Max QNAME Length: $qnameLen"
+            if (fromUser) {
+                updateCalculatedMaxMtu()
+            }
+        }
+
+        // Recalculate if user switches to another domain (Domain 1, 2, etc.)
+        rgDomainSelector.setOnCheckedChangeListener { _, _ ->
+            updateCalculatedMaxMtu()
+        }
 
         btnBestCfIp.setOnClickListener { buttonView ->
             val btn = buttonView as Button
@@ -319,6 +360,7 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
         etMtu.setText(savedMtu.toString())
         etMaxMtu.setText(savedMaxMtu.toString())
         etParallelism.setText(savedParallelism.toString())
+        swDisableMtuDiscovery.isChecked = savedDisableMtuDiscovery
 
         // val rawTypes = Mobile.getDefaultConfigType(configIndex).split(",").map { it.trim().lowercase() }
         // val supportedProtocols = if (rawTypes.isEmpty() || rawTypes[0] == "") listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream") else rawTypes
@@ -472,19 +514,35 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
                 // 3. Extended MTU & Compression Visibility
                 findViewById<TextView>(R.id.tv_mtu_label)?.visibility = dnsVisibility
                 etMtu.visibility = dnsVisibility
-                layoutExtendedMtu.visibility = if (isExtendedDns) View.VISIBLE else View.GONE
+                layoutExtendedMtu.visibility = if (isExtendedDns || isVaydns) View.VISIBLE else View.GONE
                 layoutCompression.visibility = if (isExtendedDns) View.VISIBLE else View.GONE
 
-                val tvMtuLabel = findViewById<TextView>(R.id.tv_mtu_label)
-                if (isExtendedDns) {
+                layoutMaxQnameLen.visibility = if (isVaydns) View.VISIBLE else View.GONE
+
+                if (isExtendedDns || isVaydns) {
                     tvMtuLabel?.text = "Min. Upload MTU:"
-                    etMtu.hint = "40 < Min MTU < 200"
-                    etMaxMtu.hint = "40 < Min MTU < 200"
+                    etMtu.hint = "40"
+                    tvMaxMtuLabel?.text = "Max. Upload MTU:"
+                    etMaxMtu.hint = if (isExtendedDns) "200" else "140"
+
                     if (etMtu.text.toString() == "0") etMtu.setText("40")
-                    if (etMaxMtu.text.toString() == "140") etMaxMtu.setText("200")
-                }else{
+                    if (etMaxMtu.text.toString() == "0" || etMaxMtu.text.toString() == "140") {
+                        etMaxMtu.setText(if (isExtendedDns) "200" else "140")
+                    }
+
+                    if (isVaydns) {
+                        swDisableMtuDiscovery.visibility = View.VISIBLE
+                        tvParallelismLabel?.visibility = View.GONE
+                        etParallelism.visibility = View.GONE
+                    } else {
+                        swDisableMtuDiscovery.visibility = View.GONE
+                        tvParallelismLabel?.visibility = View.VISIBLE
+                        etParallelism.visibility = View.VISIBLE
+                    }
+                } else {
                     tvMtuLabel?.text = "Upload MTU:"
                     etMtu.hint = "40 < MTU < 140"
+                    layoutExtendedMtu.visibility = View.GONE
                 }
                 // 4. Record Type Population
                 if (isDnsBase && isMasterDns && isStormDns && isCottenDns) {
@@ -603,7 +661,7 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
                 else -> "UDP"
             }
 
-            val mtuValue = etMtu.text.toString().toLongOrNull() ?: 0L
+            val mtuValue = etMtu.text.toString().toLongOrNull() ?: 40L
             val maxMtu = etMaxMtu.text.toString().toLongOrNull() ?: 140L
             val parallelism = etParallelism.text.toString().toLongOrNull() ?: 32L
 
@@ -628,8 +686,16 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
             } else if (lowerProto == "vaydns") {
-                if (mtuValue != 0L && (mtuValue < 40L || mtuValue > 140L)) {
-                    Toast.makeText(this, "Invalid Upload MTU: VayDNS requires a value between 40 and 140, or 0 for default.", Toast.LENGTH_LONG).show()
+                if (mtuValue < 40L || mtuValue > 140L) {
+                    Toast.makeText(this, "Invalid Min. Upload MTU: VayDNS requires a value between 40 and 140.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                if (maxMtu < 40L || maxMtu > 140L) {
+                    Toast.makeText(this, "Invalid Max. Upload MTU: VayDNS requires a value between 40 and 140.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                if (maxMtu <= mtuValue && !swDisableMtuDiscovery.isChecked) {
+                    Toast.makeText(this, "Max MTU must be strictly greater than Min MTU for MTU discovery.", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
             }
@@ -656,13 +722,19 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
             val selectedAddrs = resolverEntries.filter { it.isChecked && it.address.isNotEmpty() }.map { it.address }
             java.io.File(filesDir, "selected_multipath_$editingConfigId.txt").writeText(selectedAddrs.joinToString("\n"))
 
+            val savedQnameLen = prefs.getInt("${editingConfigId}_maxQnameLen", 253)
+            sliderMaxQnameLen.value = savedQnameLen.toFloat().coerceIn(101f, 253f)
+            tvMaxQnameLenLabel.text = "Max QNAME Length: ${sliderMaxQnameLen.value.toInt()}"
+
             prefs.edit().apply {
                 putString("${editingConfigId}_name", name)
                 putString("${editingConfigId}_dns", dns)
                 putString("${editingConfigId}_mode", mode)
                 putString("${editingConfigId}_dns_mode", dns_mode)
+                putInt("${editingConfigId}_maxQnameLen", sliderMaxQnameLen.value.toInt())
                 putLong("${editingConfigId}_mtu", mtuValue)
                 putLong("${editingConfigId}_maxMtu", maxMtu)
+                putBoolean("${editingConfigId}_disableMtuDiscovery", swDisableMtuDiscovery.isChecked)
                 putLong("${editingConfigId}_parallelism", parallelism)
                 putBoolean("${editingConfigId}_useMultiDomains", useMultiDomains)
                 putString("${editingConfigId}_tunnelProtocol", selectedTunnelProtocol)
@@ -723,8 +795,37 @@ class DefaultConfigEditorActivity : AppCompatActivity() {
         val selectedFile = java.io.File(filesDir, "selected_multipath_$configId.txt")
         val currentSelections = if (selectedFile.exists()) selectedFile.readLines().toSet() else emptySet()
         resolverEntries.forEach { entry -> if (currentSelections.contains(entry.address)) entry.isChecked = true }
-        tvMultipathStatus.text = "${resolverEntries.count { it.isChecked }} IPs selected"
+
+        // --- NEW: Update the label dynamically based on the Global Pool state ---
+        val count = resolverEntries.count { it.isChecked }
+        val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("use_global_resolver_pool", false)) {
+            tvMultipathStatus.text = "Global Pool Active ($count local)"
+        } else {
+            tvMultipathStatus.text = "$count IPs selected"
+        }
     }
+
+    /**private fun setupMultipathData(configId: String) {
+        resolverEntries.clear()
+        val scanFile = java.io.File(filesDir, "resolvers_$configId.txt")
+        if (scanFile.exists()) {
+            scanFile.readLines().forEach { line ->
+                val parts = line.split(",")
+                val ip = parts[0].trim()
+                if (ip.isNotEmpty()) resolverEntries.add(ResolverEntry(ip, isChecked = false, isManual = false, latency = if (parts.size > 1) parts[1].trim() else ""))
+            }
+        }
+        val manualFile = java.io.File(filesDir, "manual_resolvers_$configId.txt")
+        val savedManuals = if (manualFile.exists()) manualFile.readLines() else emptyList()
+        for (i in 0 until 20) {
+            resolverEntries.add(ResolverEntry(savedManuals.getOrNull(i) ?: "", isChecked = false, isManual = true, latency = ""))
+        }
+        val selectedFile = java.io.File(filesDir, "selected_multipath_$configId.txt")
+        val currentSelections = if (selectedFile.exists()) selectedFile.readLines().toSet() else emptySet()
+        resolverEntries.forEach { entry -> if (currentSelections.contains(entry.address)) entry.isChecked = true }
+        tvMultipathStatus.text = "${resolverEntries.count { it.isChecked }} IPs selected"
+    }*/
 
     override fun onResume() {
         super.onResume()

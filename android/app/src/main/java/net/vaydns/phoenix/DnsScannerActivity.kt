@@ -82,7 +82,9 @@ class DnsScannerActivity : AppCompatActivity() {
     private var hasEncryptedResolvers = false
     // Keeps memory records for the Copy & Paste text strings
     private var rawPastedResolversText: String = ""
-
+    private var selectedSlipCongestion: String = "BBR"
+    private var selectedSlipAuth = false
+    private var selectedSlipGso = false
     // Launcher contract to handle processing the results returned from the new window
     private val pasteResolversLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -153,12 +155,17 @@ class DnsScannerActivity : AppCompatActivity() {
         selectedPass = intent.getStringExtra("PASS") ?: "none"
         isQuickScanner = intent.getBooleanExtra("IS_QUICK_SCANNER", false)
 
-        if (selectedTunnelProtocol.lowercase() == "slipstream") {
+        selectedSlipCongestion = intent.getStringExtra("SLIPSTREAM_CONGESTION") ?: "BBR"
+        selectedSlipAuth = intent.getBooleanExtra("SLIPSTREAM_AUTHORITATIVE", false)
+        selectedSlipGso = intent.getBooleanExtra("SLIPSTREAM_GSO", false)
+
+        /**if (selectedTunnelProtocol.lowercase() == "slipstream") {
             Toast.makeText(this, "Slipstream protocol is not supported in the scanner.", Toast.LENGTH_LONG).show()
             finish()
             return
-        }
+        }*/
 
+        Log.i("VAY_DEBUG_SLIPSTREAM", "DnsScannerActivity [onCreate] | Protocol: $selectedTunnelProtocol, Pubkey length: ${selectedPubkey.length}, Congestion: $selectedSlipCongestion, Auth: $selectedSlipAuth, GSO: $selectedSlipGso")
         initViews()
 
         rgTunnelMode = findViewById(R.id.rg_tunnel_mode)
@@ -1267,6 +1274,9 @@ class DnsScannerActivity : AppCompatActivity() {
         //val fastFailEnabled = rgE2eMode.checkedRadioButtonId == R.id.rb_light_e2e
         val baseDohUrl = if (selectedMode.lowercase() == "doh") selectedDnsAddress else ""
 
+        Log.i("VAY_DEBUG_SLIPSTREAM", "DnsScannerActivity -> DnsScannerResultActivity | Protocol: $selectedTunnelProtocol, Pubkey length: ${selectedPubkey.length}")
+        startActivity(intent)
+
         val intent = Intent(this, DnsScannerResultActivity::class.java).apply {
             putExtra("BASE_DOH_URL", baseDohUrl)
             putExtra("IS_QUICK_SCANNER", isQuickScanner)
@@ -1285,6 +1295,9 @@ class DnsScannerActivity : AppCompatActivity() {
             putExtra("MAX_MTU", selectedMaxMtu)
             putExtra("PARALLELISM", selectedParallelism)
             putExtra("MASTERDNS_METHOD", selectedEncryption)
+            putExtra("SLIPSTREAM_CONGESTION", selectedSlipCongestion)
+            putExtra("SLIPSTREAM_AUTHORITATIVE", selectedSlipAuth)
+            putExtra("SLIPSTREAM_GSO", selectedSlipGso)
             putExtra("TUNNEL_PROTOCOL", selectedTunnelProtocol)
             putExtra("LOCAL_PROXY_PROTOCOL", selectedLocalProxyProtocol)
             putExtra("AUTH_PROTOCOL", selectedAuthProtocol)

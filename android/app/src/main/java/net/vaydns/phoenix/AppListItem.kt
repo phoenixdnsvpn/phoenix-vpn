@@ -6,5 +6,6 @@ data class AppListItem(
     val name: String,
     val packageName: String,
     val icon: Drawable,
-    var isSelected: Boolean = false // Adding this helps if you need checkboxes!
+    var isSelected: Boolean = false,
+    val isSystemApp: Boolean = false
 )

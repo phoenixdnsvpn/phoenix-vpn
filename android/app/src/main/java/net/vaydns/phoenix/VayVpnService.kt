@@ -357,8 +357,9 @@ class VayVpnService : VpnService() {
                     val idleTimeout = intent.getStringExtra("IDLE_TIMEOUT") ?: "10s"
                     val keepAlive = intent.getStringExtra("KEEP_ALIVE") ?: "2s"
                     val clientIdSize = intent.getLongExtra("CLIENT_ID_SIZE", 2L)
-                    val mtu = intent.getLongExtra("MTU", 0L)
+                    val mtu = intent.getLongExtra("MTU", 40L)
                     val maxMtu = intent.getLongExtra("MAX_MTU", 140L)
+                    val disableMtuDiscovery = intent.getBooleanExtra("DISABLE_MTU_DISCOVERY", false)
                     val upCompression = intent.getIntExtra("UP_COMPRESSION", 2)      // NEW
                     val downCompression = intent.getIntExtra("DOWN_COMPRESSION", 2)  // NEW
                     val parallelism = intent.getLongExtra("PARALLELISM", 32L)
@@ -785,6 +786,7 @@ class VayVpnService : VpnService() {
                             slipstreamAuthoritative,
                             slipstreamGso,
                             customConfigJson,
+                            disableMtuDiscovery,
                             protector
                         )
                         Log.i("Phoenix", "VPN Base Engine Started with Result: $result")

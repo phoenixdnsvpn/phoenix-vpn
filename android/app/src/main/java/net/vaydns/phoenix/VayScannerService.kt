@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import android.util.Log
 import mobile.Mobile
 import org.json.JSONObject
 
@@ -162,6 +163,10 @@ class VayScannerService : Service() {
         val engineQuickScan = intent.getBooleanExtra("engineQuickScan", false)
         val isQuickScanner = intent.getBooleanExtra("isQuickScanner", false)
 
+        val slipCongestion = intent.getStringExtra("slipCongestion") ?: "BBR"
+        val slipAuth = intent.getBooleanExtra("slipAuth", false)
+        val slipGso = intent.getBooleanExtra("slipGso", false)
+
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
 
@@ -195,6 +200,12 @@ class VayScannerService : Service() {
             startForeground(3, notification)
         }
 
+        if (tunnelProtocol.lowercase() == "slipstream") {
+            val slipstreamPath = applicationInfo.nativeLibraryDir + "/libslipstream.so"
+            Mobile.setSlipstreamBinaryPath(slipstreamPath)
+            Mobile.setSlipstreamStorageDir(cacheDir.absolutePath)
+        }
+        Log.i("VAY_DEBUG_SLIPSTREAM", "VayScannerService [onStartCommand] | Protocol: $tunnelProtocol, Pubkey length: ${pubkey.length}, Congestion: $slipCongestion, Auth: $slipAuth, GSO: $slipGso")
         PhoenixVpnVerify.bind(this)
         // START GO ENGINE
         val result = if (tunnelProtocol.lowercase() in listOf("stormdns", "cottendns", "masterdns")) {
@@ -250,7 +261,10 @@ class VayScannerService : Service() {
                 probeTimeout,
                 retries,
                 lightE2EEnabled,
-                engineQuickScan
+                engineQuickScan,
+                slipCongestion,
+                slipAuth,
+                slipGso
             )
         }
 
@@ -259,45 +273,6 @@ class VayScannerService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-
-        // START GO ENGINE
-        /**val result = Mobile.startF35Scan(
-            isDefaultConfig,
-            configIndex,
-            domainIndex.toLong(),
-            selectedMode,
-            domain,
-            pubkey,
-            resolvers,
-            baseDohUrl,
-            proxyType,
-            tunnelProtocol,
-            authProtocol,
-            user,
-            pass,
-            ssMethod,
-            encryption,
-            recordType,
-            idleTimeout,
-            keepAlive,
-            clientIdSize,
-            mtu,
-            maxMtu,
-            parallelism,
-            workers,
-            tunnelWait,
-            udpTimeout,
-            probeTimeout,
-            retries,
-            lightE2EEnabled,
-            engineQuickScan
-        )
-
-        if (result.startsWith("error")) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
-        }*/
 
         isRunning = true
         pollHandler.removeCallbacks(pollRunnable)

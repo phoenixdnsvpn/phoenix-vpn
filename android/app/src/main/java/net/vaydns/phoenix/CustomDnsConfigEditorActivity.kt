@@ -107,6 +107,8 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
         val tvSlipstreamAuthWarning = findViewById<TextView>(R.id.tv_slipstream_auth_warning)
 
         val layoutExtendedMtu = findViewById<LinearLayout>(R.id.layout_extended_mtu)
+        val tvMaxMtuLabel = findViewById<TextView>(R.id.tv_max_mtu_label)
+        val tvParallelismLabel = findViewById<TextView>(R.id.tv_parallelism_label)
         val layoutCottendnsPreset = findViewById<LinearLayout>(R.id.layout_cottendns_preset)
         val spCottendnsPreset = findViewById<Spinner>(R.id.sp_cottendns_preset)
 
@@ -119,6 +121,12 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
         val spMasterDnsMethod = findViewById<Spinner>(R.id.sp_masterdns_method)
         tvMultipathStatus = findViewById(R.id.tv_multipath_status)
         btnSelectMultipath = findViewById(R.id.btn_select_multipath)
+
+        val layoutMaxQnameLen = findViewById<LinearLayout>(R.id.layout_max_qname_len)
+        val tvMaxQnameLenLabel = findViewById<TextView>(R.id.tv_max_qname_len_label)
+        val sliderMaxQnameLen = findViewById<com.google.android.material.slider.Slider>(R.id.slider_max_qname_len)
+
+        val swDisableMtuDiscovery = findViewById<SwitchCompat>(R.id.sw_disable_mtu_discovery)
 
         // Adapters
         val congestionAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, arrayOf("BBR", "DCUBIC"))
@@ -149,6 +157,21 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
 
         swSlipstreamAuthoritative.setOnCheckedChangeListener { _, isChecked ->
             tvSlipstreamAuthWarning.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        sliderMaxQnameLen.addOnChangeListener { _, value, fromUser ->
+            val qnameLen = value.toInt()
+            tvMaxQnameLenLabel.text = "Max QNAME Length: $qnameLen"
+            if (fromUser) {
+                val rawDomain = etDomain.text.toString().trim()
+                val cleanDomain = rawDomain.split(",").firstOrNull()?.trim() ?: ""
+                val domainLen = cleanDomain.length
+                val clientIdSize = etClientIdSize.text.toString().toIntOrNull() ?: 2
+
+                // Formula: ((max-qname-len - len(domain) - 4) * 5 / 8) - client_ID_size
+                val calculatedMaxMtu = ((qnameLen - domainLen - 4) * 5 / 8) - clientIdSize
+                etMaxMtu.setText(calculatedMaxMtu.coerceAtLeast(0).toString())
+            }
         }
 
         swSlipstreamCert.setOnCheckedChangeListener { _, isChecked ->
@@ -209,6 +232,7 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
         spRecordType.adapter = rtAdapter
 
         val isExtendedDns = activeTunnelProtocol == "masterdns" || activeTunnelProtocol == "stormdns" || activeTunnelProtocol == "cottendns"
+        val isVaydns = activeTunnelProtocol == "vaydns"
 
         if (isExtendedDns) {
             tvMtuLabel.text = "Min. Upload MTU:"
@@ -218,7 +242,7 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
             layoutExtendedMtu.visibility = View.VISIBLE
             layoutCompression.visibility = View.VISIBLE
             layoutTomlContainer.visibility = View.VISIBLE
-
+            layoutMaxQnameLen.visibility = View.GONE
             etDomain.hint = "t.example.com"
 
             if (activeTunnelProtocol == "cottendns") {
@@ -249,6 +273,8 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
             tvPubkeyLabel.visibility = View.VISIBLE
             tvPubkeyLabel.text = "Encryption Key:"
             etPubkey.visibility = View.VISIBLE
+            swDisableMtuDiscovery.visibility = View.GONE
+            swDisableMtuDiscovery.visibility = View.GONE
 
         } else if (activeTunnelProtocol == "slipstream") {
             layoutSlipstreamParams.visibility = View.VISIBLE
@@ -265,6 +291,9 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
             rgMode.visibility = View.GONE
             findViewById<TextView>(R.id.tv_mode_label).visibility = View.GONE
             rgMode.check(R.id.rb_udp)
+            swDisableMtuDiscovery.visibility = View.GONE
+            swDisableMtuDiscovery.visibility = View.GONE
+            layoutMaxQnameLen.visibility = View.GONE
 
             tvMtuLabel.text = "Upload MTU:"
             etMtu.hint = "40 < MTU < 140"
@@ -299,11 +328,18 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
             rgMode.visibility = View.VISIBLE
             findViewById<TextView>(R.id.tv_mode_label).visibility = View.VISIBLE
             rbAuto.visibility = View.GONE
+            layoutMaxQnameLen.visibility = View.VISIBLE
 
-            tvMtuLabel.text = "Upload MTU:"
-            etMtu.hint = "40 < MTU < 140"
+            tvMtuLabel.text = "Min. Upload MTU:"
+            etMtu.hint = "40 < Min MTU < 140"
+            tvMaxMtuLabel.text = "Max. Upload MTU:"
+            etMaxMtu.hint = "40 < Max MTU < 140"
+            layoutExtendedMtu.visibility = View.VISIBLE
+            swDisableMtuDiscovery.visibility = View.VISIBLE
+            tvParallelismLabel.visibility = View.GONE
+            etParallelism.visibility = View.GONE
+
             etDomain.hint = "t.example.com, s.example.net"
-            layoutExtendedMtu.visibility = View.GONE
             layoutTomlContainer.visibility = View.GONE
             layoutCottendnsPreset.visibility = View.GONE
 
@@ -356,9 +392,15 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
             etIdleTimeout.setText(loadedObj.optString("idleTimeout", "10s"))
             etKeepAlive.setText(loadedObj.optString("keepAlive", "2s"))
             etClientIdSize.setText(loadedObj.optString("clientIdSize", "2"))
-            etMtu.setText(loadedObj.optLong("mtu", if(isExtendedDns) 40L else 0L).toString())
+            //etMtu.setText(loadedObj.optLong("mtu", if(isExtendedDns) 40L else 0L).toString())
+            etMtu.setText(loadedObj.optLong("mtu", 40L).toString())
             etMaxMtu.setText(loadedObj.optLong("maxMtu", if(isExtendedDns) 200L else 140L).toString())
+            swDisableMtuDiscovery.isChecked = loadedObj.optBoolean("disableMtuDiscovery", false)
             etParallelism.setText(loadedObj.optLong("parallelism", 32L).toString())
+
+            val savedQnameLen = loadedObj.optInt("maxQnameLen", 253)
+            sliderMaxQnameLen.value = savedQnameLen.toFloat().coerceIn(101f, 253f)
+            tvMaxQnameLenLabel.text = "Max QNAME Length: ${sliderMaxQnameLen.value.toInt()}"
 
             val upComp = loadedObj.optInt("upCompression", 2)
             val downComp = loadedObj.optInt("downCompression", 2)
@@ -430,7 +472,8 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
             rgProxyProtocol.check(R.id.rb_proxy_socks)
             rgAuthProtocol.check(R.id.rb_auth_socks)
             swSshKey.isChecked = false
-            etMtu.setText(if (isExtendedDns) "40" else "0")
+            //etMtu.setText(if (isExtendedDns) "40" else "0")
+            etMtu.setText("40")
             etMaxMtu.setText(if (isExtendedDns) "200" else "140")
             etParallelism.setText(if (isExtendedDns) "32" else "32")
         }
@@ -584,7 +627,7 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
                 }
             }
 
-            val mtuValue = etMtu.text.toString().toLongOrNull() ?: 0L
+            val mtuValue = etMtu.text.toString().toLongOrNull() ?: 40L
             val maxMtu = etMaxMtu.text.toString().toLongOrNull() ?: 140L
             val parallelism = etParallelism.text.toString().toLongOrNull() ?: 32L
 
@@ -608,8 +651,16 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
             } else if (activeTunnelProtocol == "vaydns") {
-                if (mtuValue != 0L && (mtuValue < 40L || mtuValue > 140L)) {
-                    Toast.makeText(this, "Invalid Upload MTU: VayDNS requires a value between 40 and 140, or 0 for default.", Toast.LENGTH_LONG).show()
+                if (mtuValue < 40L || mtuValue > 140L) {
+                    Toast.makeText(this, "Invalid Min. Upload MTU: VayDNS requires a value between 40 and 140.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                if (maxMtu < 40L || maxMtu > 140L) {
+                    Toast.makeText(this, "Invalid Max. Upload MTU: VayDNS requires a value between 40 and 140.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                if (maxMtu <= mtuValue && !swDisableMtuDiscovery.isChecked) {
+                    Toast.makeText(this, "Max MTU must be strictly greater than Min MTU for MTU discovery.", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
             }
@@ -658,8 +709,10 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
                 put("idleTimeout", etIdleTimeout.text.toString().ifEmpty { "10s" })
                 put("keepAlive", etKeepAlive.text.toString().ifEmpty { "2s" })
                 put("clientIdSize", etClientIdSize.text.toString().toLongOrNull() ?: 2L)
+                put("maxQnameLen", sliderMaxQnameLen.value.toInt())
                 put("mtu", mtuValue)
                 put("maxMtu", maxMtu)
+                put("disableMtuDiscovery", swDisableMtuDiscovery.isChecked)
                 put("parallelism", parallelism)
                 put("upCompression", spUploadCompression.selectedItemPosition)
                 put("downCompression", spDownloadCompression.selectedItemPosition)
@@ -781,8 +834,37 @@ class CustomDnsConfigEditorActivity : AppCompatActivity() {
         val selectedFile = File(filesDir, "selected_multipath_$configId.txt")
         val currentSelections = if (selectedFile.exists()) selectedFile.readLines().toSet() else emptySet()
         resolverEntries.forEach { entry -> if (currentSelections.contains(entry.address)) entry.isChecked = true }
-        tvMultipathStatus.text = "${resolverEntries.count { it.isChecked }} IPs selected"
+
+        // --- NEW: Update the label dynamically based on the Global Pool state ---
+        val count = resolverEntries.count { it.isChecked }
+        val prefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("use_global_resolver_pool", false)) {
+            tvMultipathStatus.text = "Global Pool Active ($count local)"
+        } else {
+            tvMultipathStatus.text = "$count IPs selected"
+        }
     }
+
+    /**private fun setupMultipathData(configId: String) {
+        resolverEntries.clear()
+        val scanFile = File(filesDir, "resolvers_$configId.txt")
+        if (scanFile.exists()) {
+            scanFile.readLines().forEach { line ->
+                val parts = line.split(",")
+                val ip = parts[0].trim()
+                if (ip.isNotEmpty()) resolverEntries.add(ResolverEntry(ip, isChecked = false, isManual = false, latency = if (parts.size > 1) parts[1].trim() else ""))
+            }
+        }
+        val manualFile = File(filesDir, "manual_resolvers_$configId.txt")
+        val savedManuals = if (manualFile.exists()) manualFile.readLines() else emptyList()
+        for (i in 0 until 20) {
+            resolverEntries.add(ResolverEntry(savedManuals.getOrNull(i) ?: "", isChecked = false, isManual = true, latency = ""))
+        }
+        val selectedFile = File(filesDir, "selected_multipath_$configId.txt")
+        val currentSelections = if (selectedFile.exists()) selectedFile.readLines().toSet() else emptySet()
+        resolverEntries.forEach { entry -> if (currentSelections.contains(entry.address)) entry.isChecked = true }
+        tvMultipathStatus.text = "${resolverEntries.count { it.isChecked }} IPs selected"
+    }*/
 
     private fun isValidIpv4(ip: String): Boolean {
         val parts = ip.split(".")

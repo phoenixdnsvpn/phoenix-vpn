@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 class AppSelectorActivity : AppCompatActivity() {
 
     // Persistent storage arrays for tracking application queries safely across threads
+    private var masterAppList = listOf<net.vaydns.phoenix.AppListItem>() // Holds ALL apps permanently
     private var fullAppList = listOf<net.vaydns.phoenix.AppListItem>()
     private var appAdapter: net.vaydns.phoenix.AppAdapter? = null
     private lateinit var toolbar: com.google.android.material.appbar.MaterialToolbar
@@ -52,42 +53,55 @@ class AppSelectorActivity : AppCompatActivity() {
     private fun loadApps() {
         lifecycleScope.launch(Dispatchers.Default) {
             val appList = mutableListOf<net.vaydns.phoenix.AppListItem>()
+
+            // 1. ORIGINAL LOGIC: Find all apps with a Home Screen Icon (Chrome, YouTube, Gemini, User Apps)
             val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
             }
+            val launcherPackages = packageManager.queryIntentActivities(mainIntent, 0)
+                .map { it.activityInfo.packageName }
+                .toSet()
 
-            // Fetch all system launchable application details
-            val resolvedInfos = packageManager.queryIntentActivities(mainIntent, 0)
+            // 2. NEW LOGIC: Fetch absolutely everything installed on the device
+            val allInstalledApps = packageManager.getInstalledApplications(0)
 
-            for (info in resolvedInfos) {
-                val appName = info.loadLabel(packageManager).toString()
-                val pkgName = info.activityInfo.packageName
-                val icon = info.loadIcon(packageManager)
+            for (appInfo in allInstalledApps) {
+                val pkgName = appInfo.packageName
 
-                // Skip Phoenix itself so we don't tunnel the tunnel loop
+                // Skip Phoenix itself
                 if (pkgName == packageName) continue
+
+                // HYBRID CLASSIFICATION:
+                // If it has a launcher icon, it's a Normal App (isSystemApp = false).
+                // If it does NOT have a launcher icon, it's a Headless System App (isSystemApp = true).
+                val isSystem = !launcherPackages.contains(pkgName)
+
+                val appName = appInfo.loadLabel(packageManager).toString()
+                val icon = appInfo.loadIcon(packageManager)
 
                 appList.add(
                     net.vaydns.phoenix.AppListItem(
-                        appName,
-                        pkgName,
-                        icon
+                        name = appName,
+                        packageName = pkgName,
+                        icon = icon,
+                        isSystemApp = isSystem
                     )
                 )
             }
 
-            // Pre-compile full alphabetical fallback cache array
-            fullAppList = appList.sortedBy { it.name.lowercase() }
+            masterAppList = appList.sortedBy { it.name.lowercase() }
 
             withContext(Dispatchers.Main) {
                 val btnToggleAll = findViewById<Button>(R.id.btn_toggle_all_apps)
+                val swSystemApps = findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.sw_display_system_apps)
 
-                // SMART DEFAULT: If no apps are currently selected, set action to "Allow All"
                 if (getSelectedApps().isEmpty()) {
                     btnToggleAll.text = "Allow All Applications"
                 } else {
                     btnToggleAll.text = "Disallow All Applications"
                 }
+
+                updateVisibleAppList(swSystemApps.isChecked)
 
                 appAdapter = net.vaydns.phoenix.AppAdapter(
                     this@AppSelectorActivity,
@@ -101,10 +115,8 @@ class AppSelectorActivity : AppCompatActivity() {
                     }
                     saveSelectedApps(currentSet)
 
-                    // Dynamically update the toolbar title number on individual checkbox clicks
                     toolbar.title = "Select Apps ${currentSet.size}"
 
-                    // Dynamically update the button text if the user manually checks/unchecks everything
                     if (currentSet.isEmpty()) {
                         btnToggleAll.text = "Allow All Applications"
                     } else {
@@ -112,24 +124,21 @@ class AppSelectorActivity : AppCompatActivity() {
                     }
                 }
 
-                // TOGGLE BUTTON CLICK LOGIC
+                swSystemApps.setOnCheckedChangeListener { _, isChecked ->
+                    updateVisibleAppList(isChecked)
+                }
+
                 btnToggleAll.setOnClickListener {
                     if (btnToggleAll.text.toString() == "Allow All Applications") {
-                        // Action: Allow All Apps
                         val allPkgs = fullAppList.map { it.packageName }.toSet()
                         saveSelectedApps(allPkgs)
                         appAdapter?.updateSelectedApps(allPkgs)
                         btnToggleAll.text = "Disallow All Applications"
-
-                        // Update Toolbar dynamically for Bulk Check
                         toolbar.title = "Select Apps ${allPkgs.size}"
                     } else {
-                        // Action: Disallow All Apps
                         saveSelectedApps(emptySet())
                         appAdapter?.updateSelectedApps(emptySet())
                         btnToggleAll.text = "Allow All Applications"
-
-                        // Update Toolbar dynamically for Bulk Uncheck
                         toolbar.title = "Select Apps 0"
                     }
                 }
@@ -138,10 +147,21 @@ class AppSelectorActivity : AppCompatActivity() {
                 recyclerView.layoutManager = LinearLayoutManager(this@AppSelectorActivity)
                 recyclerView.adapter = appAdapter
 
-                // ATTACH REAL-TIME INPUT OBSERVER LOGIC
                 setupSearchListener()
             }
         }
+    }
+
+    private fun updateVisibleAppList(showSystem: Boolean) {
+        fullAppList = if (showSystem) {
+            masterAppList
+        } else {
+            masterAppList.filter { !it.isSystemApp }
+        }
+
+        // Re-apply any active search text over the newly populated list
+        val etSearch = findViewById<EditText>(R.id.et_search_apps)
+        filterApps(etSearch?.text?.toString() ?: "")
     }
 
     private fun setupSearchListener() {

@@ -422,6 +422,34 @@
                     android:visibility="gone" />
             </RadioGroup>
 
+            <!-- Max QNAME Length Slider -->
+            <LinearLayout
+                android:id="@+id/layout_max_qname_len"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="12dp">
+
+                <TextView
+                    android:id="@+id/tv_max_qname_len_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Max QNAME Length: 253"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/slider_max_qname_len"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:valueFrom="101"
+                    android:valueTo="253"
+                    android:stepSize="1"
+                    android:value="253"
+                    app:thumbColor="?attr/colorPrimary"
+                    app:trackColorActive="?attr/colorPrimary" />
+            </LinearLayout>
+
             <!-- MTU -->
             <TextView
                 android:id="@+id/tv_mtu_label"
@@ -450,6 +478,7 @@
                 android:visibility="gone">
 
                 <TextView
+                    android:id="@+id/tv_max_mtu_label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Max. Upload MTU:"
@@ -466,7 +495,18 @@
                     android:inputType="number"
                     android:text="140" />
 
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_disable_mtu_discovery"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Disable MTU Discovery"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold"
+                    app:thumbTint="?attr/colorPrimary" />
+
                 <TextView
+                    android:id="@+id/tv_parallelism_label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Resolver MTU Parallelism:"

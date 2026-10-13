@@ -2380,7 +2380,7 @@ class MainActivity : AppCompatActivity() {
                 .show()
         } else {
             val options = arrayOf(
-                "Share URL (dnst://)",
+                "Share URL",
                 "Share Base64-JSON",
                 "Show QR Code / نمایش بارکد"
             )
@@ -2413,6 +2413,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun saveQrCodeToGallery(bitmap: android.graphics.Bitmap) {
+        val filename = "Phoenix_QR_${System.currentTimeMillis()}.png"
+        var fos: java.io.OutputStream? = null
+
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                // Modern Android (API 29+): Use MediaStore, no storage permissions required
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/Phoenix")
+                }
+                val imageUri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                fos = imageUri?.let { contentResolver.openOutputStream(it) }
+            } else {
+                // Legacy Android: Save to public Pictures directory
+                @Suppress("DEPRECATION")
+                val imagesDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
+                val appDir = java.io.File(imagesDir, "Phoenix")
+                if (!appDir.exists()) appDir.mkdirs()
+                val image = java.io.File(appDir, filename)
+                fos = java.io.FileOutputStream(image)
+            }
+
+            fos?.use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                Toast.makeText(this, "QR Code saved to Pictures/Phoenix", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Failed to save QR Code: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
     private fun showDeleteConfirmation(config: Config) {
         if (config.isDefault) {
             Toast.makeText(this, "Default configs cannot be deleted", Toast.LENGTH_SHORT).show()
@@ -2522,7 +2556,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val etInput = EditText(this).apply {
-            hint = "dnst://..."
+            hint = ""
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -3377,6 +3411,61 @@ class MainActivity : AppCompatActivity() {
                     val actualParallelism = if (config.isDefault) config.parallelism else customParallelism
                     val actualCottenPreset = if (config.isDefault) config.cottenPreset else customCottenPreset
 
+                    val slipCongestion = if (config.isDefault) "BBR" else config.slipstreamCongestion
+                    val slipAuth = if (config.isDefault) false else config.slipstreamAuthoritative
+                    val slipGso = if (config.isDefault) false else config.slipstreamGso
+
+                    // --- DYNAMIC PROTOCOL RESOLUTION FOR SCANNERS ---
+                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+                    val rawConfigType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
+
+                    val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                    val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+                    val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
+
+                    var activeTunnelProtocol = if (config.isDefault && globalOverride) {
+                        if (globalProtocol.lowercase() == "vaydns") {
+                            val dnsProtos = listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream")
+                            val supported = rawConfigType.lowercase().split(",").map { it.trim() }
+                            supported.firstOrNull { it in dnsProtos } ?: globalProtocol
+                        } else {
+                            globalProtocol
+                        }
+                    } else if (config.isDefault) {
+                        getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                            .getString("${config.id}_tunnelProtocol", null)
+                            ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
+                    } else {
+                        config.tunnelProtocol
+                    }
+
+                    // 🚨 CRITICAL FIX: FORCED DNS PROTOCOL FILTER 🚨
+                    val dnsProtos = listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream")
+                    if (activeTunnelProtocol.lowercase() !in dnsProtos) {
+                        if (config.isDefault) {
+                            val supported = rawConfigType.lowercase().split(",").map { it.trim() }
+                            val fallbackDns = supported.firstOrNull { it in dnsProtos }
+                            if (fallbackDns != null) {
+                                activeTunnelProtocol = fallbackDns // FORCE TO DNS
+                            } else {
+                                Toast.makeText(this@MainActivity, "This config does not support DNS Tunneling.", Toast.LENGTH_LONG).show()
+                                return true
+                            }
+                        } else {
+                            Toast.makeText(this@MainActivity, "This custom config does not support DNS Tunneling.", Toast.LENGTH_LONG).show()
+                            return true
+                        }
+                    }
+
+                    val activeMasterDnsMethod = if (config.isDefault) {
+                        mobile.Mobile.getDefaultConfigEncryption(nativeIndex)
+                    } else {
+                        config.masterDnsMethod
+                    }
+
+                    Log.i("VAY_DEBUG_SLIPSTREAM", "MainActivity -> DnsScannerActivity | Protocol: ${config.tunnelProtocol}, Pubkey length: ${config.pubkey.length}, Congestion: $slipCongestion, Auth: $slipAuth, GSO: $slipGso")
+                    //startActivity(intent)
+
                     val intent = Intent(this, DnsScannerActivity::class.java).apply {
                         // Core Identification
                         putExtra("CONFIG_ID", config.id)
@@ -3407,10 +3496,15 @@ class MainActivity : AppCompatActivity() {
                         }
                         putExtra("TOML_PATH", tomlPath)
 
+                        putExtra("SLIPSTREAM_CONGESTION", slipCongestion)
+                        putExtra("SLIPSTREAM_AUTHORITATIVE", slipAuth)
+                        putExtra("SLIPSTREAM_GSO", slipGso)
 
                         // Protocol & Authentication
-                        putExtra("TUNNEL_PROTOCOL", config.tunnelProtocol)
-                        putExtra("MASTERDNS_METHOD", config.masterDnsMethod)
+                        // putExtra("TUNNEL_PROTOCOL", config.tunnelProtocol)
+                        // putExtra("MASTERDNS_METHOD", config.masterDnsMethod)
+                        putExtra("TUNNEL_PROTOCOL", activeTunnelProtocol)
+                        putExtra("MASTERDNS_METHOD", activeMasterDnsMethod)
                         putExtra("LOCAL_PROXY_PROTOCOL", config.localProxyProtocol)
                         putExtra("AUTH_PROTOCOL", config.authProtocol)
                         putExtra("SS_METHOD", config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
@@ -3490,6 +3584,61 @@ class MainActivity : AppCompatActivity() {
                     val actualParallelism = if (config.isDefault) config.parallelism else customParallelism
                     val actualCottenPreset = if (config.isDefault) config.cottenPreset else customCottenPreset
 
+                    val slipCongestion = if (config.isDefault) "BBR" else config.slipstreamCongestion
+                    val slipAuth = if (config.isDefault) false else config.slipstreamAuthoritative
+                    val slipGso = if (config.isDefault) false else config.slipstreamGso
+
+                    // --- DYNAMIC PROTOCOL RESOLUTION FOR SCANNERS ---
+                    val nativeIndex = if (config.isDefault) config.id.removePrefix("default_").toLongOrNull() ?: 0L else -1L
+                    val rawConfigType = if (config.isDefault) mobile.Mobile.getDefaultConfigType(nativeIndex) else "vaydns"
+
+                    val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+                    val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+                    val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
+
+                    var activeTunnelProtocol = if (config.isDefault && globalOverride) {
+                        if (globalProtocol.lowercase() == "vaydns") {
+                            val dnsProtos = listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream")
+                            val supported = rawConfigType.lowercase().split(",").map { it.trim() }
+                            supported.firstOrNull { it in dnsProtos } ?: globalProtocol
+                        } else {
+                            globalProtocol
+                        }
+                    } else if (config.isDefault) {
+                        getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                            .getString("${config.id}_tunnelProtocol", null)
+                            ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
+                    } else {
+                        config.tunnelProtocol
+                    }
+
+                    // 🚨 CRITICAL FIX: FORCED DNS PROTOCOL FILTER 🚨
+                    val dnsProtos = listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream")
+                    if (activeTunnelProtocol.lowercase() !in dnsProtos) {
+                        if (config.isDefault) {
+                            val supported = rawConfigType.lowercase().split(",").map { it.trim() }
+                            val fallbackDns = supported.firstOrNull { it in dnsProtos }
+                            if (fallbackDns != null) {
+                                activeTunnelProtocol = fallbackDns // FORCE TO DNS
+                            } else {
+                                Toast.makeText(this@MainActivity, "This config does not support DNS Tunneling.", Toast.LENGTH_LONG).show()
+                                return true
+                            }
+                        } else {
+                            Toast.makeText(this@MainActivity, "This custom config does not support DNS Tunneling.", Toast.LENGTH_LONG).show()
+                            return true
+                        }
+                    }
+
+                    val activeMasterDnsMethod = if (config.isDefault) {
+                        mobile.Mobile.getDefaultConfigEncryption(nativeIndex)
+                    } else {
+                        config.masterDnsMethod
+                    }
+                    // -----------------------------------------------------
+                    Log.i("VAY_DEBUG_SLIPSTREAM", "MainActivity -> DnsScannerActivity | Protocol: ${config.tunnelProtocol}, Pubkey length: ${config.pubkey.length}, Congestion: $slipCongestion, Auth: $slipAuth, GSO: $slipGso")
+                    //startActivity(intent)
+
                     val intent = Intent(this, DnsScannerActivity::class.java).apply {
                         putExtra("CONFIG_ID", config.id)
                         putExtra("RESOLVER", config.dnsAddress)
@@ -3516,8 +3665,14 @@ class MainActivity : AppCompatActivity() {
                         }
                         putExtra("TOML_PATH", tomlPath)
 
-                        putExtra("TUNNEL_PROTOCOL", config.tunnelProtocol)
-                        putExtra("MASTERDNS_METHOD", config.masterDnsMethod)
+                        putExtra("SLIPSTREAM_CONGESTION", slipCongestion)
+                        putExtra("SLIPSTREAM_AUTHORITATIVE", slipAuth)
+                        putExtra("SLIPSTREAM_GSO", slipGso)
+
+                        //putExtra("TUNNEL_PROTOCOL", config.tunnelProtocol)
+                        putExtra("TUNNEL_PROTOCOL", activeTunnelProtocol)
+                        putExtra("MASTERDNS_METHOD", activeMasterDnsMethod)
+                        // putExtra("MASTERDNS_METHOD", config.masterDnsMethod)
                         putExtra("LOCAL_PROXY_PROTOCOL", config.localProxyProtocol)
                         putExtra("AUTH_PROTOCOL", config.authProtocol)
                         putExtra("SS_METHOD", config.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
@@ -3739,33 +3894,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showQrCodeDialog(text: String) {
+	private fun showQrCodeDialog(data: String) {
         try {
-            val bitMatrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 600, 600)
-            val width = bitMatrix.width
-            val height = bitMatrix.height
-            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
-            for (x in 0 until width) {
-                for (y in 0 until height) {
-                    bmp.setPixel(x, y, if (bitMatrix.get(x, y)) Color.BLACK else Color.WHITE)
-                }
-            }
+            // Assuming you have a standard ZXing generator block like this:
+            val barcodeEncoder = com.journeyapps.barcodescanner.BarcodeEncoder()
+            val bitmap = barcodeEncoder.encodeBitmap(data, com.google.zxing.BarcodeFormat.QR_CODE, 600, 600)
 
             val imageView = ImageView(this).apply {
-                setImageBitmap(bmp)
-                val padding = (16 * resources.displayMetrics.density).toInt()
-                setPadding(padding, padding, padding, padding)
+                setImageBitmap(bitmap)
+                val pad = (16 * resources.displayMetrics.density).toInt()
+                setPadding(pad, pad, pad, pad)
             }
 
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Configuration QR Code")
+                .setTitle("QR Code")
                 .setView(imageView)
                 .setPositiveButton("Close", null)
+                .setNeutralButton("Save Image") { _, _ ->
+                    saveQrCodeToGallery(bitmap)
+                }
                 .show()
 
         } catch (e: Exception) {
-            Toast.makeText(this, "Failed to generate QR Code", Toast.LENGTH_SHORT).show()
             e.printStackTrace()
+            Toast.makeText(this, "Failed to generate QR Code", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -4415,29 +4567,78 @@ class MainActivity : AppCompatActivity() {
             var cleanIp = res.trim()
             if (cleanIp.isEmpty()) return ""
 
-            // 1. Strip HTTP/HTTPS protocols and paths if they accidentally left them
             if (cleanIp.startsWith("http://") || cleanIp.startsWith("https://")) {
                 cleanIp = cleanIp.substringAfter("://").substringBefore("/")
             }
-
-            // 2. Strip ANY existing port (e.g., "8.8.8.8:853" becomes "8.8.8.8")
             if (cleanIp.contains(":")) {
                 cleanIp = cleanIp.substringBeforeLast(":")
             }
-
-            // 3. Force the correct port/format based strictly on the selected Tunnel Mode
             return when (mode.lowercase()) {
-                //"doh" -> "https://$cleanIp/dns-query"
                 "doh" -> cleanIp
                 "dot" -> "$cleanIp:853"
                 else -> "$cleanIp:53" // TCP and UDP
             }
         }
 
-        // Format the single default address just in case multipath is empty
         val formattedDefault = forceCorrectPort(defaultAddr)
 
-        // Read the raw multipath IPs
+        // --- NEW: GLOBAL RESOLVER POOL INTERCEPTION ---
+        val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        val useGlobalPool = tunnelPrefs.getBoolean("use_global_resolver_pool", false)
+
+        if (useGlobalPool) {
+            var resolvedProtocol = "vaydns"
+            val isDefault = configId.startsWith("default_")
+            val globalOverride = tunnelPrefs.getBoolean("global_protocol_override", false)
+            val globalProtocol = tunnelPrefs.getString("global_protocol_selected", "vaydns") ?: "vaydns"
+
+            // 1. Resolve the precise protocol for this specific Config ID
+            if (isDefault) {
+                val nativeIndex = configId.removePrefix("default_").toLongOrNull() ?: 0L
+                val rawConfigType = mobile.Mobile.getDefaultConfigType(nativeIndex)
+
+                resolvedProtocol = if (globalOverride) {
+                    if (globalProtocol.lowercase() == "vaydns") {
+                        val dnsProtos = listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream")
+                        val supported = rawConfigType.lowercase().split(",").map { it.trim() }
+                        supported.firstOrNull { it in dnsProtos } ?: globalProtocol
+                    } else {
+                        globalProtocol
+                    }
+                } else {
+                    getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                        .getString("${configId}_tunnelProtocol", null)
+                        ?: rawConfigType.split(",").firstOrNull { it.isNotBlank() } ?: "vaydns"
+                }
+            } else {
+                val appPrefs = getSharedPreferences("PhoenixVpnPrefs", Context.MODE_PRIVATE)
+                val configsString = appPrefs.getString("configs", "[]") ?: "[]"
+                try {
+                    val jsonArray = org.json.JSONArray(configsString)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        if (obj.optString("id") == configId) {
+                            resolvedProtocol = obj.optString("tunnelProtocol", "vaydns")
+                            break
+                        }
+                    }
+                } catch (e: Exception) {}
+            }
+
+            // 2. Read the global pool for that specific protocol
+            val poolFile = java.io.File(filesDir, "selected_global_resolvers_${resolvedProtocol.lowercase()}.txt")
+            if (poolFile.exists()) {
+                val lines = poolFile.readLines().filter { it.isNotBlank() }
+                // If the global pool has IPs, intercept the stream and return them immediately!
+                if (lines.isNotEmpty()) {
+                    return lines.map { forceCorrectPort(it) }.joinToString(",")
+                }
+            }
+            // If the pool is empty, the code naturally falls through to the local fallback below
+        }
+        // ----------------------------------------------
+
+        // ORIGINAL LOGIC: Fallback to Local Config Resolvers
         val rawSelections = try {
             val file = java.io.File(filesDir, "selected_multipath_$configId.txt")
             if (!file.exists()) {
@@ -4450,7 +4651,6 @@ class MainActivity : AppCompatActivity() {
             listOf(formattedDefault)
         }
 
-        // Apply the formatter to EVERY IP right before sending to Go
         return rawSelections.map { forceCorrectPort(it) }.joinToString(",")
     }
 
@@ -5340,11 +5540,17 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val actualDisableMtuDiscovery = if (config.isDefault) {
+            getSharedPreferences("DefaultOverrides", Context.MODE_PRIVATE)
+                .getBoolean("${config.id}_disableMtuDiscovery", false)
+        } else {
+            finalConfig.disableMtuDiscovery
+        }
         // --- EXTRACT CUSTOM CONFIG JSON STRING ---
         var customConfigJsonString = ""
         var customUseToml = false
         var customTomlFilename = ""
-        var customMtu = 0L
+        var customMtu = 40L
         var customMaxMtu = 140L
         var customParallelism = 32L
         var customCottenPreset = "default"
@@ -5597,6 +5803,7 @@ class MainActivity : AppCompatActivity() {
 
                             putExtra("MTU", actualMtu)
                             putExtra("MAX_MTU", actualMaxMtu)
+                            putExtra("DISABLE_MTU_DISCOVERY", actualDisableMtuDiscovery)
                             putExtra("PARALLELISM", actualParallelism)
                             putExtra("COTTEN_PRESET", actualCottenPreset)
 
@@ -5705,6 +5912,7 @@ class MainActivity : AppCompatActivity() {
 
                         putExtra("MTU", actualMtu)
                         putExtra("MAX_MTU", actualMaxMtu)
+                        putExtra("DISABLE_MTU_DISCOVERY", actualDisableMtuDiscovery)
                         putExtra("PARALLELISM", actualParallelism)
                         putExtra("COTTEN_PRESET", actualCottenPreset)
 
@@ -6245,6 +6453,38 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             megaBackup.put("multipath_resolvers", resolversObj)
+
+// 6. Global Resolver Pools
+            val globalPoolsObj = org.json.JSONObject()
+            val poolProtocols = listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream")
+
+            poolProtocols.forEach { proto ->
+                val protoPool = org.json.JSONObject()
+
+                val poolFile = java.io.File(filesDir, "global_resolvers_${proto}.txt")
+                if (poolFile.exists()) {
+                    val lines = poolFile.readLines().filter { it.isNotBlank() }
+                    if (lines.isNotEmpty()) {
+                        protoPool.put("pool", org.json.JSONArray(lines))
+                    }
+                }
+
+                val selectedFile = java.io.File(filesDir, "selected_global_resolvers_${proto}.txt")
+                if (selectedFile.exists()) {
+                    val lines = selectedFile.readLines().filter { it.isNotBlank() }
+                    if (lines.isNotEmpty()) {
+                        protoPool.put("selected", org.json.JSONArray(lines))
+                    }
+                }
+
+                if (protoPool.length() > 0) {
+                    globalPoolsObj.put(proto, protoPool)
+                }
+            }
+
+            if (globalPoolsObj.length() > 0) {
+                megaBackup.put("global_resolver_pools", globalPoolsObj)
+            }
 
             val rawBackupJson = megaBackup.toString(2)
             val encryptedPayload = CryptoHelper.encrypt(rawBackupJson)

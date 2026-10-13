@@ -58,6 +58,22 @@
             android:textColor="?attr/colorOnSurface"/>
     </com.google.android.material.textfield.TextInputLayout>
 
+    <androidx.appcompat.widget.SwitchCompat
+        android:id="@+id/sw_display_system_apps"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="12dp"
+        android:text="Display System Apps"
+        android:textSize="16sp"
+        android:textColor="?attr/colorOnSurface"
+        app:thumbTint="?attr/colorPrimary"
+        android:checked="false"
+        app:layout_constraintTop_toBottomOf="@id/search_layout"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Update the top constraint of your btn_toggle_all_apps to sit below the switch -->
     <Button
         android:id="@+id/btn_toggle_all_apps"
         android:layout_width="match_parent"
@@ -65,7 +81,7 @@
         android:layout_marginHorizontal="16dp"
         android:layout_marginTop="8dp"
         android:text="Allow All Applications"
-        app:layout_constraintTop_toBottomOf="@id/search_layout"
+        app:layout_constraintTop_toBottomOf="@id/sw_display_system_apps"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 

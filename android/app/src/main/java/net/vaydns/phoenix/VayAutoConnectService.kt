@@ -157,7 +157,7 @@ class VayAutoConnectService : Service() {
                     useToml,tomlPath, cottenPreset, dnsttCompatible, useAuth, tunnelProtocol, localProxyProtocol,
                     authProtocol, ssMethod, masterDnsMethod, user, pass, 35000L, vlessWsIp, targetCdn, globalDnsServer,
                     isDebugEnabled, fragment, blockQuic, getServerIpFromDomain, sniIndex, useHysteriaCore, dns_mode,
-                    slipstreamCongestion, slipstreamAuthoritative, slipstreamGso, customConfigJson
+                    slipstreamCongestion, slipstreamAuthoritative, slipstreamGso, customConfigJson, true
                 )
 
                 if (proxyResult.contains("Success")) {

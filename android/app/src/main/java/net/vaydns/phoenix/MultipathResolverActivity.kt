@@ -195,6 +195,17 @@ class MultipathResolverActivity : AppCompatActivity() {
 
         updateSubtitleCount()
         updateToggleAllButtonState()
+
+        val tunnelPrefs = getSharedPreferences("TunnelSettingsPrefs", Context.MODE_PRIVATE)
+        if (tunnelPrefs.getBoolean("use_global_resolver_pool", false)) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Global Pool Active")
+                .setMessage("You currently have 'Use Resolver Pools' enabled in Global Settings.\n\n" +
+                        "Any resolvers you select here will be saved, but they will NOT be used for connections until you disable the Global Pool.\n\n" +
+                        "گزینه 'استفاده از مخزن رِزولور' فعال است. تنظیمات این صفحه ذخیره می‌شوند، اما تا زمانی که مخزن سراسری را غیرفعال نکنید، استفاده نخواهند شد.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
     }
 
     private fun captureCurrentSnapshot(): String {

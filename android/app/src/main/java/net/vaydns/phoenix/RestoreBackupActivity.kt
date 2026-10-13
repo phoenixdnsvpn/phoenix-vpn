@@ -150,6 +150,44 @@ class RestoreBackupActivity : AppCompatActivity() {
                 }
             }
 
+            // 6. Restore Global Resolver Pools
+            if (backup.has("global_resolver_pools")) {
+                val globalPoolsObj = backup.getJSONObject("global_resolver_pools")
+                val poolProtocols = listOf("vaydns", "masterdns", "stormdns", "cottendns", "slipstream")
+
+                poolProtocols.forEach { proto ->
+                    if (globalPoolsObj.has(proto)) {
+                        val protoPool = globalPoolsObj.getJSONObject(proto)
+
+                        // Restore full resolver pool list (IPs + Latencies)
+                        if (protoPool.has("pool")) {
+                            val arr = protoPool.getJSONArray("pool")
+                            val list = mutableListOf<String>()
+                            for (i in 0 until arr.length()) {
+                                val line = arr.getString(i).trim()
+                                if (line.isNotEmpty()) list.add(line)
+                            }
+                            if (list.isNotEmpty()) {
+                                java.io.File(filesDir, "global_resolvers_${proto}.txt").writeText(list.joinToString("\n"))
+                            }
+                        }
+
+                        // Restore active checked/selected IPs
+                        if (protoPool.has("selected")) {
+                            val arr = protoPool.getJSONArray("selected")
+                            val list = mutableListOf<String>()
+                            for (i in 0 until arr.length()) {
+                                val line = arr.getString(i).trim()
+                                if (line.isNotEmpty()) list.add(line)
+                            }
+                            if (list.isNotEmpty()) {
+                                java.io.File(filesDir, "selected_global_resolvers_${proto}.txt").writeText(list.joinToString("\n"))
+                            }
+                        }
+                    }
+                }
+            }
+
             Toast.makeText(this, "Backup Restored Successfully! / بکاپ با موفقیت بازگردانی شد", Toast.LENGTH_LONG).show()
 
             // Close this activity. MainActivity's onResume() will automatically reload the UI!
