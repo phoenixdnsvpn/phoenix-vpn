@@ -623,7 +623,7 @@ class VayVpnService : VpnService() {
                     // val activeProtocol = tunnelProtocol.lowercase()
                     //val needsDnsBypass = !isDirectMode || tunnelProtocol.lowercase() == "masque" || tunnelProtocol.lowercase() == "masterdns"
 
-                    val needsDnsBypass = tunnelProtocol.lowercase() in listOf("masque")
+                    val needsDnsBypass = !isDirectMode || tunnelProtocol.lowercase() == "masque"
 
                     if (needsDnsBypass && resolver.isNotEmpty()) {
                         // Split the comma-separated multipath string
