@@ -3894,7 +3894,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-	private fun showQrCodeDialog(data: String) {
+    private fun showQrCodeDialog(data: String) {
         try {
             // Assuming you have a standard ZXing generator block like this:
             val barcodeEncoder = com.journeyapps.barcodescanner.BarcodeEncoder()
