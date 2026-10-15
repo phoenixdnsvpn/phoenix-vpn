@@ -91,7 +91,7 @@ Phoenix VPN is a transparent, source-available project dedicated to promoting di
 
 ## 🔒 App Verification
 Official builds of Phoenix VPN can be verified using the in-app verification tool. 
-**Official Public Key:** `4ce41a228fd340bdee5aa6bbd453ebd1b407a36349019a1d4e62fc33364aa534`
+**Official Public Key:** `ef21864014e97bc68f824777db7cf6b909bcc8e84c4eb50487ee8b04d5769917`
 
 
 ### Screenshot of the Phoenix VPN 
